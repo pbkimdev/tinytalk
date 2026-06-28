@@ -28,9 +28,10 @@ new issues should match it.
 
 ## How work is triggered
 
-Wired up in [`.github/workflows/claude.yml`](./.github/workflows/claude.yml). One-time setup: run
-`claude /install-github-app`, add the `ANTHROPIC_API_KEY` repo secret, and make a `claude` user
-assignable (or switch the triggers to a label).
+Wired up in [`.github/workflows/claude.yml`](./.github/workflows/claude.yml) (plus
+`claude-code-review.yml`, which auto-reviews each PR). The GitHub app is installed and authenticated
+via the `CLAUDE_CODE_OAUTH_TOKEN` secret. Still needed for the assign-to-build flow: a `claude` user
+you can assign issues to (add as a collaborator), or switch the triggers to a label.
 
 - **Build an issue:** assign it to `claude`. If the issue has sub-issues, one agent resolves them in
   the order they're listed — one commit each — then opens a PR. A leaf issue is resolved directly.
