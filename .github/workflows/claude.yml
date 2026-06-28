@@ -67,8 +67,8 @@ jobs:
             Keep it concise. Conventions are in AGENTS.md.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 8
-            --allowedTools "Read,Bash(gh:*)"
+            --max-turns 10
+            --allowedTools "Read,Glob,Grep,Bash(gh:*)"
 
   # --- Review -> fix loop & ad-hoc help: @claude mentions ---
   mention:
@@ -86,8 +86,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 15
-            --allowedTools "Read,Edit,Write,Bash(git:*),Bash(gh:*),Bash(go:*)"
+            --max-turns 25
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash"
 
   # --- `claude` label added, no `ultra` label: standard single-agent lane (Version A) ---
   label-standard:
@@ -123,8 +123,8 @@ jobs:
             Conventions are in AGENTS.md. Never auto-run shell commands the product itself generates.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 15
-            --allowedTools "Read,Edit,Write,Bash(git:*),Bash(gh:*),Bash(go:*)"
+            --max-turns 40
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash"
 
   # --- `claude` label added WITH `ultra` label present: heavy multi-agent lane ---
   label-ultra:
@@ -155,5 +155,5 @@ jobs:
             Conventions are in AGENTS.md. Never auto-run shell commands the product itself generates.
           claude_args: |
             --model claude-opus-4-8
-            --max-turns 40
-            --allowedTools "Read,Edit,Write,Bash(git:*),Bash(gh:*),Bash(go:*)"
+            --max-turns 80
+            --allowedTools "Edit,Write,Read,Glob,Grep,Bash"
