@@ -15,9 +15,9 @@ import (
 // wire types for /chat/completions
 
 type wireMessage struct {
-	Role      string          `json:"role"`
-	Content   string          `json:"content,omitempty"`
-	ToolCalls []wireToolCall  `json:"tool_calls,omitempty"`
+	Role      string         `json:"role"`
+	Content   string         `json:"content,omitempty"`
+	ToolCalls []wireToolCall `json:"tool_calls,omitempty"`
 }
 
 type wireToolCall struct {
