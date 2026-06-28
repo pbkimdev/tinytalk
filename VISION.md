@@ -30,8 +30,8 @@ and I get `ls … | sort … | awk …` already wired together.
 
 A few things make or break this:
 
-- **It plugs into any model.** Codex SDK, the Agent SDK, OpenCode Go, or any OpenAI-compatible
-  endpoint — I want to swap the brain out freely.
+- **It plugs into any model.** The OpenAI Codex SDK, the Claude Agent SDK, or any OpenAI-compatible
+  endpoint (a local model like Ollama/llama.cpp) — I want to swap the brain out freely.
 - **The output is always a real, runnable command** — not an explanation, not a "you could try."
   The harness should be strict about that, and dry-run when it can to be sure.
 

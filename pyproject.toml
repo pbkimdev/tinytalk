@@ -1,0 +1,29 @@
+# CLITE — Python project (managed with uv).
+# Build: `uv build`   Run: `uv run clite ...`   Install: `uv tool install .`
+[project]
+name = "clite"
+version = "0.0.1"
+description = "Turn plain English at the shell into a real, validated command."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Paul B. Kim" }]
+# Runtime deps are added per provider/feature issue. The pivot makes the two
+# agent SDKs first-class backends (Claude Agent SDK, OpenAI Codex SDK), with a
+# lightweight OpenAI-compatible path for local models — added when those land.
+dependencies = []
+
+[project.scripts]
+clite = "clite.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["clite"]
+
+[tool.ruff]
+line-length = 100

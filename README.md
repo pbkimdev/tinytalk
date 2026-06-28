@@ -33,11 +33,11 @@ CLITE is built around fixing exactly those:
 
 ## Status
 
-Early. There's no working binary yet — right now this repo is the plan. The full picture lives in:
+Early. There's no working release yet — right now this repo is the plan. The full picture lives in:
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
 - **[PRD.md](./docs/agents/PRD.md)** — the spec: how it decides, how it stays safe, how it's measured.
-- **[The issues](https://github.com/paulbkim-dev/clite/issues)** — v1, broken into six pieces.
+- **[The issues](https://github.com/paulbkim-dev/clite/issues)** — v1, in progress.
 
 ## How it'll work
 
@@ -45,8 +45,9 @@ You type `?` and then what you want. CLITE tries the cheapest path first — a c
 quick model call — and only does more (reads a man page, retries) when it has to. Whatever it settles
 on gets validated, then placed in your editing buffer. You decide whether to run it.
 
-Under the hood it's a single Go binary, local-first, with the model and the pieces around it
-swappable.
+Under the hood it's a Python CLI (install with `uv tool install clite` or `pipx`), local-first,
+with the model and the surrounding pieces swappable — the **Claude Agent SDK** and **OpenAI Codex
+SDK** are first-class in-process backends, alongside an OpenAI-compatible path for local models.
 
 ## Working in this repo
 

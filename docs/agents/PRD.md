@@ -30,7 +30,7 @@ raw NL→command step; we make it *grounded, safe, and measurable*.
 | Delivery | Insert command into zsh editing buffer; user presses Enter | No auto-run; ZLE widget |
 | Runtime posture | Hybrid, **local-first default** | Pluggable providers; cloud/web opt-in |
 | Grounding | Curated common-toolset prompt + on-demand `--help`/man fetch | Anti-hallucination without indexing all of `$PATH` |
-| Stack | **Go**, single static binary invoked per call | Fast cold start; daemon optimization deferred |
+| Stack | **Python** (managed with uv; installed as a CLI) | Needed for first-class in-process Agent SDK + Codex SDK; cold start mitigated by lazy imports, daemon deferred |
 | Tracker | **GitHub** (private repo `clite`: Issues + Project board) | Overrides the global Taskman default for CLITE |
 
 ## 3. Goals / Non-goals
@@ -38,7 +38,7 @@ raw NL→command step; we make it *grounded, safe, and measurable*.
 **Goals**
 - Turn NL into a correct, runnable command grounded in this system's real tools.
 - Guarantee *syntactic validity & safety*; *measure* intent correctness.
-- Be model-agnostic via an OpenAI-compatible provider abstraction.
+- Be model-agnostic via a provider abstraction (agent SDKs + an OpenAI-compatible path).
 - Ship a benchmark that ranks models on correctness, tokens, latency, cost.
 
 **Non-goals (v1)**
@@ -134,8 +134,10 @@ Session history read for context is **redacted** for secrets before use.
 
 ## 10. Provider abstraction
 
-- Interface: OpenAI-compatible `/chat/completions` with tool-calling. Adapters for Codex SDK /
-  Agent SDK / OpenCode Go behind the same interface.
+- **SDK-first seam.** A single `Provider` interface with three backend kinds: the **Claude Agent
+  SDK** and the **OpenAI Codex SDK** as first-class in-process backends, plus an **OpenAI-compatible**
+  client for local models (Ollama/llama.cpp) that have no agent SDK. Python is the host language
+  precisely because both agent SDKs ship Python/TS bindings only — there is no Go binding.
 - **Structured-output degradation**: prefer native JSON/tool-calling → fall back to constrained
   grammar (GBNF via llama.cpp) → fall back to fenced-block extraction + strict parse. Required because
   small local targets (Gemma QAT) have unreliable tool-calling.
@@ -175,8 +177,8 @@ Session history read for context is **redacted** for secrets before use.
 ## 13. v1 thin-slice scope
 
 **In**
-- Provider abstraction with two backends: one local OpenAI-compatible endpoint (Ollama/llama.cpp for
-  Gemma/Qwen) + Anthropic.
+- Provider seam with two backends: a local OpenAI-compatible endpoint (Ollama/llama.cpp for
+  Gemma/Qwen) + a hosted SDK backend (Claude Agent SDK; the Codex SDK adapter is a sibling).
 - Tiers T0 (exact cache) + T1 (grounded-lite) + T2 (on-demand help). [T3 deferred]
 - Structured output contract + strict enforcement.
 - Validation ladder steps 1–3 + danger classification + a tiny native-dry-run allowlist.
@@ -206,10 +208,13 @@ Session history read for context is **redacted** for secrets before use.
 
 ## 15. Open questions / risks
 
-- **Process model (decided: Go single binary per call).** Shell hooks demand fast startup; a Go static
-  binary gives fast cold start. A **persistent local daemon + thin zsh client** (to amortize warm caches
-  / model connections) is a known future optimization, deferred until per-call latency proves
-  insufficient against the latency target.
+- **Process model (Python CLI per call) + cold-start risk.** Shell hooks demand fast startup, and a
+  Python interpreter + SDK imports start slower than the Go static binary originally planned — this is
+  the main cost of choosing Python (which the agent SDKs force). Mitigations, in order: **lazy/deferred
+  imports** (don't import an SDK until its provider is actually selected) to keep the hot path light;
+  if that proves insufficient against the latency target, a **persistent local daemon + thin zsh
+  client** (amortizing warm caches / model connections / interpreter startup) is the fallback. Measure
+  per-call latency before building the daemon.
 - **Small-model structured output** (Gemma QAT) reliability → mitigate with constrained decoding (GBNF).
 - **Curated toolset scope & upkeep** — how many tools, seeded from tldr; refresh strategy.
 - **Price-table maintenance** per model for cost reporting.

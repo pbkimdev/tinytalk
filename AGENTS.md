@@ -48,7 +48,9 @@ Only people with write access can trigger any of this; keep `main` behind branch
 
 ## Conventions
 
-- **Go** — one static binary, fast cold start.
+- **Python** — managed with `uv`; installed as a CLI (`uv tool install` / `pipx`). The two agent
+  SDKs (Claude Agent SDK, OpenAI Codex SDK) are first-class in-process backends, which is why this is
+  Python and not Go.
 - We never let CLITE auto-run the shell commands it generates; the product always hands control back to
   the user, and so do we when we script it.
 - Keep each change scoped to its issue.
