@@ -1,12 +1,18 @@
 name: agentic
 # Thin caller — copy this to a project's .github/workflows/agentic.yml.
-# All the logic lives in paulbkim-dev/agentic-workflows; pin the version with @v1.
+# All the logic lives in paulbkim-dev/agentic-workflows; during dev we track @main (a moving ref).
 
 on:
   issues:
     types: [opened, labeled]
   issue_comment:
-    types: [created]
+    types: [created]            # fires for issue AND PR comments (slash-commands)
+  pull_request:
+    types: [labeled]            # stage-2 phases (plan/implement/review/docs) run on the PR
+  pull_request_review:
+    types: [submitted]          # a human submitting a PR review re-triggers the review phase
+  pull_request_review_comment:
+    types: [created]            # a human inline diff comment re-triggers the review phase
 
 permissions:
   contents: write
@@ -15,5 +21,5 @@ permissions:
 
 jobs:
   pipeline:
-    uses: paulbkim-dev/agentic-workflows/.github/workflows/dispatch.yml@v1
+    uses: paulbkim-dev/agentic-workflows/.github/workflows/dispatch.yml@main
     secrets: inherit
