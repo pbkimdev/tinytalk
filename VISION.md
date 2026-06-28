@@ -1,76 +1,63 @@
-# CLITE (C-Lite) — Vision
+# What CLITE is
 
-> This is the canonical statement of Paul's original intent for CLITE, captured verbatim in spirit.
-> It is the source of truth for *what we're trying to build and why*. The derived spec lives in
-> [PRD.md](./PRD.md). When the PRD and this file disagree about intent, this file wins until the PRD
-> is consciously updated.
+> This is the source of truth for *what we're building and why*. The detailed spec is in
+> [PRD.md](./PRD.md). If the two ever disagree about intent, this file wins until we deliberately
+> change it.
 
-## What it is
+I want to type what I mean at the shell and get the command for it.
 
-CLITE is a simple shell-level completion where you type in natural language what you want. Using the
-tools available in the current environment, it matches the right CLI command combination for the
-user's request.
+Not a chatbot, not a web search — just this: I describe the outcome in plain English, CLITE works out
+the right combination of tools I already have, and it hands me a command that runs. I read it, maybe
+tweak it, and hit Enter.
 
-## Examples
+## Two examples
 
-**1. Disk usage**
+**Disk usage.** I type something like:
 
-> "Hey, I want the current disk usage of my system:
-> - where it's using
-> - how much it's using
-> - how much is remaining
-> - what are some hotspots of high disk usage
-> - I want to see the list of the items at the level of the immediate directory or software that's
->   taking up the size and the exact file locations as preformatted"
+> "Show me my disk usage — where it's going, how much is used and free, the biggest hotspots, down to
+> the directories or apps taking up space, with exact paths, nicely formatted."
 
-→ outputs `dh -...` / the appropriate CLI command(s) as needed.
+and I get back the right `du`/`df` incantation, piped and sorted, instead of me trying to remember the
+flags.
 
-**2. Sorted directory listing**
+**Sorted listing.** Or:
 
-> "I want a list of items in the current directory sorted by file size, returning only the filename
-> and the size"
+> "List everything in this folder by size — just the name and the size."
 
-→ outputs `ls ... | sort ... | transform ... | awk` or similar.
+and I get `ls … | sort … | awk …` already wired together.
 
-## Strengths the app should have
+## What matters to me
 
-- Connectable via **Codex SDK / Agent SDK / OpenCode Go / any OpenAI-compatible endpoint** to get the
-  right output.
-- Default instructions and harnessing that ensure it **always returns working CLI** (dry-running would
-  be a good idea).
+A few things make or break this:
 
-## How it should be evaluated
+- **It plugs into any model.** Codex SDK, the Agent SDK, OpenCode Go, or any OpenAI-compatible
+  endpoint — I want to swap the brain out freely.
+- **The output is always a real, runnable command** — not an explanation, not a "you could try."
+  The harness should be strict about that, and dry-run when it can to be sure.
 
-With 25 different prompts:
-1. How many CLI commands does it deliver **without outputting unformatted CLI output**?
-2. Do the CLI outputs **actually work**?
-3. Do the CLI outputs work **as intended**?
-4. How well optimized is the output, and how well does it respect current system availability?
-   (quality of output)
-5. How many **tokens** does it use?
-6. How **fast** does it get the job done?
-7. How much does it **cost** in total, by model?
+## How I picture it working
 
-## How Paul imagines implementing it
+1. I hit `?` to enter prompt mode, and the prompt changes so I can see I'm in it. (zsh.)
+2. I type plain English; it gives me the command.
+3. It keeps a picture of the tools available on my system so the model chooses well.
+4. It caches results so similar requests don't burn tokens twice. I'm imagining something
+   vector-based, but I'm open to better ideas.
+5. It can glance back at earlier commands in the same terminal session for context.
+6. When it's genuinely unsure, it looks up the real docs.
 
-1. Typing `?` as a prefix enables prompt mode, with a prompt sign showing it's in prompt mode
-   (zsh supported).
-2. You type in natural language; it outputs commands.
-3. All the system's available tools are cached somewhere so the LLM can decide well.
-4. Cache the outputs so the LLM saves tokens for similar requests (thinking a vector-based approach,
-   open to other ideas).
-5. Inside, it should look backward in the same terminal session for other previous commands by the
-   user that are relevant.
-6. For something it's 100% not sure about, it needs to look up official documentation.
+## How I'll judge it
 
-## Models to test on
+Run 25 different prompts and ask:
 
-- Gemma 3/4 variants (QAT)
-- Qwen
-- Codex models (probably low reasoning)
-- Anthropic models (probably Sonnet mid or low)
-- DeepSeek v4 Flash
+1. How many give a clean command, with no junk around it?
+2. Do the commands actually run?
+3. Do they do what I meant?
+4. Are they well-chosen, and do they respect what's actually on the system?
+5. How many tokens did it burn?
+6. How fast was it?
+7. What did it cost, per model?
 
-## Goal of this stage
+## Models I want to try
 
-Ideate this into concrete requirements → turn into a PRD → turn each scope into plans.
+Gemma 3/4 (QAT), Qwen, Codex (probably low reasoning), Claude (Sonnet, low-to-mid), and
+DeepSeek v4 Flash.
