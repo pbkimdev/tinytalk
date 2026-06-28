@@ -49,6 +49,9 @@ Under the hood it's a Python CLI (install with `uv tool install clite` or `pipx`
 with the model and the surrounding pieces swappable — the **Claude Agent SDK** and **OpenAI Codex
 SDK** are first-class in-process backends, alongside an OpenAI-compatible path for local models.
 
+> **Not on PyPI yet — CLITE is pre-release.** For now, install from source: clone this repo and run
+> `uv tool install .` (or `pipx install .`).
+
 ## Working in this repo
 
 Issues here follow a fixed shape so they're easy to pick up and review: context first, then scope,
