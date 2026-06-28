@@ -16,7 +16,7 @@ draft / create / file / open an issue here.
 1. **Clarify intent** only if genuinely ambiguous (one or two questions max). Classify the issue as
    feature / bug / chore / spike.
 2. **Gather context — do not skip:**
-   - Read the relevant part of `PRD.md` and `VISION.md`; identify the section(s) this maps to.
+   - Read the relevant part of `docs/agents/PRD.md` and `VISION.md`; identify the section(s) this maps to.
    - Skim related code/files and existing issues (`gh issue list`).
    - Identify dependencies (what must land first / what this unblocks) and what is explicitly out of scope.
 3. **Draft** the issue using the mandatory template. Fill every section. If a section is genuinely

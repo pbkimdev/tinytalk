@@ -36,7 +36,7 @@ CLITE is built around fixing exactly those:
 Early. There's no working binary yet — right now this repo is the plan. The full picture lives in:
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
-- **[PRD.md](./PRD.md)** — the spec: how it decides, how it stays safe, how it's measured.
+- **[PRD.md](./docs/agents/PRD.md)** — the spec: how it decides, how it stays safe, how it's measured.
 - **[The issues](https://github.com/paulbkim-dev/clite/issues)** — v1, broken into six pieces.
 
 ## How it'll work

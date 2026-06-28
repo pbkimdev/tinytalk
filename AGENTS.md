@@ -2,7 +2,7 @@
 
 CLITE turns plain English at the shell into a real, validated command. New here? Read
 [README.md](./README.md); the intent lives in [VISION.md](./VISION.md) and the full spec in
-[PRD.md](./PRD.md).
+[PRD.md](./docs/agents/PRD.md).
 
 ## How we work
 
@@ -26,22 +26,21 @@ Issues follow a fixed shape so they're quick to pick up and fair to review: cont
 then a checkable "done when…". The `to_issue` skill (`.claude/skills/to_issue/`) writes them that way —
 new issues should match it.
 
-## The review → fix loop, concretely
+## How work is triggered
 
-The "an agent picks up my comments and fixes them" part runs on **Claude Code's GitHub integration**:
+Wired up in [`.github/workflows/claude.yml`](./.github/workflows/claude.yml). One-time setup: run
+`claude /install-github-app`, add the `ANTHROPIC_API_KEY` repo secret, and make a `claude` user
+assignable (or switch the triggers to a label).
 
-- Set it up once with `claude /install-github-app` — it installs the GitHub app, adds the
-  `ANTHROPIC_API_KEY` repo secret, and drops in a workflow. The workflow listens on
-  `pull_request_review_comment`, `pull_request_review`, `issue_comment`, and `issues`.
-- It's **mention-triggered**: the agent acts only when a comment contains `@claude`. So leave the
-  review note, mention `@claude`, and it pushes a fix commit to the PR branch.
-- `@claude` on an *issue* makes it implement the work on a branch (you open the PR). `@claude` on an
-  *inline review comment* makes it address that specific comment.
-- Only people with write access can trigger it; keep `main` behind branch protection.
+- **Build an issue:** assign it to `claude`. If the issue has sub-issues, one agent resolves them in
+  the order they're listed — one commit each — then opens a PR. A leaf issue is resolved directly.
+  The ordering lives in the workflow prompt, not in this file, so it runs the same way every time.
+- **Heavy issues:** add the `ultra` label *before* assigning. That routes to a multi-agent `ultracode`
+  run (Opus, decompose + self-review + verify per unit) instead of the lean single-agent lane.
+- **Review → fix:** review the code and leave comments that mention `@claude`; it pushes fixes to the
+  PR branch. Repeat until clean.
 
-A fully hands-off review → fix → re-review loop isn't built in — that needs custom glue (a headless
-`claude -p` script or the Agent SDK, with a turn/cost cap). We can add that later. For now the loop is
-simply: **I comment with `@claude` → it fixes.**
+Only people with write access can trigger any of this; keep `main` behind branch protection.
 
 ## Conventions
 
