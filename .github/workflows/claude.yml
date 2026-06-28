@@ -1,7 +1,9 @@
 name: Claude
 
 # How work gets triggered
-#  - Add the `claude` label to an issue  -> Claude implements it.
+#  - Add the `plan` label to an issue   -> Claude posts an implementation plan as a comment and stops.
+#    Review it, then:
+#  - Add the `claude` label to an issue -> Claude implements it (per the plan, if one was posted).
 #      * Parent issue  => resolve its sub-issues in the order they're listed, one commit each.
 #      * Leaf issue    => just resolve that issue.
 #      * Add the `ultra` label FIRST (before `claude`) => heavy multi-agent (ultracode) lane.
@@ -9,7 +11,7 @@ name: Claude
 #    (the review -> fix loop).
 #
 # Setup: GitHub app installed and authenticated via the CLAUDE_CODE_OAUTH_TOKEN secret (done).
-# The `claude` and `ultra` labels exist in this repo; adding `claude` is what launches a run.
+# Labels in this repo: `plan` (propose), `claude` (build), `ultra` (heavy-lane modifier).
 #
 # Model IDs below are current as of this session (Opus 4.8 / Sonnet 4.6); confirm they're
 # available on your account/plan and adjust if needed.
@@ -35,6 +37,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # --- `plan` label added: post an implementation plan as a comment, no code ---
+  plan:
+    if: >
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'plan'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Post an implementation plan for issue #${{ github.event.issue.number }} in
+            ${{ github.repository }} as a single issue comment. Do NOT write code, create a
+            branch, or open a PR.
+
+            Cover:
+            - The approach, and the files/packages you'll add or change.
+            - If the issue has sub-issues
+              (gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/sub_issues),
+              the order you'll resolve them in — one commit each.
+            - How each unit will be verified against its "done when…"/acceptance checks.
+            - Open questions or risks, if any.
+
+            Keep it concise. Conventions are in AGENTS.md.
+          claude_args: |
+            --model claude-sonnet-4-6
+            --max-turns 8
+            --allowedTools "Read,Bash(gh:*)"
+
   # --- Review -> fix loop & ad-hoc help: @claude mentions ---
   mention:
     if: |
@@ -72,6 +107,8 @@ jobs:
           prompt: |
             Resolve issue #${{ github.event.issue.number }} in ${{ github.repository }}.
 
+            If an implementation plan has been posted as a comment on this issue, follow it.
+
             Ordering — do this deterministically, in this order:
             1. Fetch this issue's sub-issues:
                  gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/sub_issues
@@ -106,6 +143,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             ultracode: Resolve issue #${{ github.event.issue.number }} in ${{ github.repository }} thoroughly.
+
+            If an implementation plan has been posted as a comment on this issue, follow it.
 
             Decompose the issue (and its sub-issues, in the order returned by
               gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/sub_issues)

@@ -32,9 +32,12 @@ Wired up in [`.github/workflows/claude.yml`](./.github/workflows/claude.yml) (pl
 `claude-code-review.yml`, which auto-reviews each PR). The GitHub app is installed and authenticated
 via the `CLAUDE_CODE_OAUTH_TOKEN` secret.
 
-- **Build an issue:** add the `claude` label. If the issue has sub-issues, one agent resolves them in
-  the order they're listed — one commit each — then opens a PR. A leaf issue is resolved directly.
-  The ordering lives in the workflow prompt, not in this file, so it runs the same way every time.
+- **Plan first:** add the `plan` label. An agent posts an implementation plan as a comment and stops —
+  no code. Review it (edit the issue if you want changes).
+- **Build an issue:** add the `claude` label. It implements *per the posted plan* if there is one. If
+  the issue has sub-issues, one agent resolves them in the order they're listed — one commit each —
+  then opens a PR. A leaf issue is resolved directly. The ordering lives in the workflow prompt, not in
+  this file, so it runs the same way every time.
 - **Heavy issues:** add the `ultra` label *first*, then the `claude` label. That routes to a
   multi-agent `ultracode` run (Opus, decompose + self-review + verify per unit) instead of the lean
   single-agent lane.
