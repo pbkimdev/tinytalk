@@ -1,0 +1,19 @@
+name: agentic
+# Thin caller — copy this to a project's .github/workflows/agentic.yml.
+# All the logic lives in paulbkim-dev/agentic-workflows; pin the version with @v1.
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  pipeline:
+    uses: paulbkim-dev/agentic-workflows/.github/workflows/dispatch.yml@v1
+    secrets: inherit
