@@ -1,0 +1,24 @@
+# Binaries / build output
+/clite
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+go.work
+go.work.sum
+
+# Env / secrets
+.env
+*.local
+
+# CLITE local runtime caches
+/.cache/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
