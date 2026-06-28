@@ -5,19 +5,23 @@
 > and its branch deleted once the e2e check is done. The change below is intentionally trivial so
 > the diff stays minimal.
 
-> **Revision (`/revise`, 2026-06-28):** per a human clarification, the note must now also state
-> explicitly that clite is **not yet published to PyPI**. It stays a single sentence and a single
-> blockquote directly under the `# CLITE` H1.
+> **Revision (`/revise` #2, 2026-06-28):** per a second human clarification, the blockquote must be a
+> **single physical line with no internal line breaks** — i.e. one `>` line, not a `>`-continuation
+> across two lines. (Folds in the earlier `/revise` #1, which required the note to also state clite
+> is **not yet published to PyPI**.) It remains a single sentence, a single blockquote, directly
+> under the `# CLITE` H1.
 
 ## Goal & scope
 
 **Goal.** Add a single sentence near the top of `README.md` stating that clite is pre-release,
-under active development, and not yet published to PyPI.
+under active development, and not yet published to PyPI — rendered as one blockquote on one
+physical line.
 
 **In scope**
 - Insert one short pre-release note as a blockquote immediately under the `# CLITE` H1 in
-  `README.md` (repo root). The single sentence must convey three things: pre-release / under
-  active development / not yet published to PyPI.
+  `README.md` (repo root). The single sentence must convey three things — pre-release / under
+  active development / not yet published to PyPI — and must occupy **exactly one physical line**
+  (`> …`), with **no internal line breaks** and no `>` continuation line.
 
 **Out of scope (explicitly no change)**
 - No edits to the existing `## Status` section (lines 34–40) — it already covers project maturity;
@@ -32,47 +36,51 @@ under active development, and not yet published to PyPI.
 - [ ] `README.md` contains a one-line pre-release note within the first ~5 lines (immediately after
       the `# CLITE` title) that states clite is pre-release / under active development **and** not
       yet published to PyPI.
-- [ ] The note is a single sentence rendered as a single Markdown blockquote (`>`); no other lines
-      in `README.md` change.
+- [ ] The note is a single sentence rendered as a single Markdown blockquote (`>`) on **one
+      physical line** — no internal line breaks, no second `>` continuation line.
 - [ ] `git diff` shows only an insertion in `README.md` near the top (no deletions, no other files).
 
 **Smallest verification that proves it works:** visual / `grep` check that the inserted line sits
-near the top of `README.md`, reads as a pre-release note, and mentions PyPI, plus `git diff --stat`
-showing `README.md` as the only changed file with an insertion-only diff. No automated tests apply
-(doc-only).
+near the top of `README.md`, reads as a pre-release note, and mentions PyPI; that it is exactly one
+`>` line (the blockquote occupies a single physical line with no wrapped `>` continuation
+immediately after it); plus `git diff --stat` showing `README.md` as the only changed file with an
+insertion-only diff. No automated tests apply (doc-only).
 
 ## Steps
 
-1. **Edit `README.md`** — insert a blockquote note between the H1 (line 1, `# CLITE`) and the
-   opening tagline paragraph (currently line 3). Proposed text (matches the README's plain,
-   emoji-free prose style):
+1. **Edit `README.md`** — insert a blank line + a single-line blockquote between the H1 (line 1,
+   `# CLITE`) and the opening tagline paragraph (currently line 3). The blockquote text is one
+   physical line (shown here on one line; it will be longer than the surrounding ~110-char prose
+   wrap, which is intentional and required by this revision):
 
    ```markdown
    # CLITE
 
-   > **Pre-release:** clite is under active development, not yet published to PyPI, and not yet
-   > ready for general use.
+   > **Pre-release:** clite is under active development, not yet published to PyPI, and not yet ready for general use.
 
    CLITE turns plain English at your shell into a real command. ...
    ```
 
-   Note: the blockquote may wrap across two physical lines (each prefixed with `>`) and still be a
-   single rendered sentence / single blockquote. Exact wording may be adjusted slightly during
-   implementation, but it must remain one sentence conveying "pre-release" + "under active
-   development" + "not yet published to PyPI."
+   Exact wording may be adjusted slightly during implementation, but it must remain **one sentence
+   on one physical line** conveying "pre-release" + "under active development" + "not yet published
+   to PyPI." Do **not** wrap it onto a second `>` line.
 
 2. **Verify the diff** — run `git diff --stat` and `git diff README.md`; confirm a single
-   insertion-only change to `README.md` near the top and nothing else.
+   insertion-only change to `README.md` near the top (the new blank line + one `>` line) and
+   nothing else.
 
 ## Test strategy
 
 Doc-only change — no unit/integration tests are warranted. Verification is the DoD check above:
-the new note is present near the top of `README.md`, is a single sentence/blockquote, mentions
-PyPI, and the diff touches only `README.md` (insertion only). This is the appropriate, smallest
-level of proof for a one-line documentation edit.
+the new note is present near the top of `README.md`, is a single sentence on a single `>` physical
+line, mentions PyPI, and the diff touches only `README.md` (insertion only). This is the
+appropriate, smallest level of proof for a one-line documentation edit.
 
 ## Risks & rollback
 
+- **Risk:** The single-line blockquote is longer than the repo's usual ~110-char prose wrap.
+  *Mitigation:* this is explicitly required by the `/revise` ("no internal line breaks"); it is a
+  blockquote banner, not body prose, so the longer line is acceptable and intended.
 - **Risk:** Redundancy with the existing `## Status` section. *Mitigation:* keep the new note to a
   single short sentence with a distinct framing (top-of-file at-a-glance banner vs. the fuller
   Status section); do not modify `## Status`.
