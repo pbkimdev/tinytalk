@@ -1,14 +1,17 @@
-# Binaries / build output
-/clite
+# Python build / packaging output
 /dist/
-*.exe
-*.test
-*.out
+/build/
+*.egg-info/
 
-# Go
-/vendor/
-go.work
-go.work.sum
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
 
 # Env / secrets
 .env
