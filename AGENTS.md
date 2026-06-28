@@ -30,14 +30,14 @@ new issues should match it.
 
 Wired up in [`.github/workflows/claude.yml`](./.github/workflows/claude.yml) (plus
 `claude-code-review.yml`, which auto-reviews each PR). The GitHub app is installed and authenticated
-via the `CLAUDE_CODE_OAUTH_TOKEN` secret. Still needed for the assign-to-build flow: a `claude` user
-you can assign issues to (add as a collaborator), or switch the triggers to a label.
+via the `CLAUDE_CODE_OAUTH_TOKEN` secret.
 
-- **Build an issue:** assign it to `claude`. If the issue has sub-issues, one agent resolves them in
+- **Build an issue:** add the `claude` label. If the issue has sub-issues, one agent resolves them in
   the order they're listed — one commit each — then opens a PR. A leaf issue is resolved directly.
   The ordering lives in the workflow prompt, not in this file, so it runs the same way every time.
-- **Heavy issues:** add the `ultra` label *before* assigning. That routes to a multi-agent `ultracode`
-  run (Opus, decompose + self-review + verify per unit) instead of the lean single-agent lane.
+- **Heavy issues:** add the `ultra` label *first*, then the `claude` label. That routes to a
+  multi-agent `ultracode` run (Opus, decompose + self-review + verify per unit) instead of the lean
+  single-agent lane.
 - **Review → fix:** review the code and leave comments that mention `@claude`; it pushes fixes to the
   PR branch. Repeat until clean.
 

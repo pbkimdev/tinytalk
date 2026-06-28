@@ -1,6 +1,8 @@
 # CLITE (C-Lite) — Product Requirements Document
 
 > Status: Draft v0.1 · Owner: Paul · Last updated: 2026-06-28
+>
+> Intent & rationale: [VISION.md](../../VISION.md) — the source of truth for *why*.
 
 ## 1. Thesis
 

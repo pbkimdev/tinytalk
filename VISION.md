@@ -1,8 +1,8 @@
 # What CLITE is
 
-> This is the source of truth for *what we're building and why*. The detailed spec is in
-> [PRD.md](./PRD.md). If the two ever disagree about intent, this file wins until we deliberately
-> change it.
+> This is the source of truth for _what we're building and why_, and it stands on its own. The spec
+> and the issues point back here — not the other way around. If anything ever disagrees about intent,
+> this file wins until we deliberately change it.
 
 I want to type what I mean at the shell and get the command for it.
 
