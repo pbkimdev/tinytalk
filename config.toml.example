@@ -1,0 +1,35 @@
+# CLITE config template.
+#
+# Copy this to your config and edit:
+#   mkdir -p ~/.config/clite && cp config.toml.example ~/.config/clite/config.toml
+#
+# Lookup order: $CLITE_CONFIG -> $XDG_CONFIG_HOME/clite/config.toml -> ~/.config/clite/config.toml
+
+[clite]
+backend = "local"   # required: name of a [backends.<name>] table below
+posture = "local"   # optional: local | cloud  (default: local)
+
+# A local, OpenAI-compatible endpoint (e.g. Ollama / LM Studio).
+[backends.local]
+kind = "openai_compatible"
+model = "qwen2.5-coder:7b"
+base_url = "http://localhost:11434/v1"
+# api_key = "..."   # usually unneeded for local endpoints
+
+# A cloud backend via the Claude Agent SDK.
+[backends.claude]
+kind = "claude_agent_sdk"
+model = "claude-sonnet-4-6"
+
+# --- Parsed but not enforced here (owned by later issues) ---
+
+[danger]
+policy = "confirm"   # how clite treats risky commands
+
+[cache]
+enabled = true
+dir = "~/.cache/clite"
+
+[prices."claude-sonnet-4-6"]
+input = 3.0    # USD per 1M input tokens
+output = 15.0  # USD per 1M output tokens
