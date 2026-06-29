@@ -33,7 +33,9 @@ CLITE is built around fixing exactly those:
 
 ## Status
 
-Early. There's no working release yet — right now this repo is the plan. The full picture lives in:
+Early. There's no working release yet — the core engine spine has started landing (a transport-agnostic
+provider seam, the structured-output contract, a strict `format_ok` parser, and the model-degradation
+chain), but it isn't wired to the CLI. The full picture lives in:
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
 - **[PRD.md](./docs/agents/PRD.md)** — the spec: how it decides, how it stays safe, how it's measured.
