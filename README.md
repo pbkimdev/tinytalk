@@ -49,6 +49,19 @@ Under the hood it's a Python CLI (install with `uv tool install clite` or `pipx`
 with the model and the surrounding pieces swappable — the **Claude Agent SDK** and **OpenAI Codex
 SDK** are first-class in-process backends, alongside an OpenAI-compatible path for local models.
 
+## Configuring it
+
+CLITE reads `~/.config/clite/config.toml` — which backend (local or hosted) to use and the
+runtime posture. Copy the template and edit it:
+
+```
+mkdir -p ~/.config/clite && cp config.toml.example ~/.config/clite/config.toml
+```
+
+The lookup order is `$CLITE_CONFIG` → `$XDG_CONFIG_HOME/clite/config.toml` →
+`~/.config/clite/config.toml`. See [`config.toml.example`](./config.toml.example) for the
+full schema.
+
 ## Working in this repo
 
 Issues here follow a fixed shape so they're easy to pick up and review: context first, then scope,
