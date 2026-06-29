@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from clite.config import (
+    DEFAULT_CONFIG,
     Config,
     ConfigError,
     ConfigNotFoundError,
@@ -130,5 +131,60 @@ def test_default_path_env_precedence(tmp_path, monkeypatch):
 
 def test_explicit_path_bypasses_lookup(tmp_path, monkeypatch):
     monkeypatch.setenv("CLITE_CONFIG", str(tmp_path / "from_env.toml"))
-    cfg = load_config(write(tmp_path, VALID_LOCAL))
-    assert cfg.path == write(tmp_path, VALID_LOCAL)
+    p = write(tmp_path, VALID_LOCAL)
+    assert load_config(p).path == p
+
+
+def test_missing_model_field(tmp_path):
+    text = '[clite]\nbackend = "local"\n[backends.local]\nkind = "openai_compatible"\n'
+    with pytest.raises(ConfigError) as exc:
+        load_config(write(tmp_path, text))
+    assert "model" in str(exc.value)
+
+
+def test_scalar_backend_table(tmp_path):
+    # A backend declared as a scalar must fail cleanly, not with a bare AttributeError.
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path, '[clite]\nbackend = "local"\n[backends]\nlocal = "x"\n'))
+
+
+def test_first_run_autocreates_at_default_path(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "clite" / "config.toml"
+    monkeypatch.setenv("CLITE_CONFIG", str(target))
+    assert not target.exists()
+    cfg = load_config()  # default path, missing -> bootstrap then load
+    assert target.exists()
+    assert isinstance(cfg, Config)
+    assert cfg.path == target
+    assert target.read_text() == DEFAULT_CONFIG  # the file is the bundled default
+    assert str(target) in capsys.readouterr().err  # non-silent
+
+
+def test_first_run_honors_xdg(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLITE_CONFIG", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    cfg = load_config()
+    assert cfg.path == tmp_path / "xdg" / "clite" / "config.toml"
+    assert cfg.path.exists()
+
+
+def test_existing_config_not_overwritten(tmp_path, monkeypatch):
+    target = tmp_path / "clite" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text(VALID_CLOUD)
+    monkeypatch.setenv("CLITE_CONFIG", str(target))
+    cfg = load_config()
+    assert cfg.backend.kind == "claude_agent_sdk"  # untouched
+    assert target.read_text() == VALID_CLOUD
+
+
+def test_explicit_missing_path_still_raises(tmp_path):
+    # An explicitly requested file that doesn't exist is an error, not a bootstrap.
+    with pytest.raises(ConfigNotFoundError):
+        load_config(tmp_path / "nope.toml")
+
+
+def test_default_config_matches_committed_template():
+    # Single source of truth: the embedded default and the committed reference agree.
+    example = Path(__file__).resolve().parent.parent / "config.toml.example"
+    assert example.read_text() == DEFAULT_CONFIG

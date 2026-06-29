@@ -51,16 +51,14 @@ SDK** are first-class in-process backends, alongside an OpenAI-compatible path f
 
 ## Configuring it
 
-CLITE reads `~/.config/clite/config.toml` — which backend (local or hosted) to use and the
-runtime posture. Copy the template and edit it:
-
-```
-mkdir -p ~/.config/clite && cp config.toml.example ~/.config/clite/config.toml
-```
+CLITE reads `config.toml` — which backend (local or hosted) to use and the runtime posture.
+You don't create it by hand: on first run CLITE writes a starter `config.toml` to
+`$XDG_CONFIG_HOME/clite/config.toml` (else `~/.config/clite/config.toml`), prints where it
+put it, and you just edit that file.
 
 The lookup order is `$CLITE_CONFIG` → `$XDG_CONFIG_HOME/clite/config.toml` →
 `~/.config/clite/config.toml`. See [`config.toml.example`](./config.toml.example) for the
-full schema.
+full schema — it's the committed copy of that starter file.
 
 ## Working in this repo
 

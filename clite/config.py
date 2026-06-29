@@ -10,6 +10,7 @@ this module doesn't pre-empt the issues that own them (#34 / #36 / #32).
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,11 +18,50 @@ from pathlib import Path
 BACKEND_KINDS = frozenset({"openai_compatible", "claude_agent_sdk", "openai_codex_sdk"})
 POSTURES = frozenset({"local", "cloud"})
 
+# The starter config written on first run. Embedded (not read from a packaged file) so
+# the scaffold works from an installed CLI, where the repo-root template isn't shipped.
+# Kept byte-identical to the committed config.toml.example (a test guards the drift).
+DEFAULT_CONFIG = """\
+# CLITE config — created automatically on first run; edit it to taste.
+#
+# Lives at $XDG_CONFIG_HOME/clite/config.toml (else ~/.config/clite/config.toml).
+# Lookup order: $CLITE_CONFIG -> $XDG_CONFIG_HOME/clite/config.toml -> ~/.config/clite/config.toml
+# config.toml.example (in the repo) is the committed reference copy of this file.
+
+[clite]
+backend = "local"   # required: name of a [backends.<name>] table below
+posture = "local"   # optional: local | cloud  (default: local)
+
+# A local, OpenAI-compatible endpoint (e.g. Ollama / LM Studio).
+[backends.local]
+kind = "openai_compatible"
+model = "qwen2.5-coder:7b"
+base_url = "http://localhost:11434/v1"
+# api_key = "..."   # usually unneeded for local endpoints
+
+# A cloud backend via the Claude Agent SDK.
+[backends.claude]
+kind = "claude_agent_sdk"
+model = "claude-sonnet-4-6"
+
+# --- Parsed but not enforced here (owned by later issues) ---
+
+[danger]
+policy = "confirm"   # how clite treats risky commands
+
+[cache]
+enabled = true
+dir = "~/.cache/clite"
+
+[prices."claude-sonnet-4-6"]
+input = 3.0    # USD per 1M input tokens
+output = 15.0  # USD per 1M output tokens
+"""
+
 _EXAMPLE = (
     '\n\n  [clite]\n  backend = "local"\n\n'
     '  [backends.local]\n  kind = "openai_compatible"\n'
-    '  model = "qwen2.5-coder:7b"\n  base_url = "http://localhost:11434/v1"\n\n'
-    "copy the template: config.toml.example -> ~/.config/clite/config.toml"
+    '  model = "qwen2.5-coder:7b"\n  base_url = "http://localhost:11434/v1"'
 )
 
 
@@ -61,9 +101,27 @@ def default_config_path() -> Path:
     return Path.home() / ".config" / "clite" / "config.toml"
 
 
-def load_config(path: str | os.PathLike | None = None) -> Config:
-    """Load, validate, and resolve the config. See module docstring."""
+def ensure_config(path: str | os.PathLike | None = None) -> Path:
+    """Create the starter config from ``DEFAULT_CONFIG`` if it's missing; return its path.
+
+    Non-silent — prints the created path to stderr, so ``clite`` never writes to home
+    silently (the human explicitly opted into this lightweight bootstrap; see AGENTS.md).
+    """
     path = Path(path) if path is not None else default_config_path()
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_CONFIG)
+        print(f"clite: created starter config at {path} — edit it to pick your backend.", file=sys.stderr)
+    return path
+
+
+def load_config(path: str | os.PathLike | None = None) -> Config:
+    """Load, validate, and resolve the config. See module docstring.
+
+    With no ``path`` (the default-lookup case) a missing config is auto-created from the
+    bundled defaults. An explicitly requested ``path`` that doesn't exist is an error.
+    """
+    path = Path(path) if path is not None else ensure_config()
 
     try:
         with open(path, "rb") as f:
@@ -92,6 +150,8 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         raise ConfigError(f'clite: {path}: [clite].posture must be one of {allowed} (got "{posture}")')
 
     table = backends[name]
+    if not isinstance(table, dict):
+        raise ConfigError(f"clite: {path}: [backends.{name}] must be a table")
     kind = table.get("kind")
     if kind not in BACKEND_KINDS:
         allowed = ", ".join(sorted(BACKEND_KINDS))
