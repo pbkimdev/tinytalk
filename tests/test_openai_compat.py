@@ -199,6 +199,18 @@ def test_missing_usage_defaults():
     assert completion.usage.total_tokens == 0
 
 
+def test_non_numeric_usage_field_defaults_instead_of_raising():
+    # A non-spec server returns a malformed usage block; it must not crash the completion.
+    usage = {"prompt_tokens": "unknown", "completion_tokens": [1, 2, 3], "total_tokens": 7}
+    prov, _ = _provider(
+        lambda req, i: httpx.Response(200, json=_envelope(content="{}", usage=usage))
+    )
+    completion = _run(prov.complete(CompletionRequest(MSGS)))
+    assert completion.usage.prompt_tokens == 0
+    assert completion.usage.completion_tokens == 0
+    assert completion.usage.total_tokens == 7
+
+
 def test_http_500_raises_typed_error():
     prov, _ = _provider(lambda req, i: httpx.Response(500, text="upstream is down"))
     with pytest.raises(ProviderHTTPError) as exc:

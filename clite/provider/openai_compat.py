@@ -194,8 +194,15 @@ class OpenAICompatProvider:
     def _parse_usage(raw: object) -> Usage:
         if not isinstance(raw, dict):
             return Usage()
+
+        def _field(key: str) -> int:
+            try:
+                return int(raw.get(key) or 0)
+            except (TypeError, ValueError):
+                return 0
+
         return Usage(
-            prompt_tokens=int(raw.get("prompt_tokens") or 0),
-            completion_tokens=int(raw.get("completion_tokens") or 0),
-            total_tokens=int(raw.get("total_tokens") or 0),
+            prompt_tokens=_field("prompt_tokens"),
+            completion_tokens=_field("completion_tokens"),
+            total_tokens=_field("total_tokens"),
         )
