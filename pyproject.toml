@@ -10,7 +10,7 @@ authors = [{ name = "Paul B. Kim" }]
 # Runtime deps are added per provider/feature issue. The pivot makes the two
 # agent SDKs first-class backends (Claude Agent SDK, OpenAI Codex SDK), with a
 # lightweight OpenAI-compatible path for local models — added when those land.
-dependencies = []
+dependencies = ["httpx>=0.27"]
 
 [project.scripts]
 clite = "clite.cli:main"
