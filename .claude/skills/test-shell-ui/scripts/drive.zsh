@@ -77,7 +77,7 @@ print -r -- "$final" | grep -qF "du -h -d 1 . | sort -rh | head -n 3" \
   || { print "FAIL: request-2 command not in the buffer"; fail=1; }
 print -r -- "$final" | grep -qF "[safe] Lists disk usage" \
   || { print "FAIL: explanation message missing"; fail=1; }
-print -r -- "$final" | grep -qF "[thinking...]" \
-  && { print "FAIL: stale thinking indicator left on screen"; fail=1; }
+print -r -- "$final" | grep -q "thinking" \
+  && { print "FAIL: stale thinking spinner left on screen"; fail=1; }
 (( fail )) && { print "RESULT: FAIL — display collision or missing UI element"; exit 1; }
 print "RESULT: PASS — no lines eaten; badge, command, and message all rendered"

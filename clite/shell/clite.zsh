@@ -47,17 +47,35 @@ bindkey '^H' _clite_backspace
 
 _clite_accept_line() {
   if (( _CLITE_AI_MODE )) && [[ -n "$BUFFER" ]]; then
-    # Progress indicator lives in POSTDISPLAY (inside the edit region): a mid-widget
-    # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by one
-    # row, so the replaced buffer overdraws the previous line. `zle -M` is only safe
-    # here at the very end of the widget, as part of one final redisplay.
-    POSTDISPLAY=" [thinking...]"
-    zle -R
-    local out rc
-    out="$(CLITE_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
-           command clite --widget -- "$BUFFER" 2>/dev/null)"
-    rc=$?
-    POSTDISPLAY=""
+    # The spinner lives in POSTDISPLAY (inside the edit region): a mid-widget
+    # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
+    # one row, so the replaced buffer overdraws the previous line. `zle -M` is only
+    # safe at the very end of the widget, as part of one final redisplay.
+    setopt localoptions nomonitor nonotify
+    local -i have_zselect=0
+    zmodload zsh/zselect 2>/dev/null && have_zselect=1
+    local tmp="$(mktemp)" out rc=1
+    {
+      CLITE_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
+        command clite --widget -- "$BUFFER" >"$tmp" 2>/dev/null
+      print -n $? >"$tmp.rc"
+    } &
+    local pid=$!
+    local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+    local -i i=1
+    {
+      while [[ ! -e "$tmp.rc" ]]; do
+        POSTDISPLAY=" ${frames[i]} thinking"
+        zle -R
+        (( i = i % $#frames + 1 ))
+        if (( have_zselect )); then zselect -t 12 2>/dev/null; else command sleep 0.12; fi
+      done
+      rc="$(<"$tmp.rc")" out="$(<"$tmp")"
+    } always {
+      kill $pid 2>/dev/null
+      rm -f "$tmp" "$tmp.rc"
+      POSTDISPLAY=""
+    }
     if [[ $rc -ne 0 || -z "$out" ]]; then
       zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
       return 0
