@@ -2,12 +2,13 @@
 
 A model completion is turned into a validated `Suggestion`; nothing downstream sees a
 raw completion. `danger` here is only the model's *stated* danger — the real
-classifier (#4) overrides it later.
+classifier (#4) overrides it later. There is exactly one command: no alternatives,
+no options — the model commits to one answer, or the ladder fails (PRD §11).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -24,7 +25,6 @@ class Suggestion:
     danger: Danger
     confidence: float
     needs: tuple[str, ...]
-    alternatives: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
         return {
@@ -33,7 +33,6 @@ class Suggestion:
             "danger": self.danger.value,
             "confidence": self.confidence,
             "needs": list(self.needs),
-            "alternatives": list(self.alternatives),
         }
 
 
@@ -47,7 +46,6 @@ def contract_json_schema() -> dict:
             "danger": {"type": "string", "enum": [d.value for d in Danger]},
             "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "needs": {"type": "array", "items": {"type": "string"}},
-            "alternatives": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["command", "explanation", "danger", "confidence", "needs"],
         "additionalProperties": False,

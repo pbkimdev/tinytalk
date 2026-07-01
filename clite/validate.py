@@ -1,10 +1,12 @@
 """Validation & safety ladder (#34, PRD §7) — check before the user ever sees it.
 
 Cheapest first: syntax parse (`zsh -n`), binaries exist, best-effort flag check
-against real help text, then rule-based danger classification. Parse/binary/flag
-problems reject the suggestion (the tier controller escalates); danger never
-rejects — it is surfaced, and the final classification is never *below* the
-model's own claim. Over-warning is fine; a destructive false-negative is not.
+against real help text, native dry-run for a small allowlist of tools that have
+their own real no-op flag, then rule-based danger classification.
+Parse/binary/flag/dry-run problems reject the suggestion (the tier controller
+escalates); danger never rejects — it is surfaced, and the final classification
+is never *below* the model's own claim. Over-warning is fine; a destructive
+false-negative is not.
 """
 
 from __future__ import annotations
@@ -83,6 +85,22 @@ _DESTRUCTIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 _SUDO_READONLY = frozenset("cat less ls du df find grep lsof dmesg stat head tail".split())
 
+# Native dry-run (PRD §7 step 4): tools with their own real no-op flag. Minimal
+# v1 allowlist — keyed by subcommand, `None` for tools with no subcommands.
+# The mutating command itself is never run; only this flagged variant is.
+_DRY_RUN_FLAG: dict[str, dict[str | None, str]] = {
+    "rsync": {None: "--dry-run"},
+    "git": {"push": "--dry-run", "clean": "--dry-run", "add": "--dry-run", "mv": "--dry-run"},
+    "npm": {"install": "--dry-run", "ci": "--dry-run", "i": "--dry-run"},
+    "kubectl": {
+        "apply": "--dry-run=client",
+        "create": "--dry-run=client",
+        "delete": "--dry-run=client",
+        "patch": "--dry-run=client",
+    },
+}
+_DRY_RUN_TIMEOUT = 8.0
+
 
 @dataclass(frozen=True)
 class _Segment:
@@ -97,6 +115,7 @@ class ValidationReport:
     parse_problem: str | None
     binary_problems: tuple[str, ...]
     flag_problems: tuple[str, ...]
+    dry_run_problems: tuple[str, ...]
     danger: str
 
     @property
@@ -111,16 +130,17 @@ class ValidationReport:
     def problems(self) -> tuple[str, ...]:
         if self.parse_problem is not None:
             return (self.parse_problem,)
-        return self.binary_problems + self.flag_problems
+        return self.binary_problems + self.flag_problems + self.dry_run_problems
 
 
 class CommandValidator:
     """The tier controller's `Validator` hook. Callable: `Suggestion → ValidationResult`."""
 
-    def __init__(self, grounding: SystemGrounding, *, cwd: str = "."):
+    def __init__(self, grounding: SystemGrounding, *, cwd: str = ".", run_dry_run: bool = True):
         self._grounding = grounding
         self._cwd = cwd
         self._shell = shutil.which("zsh") or shutil.which("sh")
+        self._run_dry_run = run_dry_run
 
     def __call__(self, suggestion: Suggestion) -> ValidationResult:
         report = self.report(suggestion)
@@ -138,17 +158,27 @@ class CommandValidator:
                 parse_problem=parse_problem,
                 binary_problems=(),
                 flag_problems=(),
+                dry_run_problems=(),
                 danger=Danger.DESTRUCTIVE.value,
             )
 
         tokens = _tokenize(command)
         segments = _segments(tokens)
+        binary_problems = tuple(self._check_binaries(segments))
+        flag_problems = tuple(self._check_flags(segments))
+        dry_run_problems: tuple[str, ...] = ()
+        if not binary_problems and not flag_problems:
+            # Only spend a real (possibly networked) dry-run once cheaper steps pass.
+            dry_run_problem = self._check_dry_run(command, tokens, segments)
+            if dry_run_problem:
+                dry_run_problems = (dry_run_problem,)
         danger = self._classify(command, tokens, segments)
         final = max(danger, suggestion.danger, key=_DANGER_ORDER.__getitem__)
         return ValidationReport(
             parse_problem=None,
-            binary_problems=tuple(self._check_binaries(segments)),
-            flag_problems=tuple(self._check_flags(segments)),
+            binary_problems=binary_problems,
+            flag_problems=flag_problems,
+            dry_run_problems=dry_run_problems,
             danger=final.value,
         )
 
@@ -199,6 +229,43 @@ class CommandValidator:
                 if flag not in help_text:
                     problems.append(f"{seg.command}: unknown option {flag}")
         return problems
+
+    # -- ladder step 4: native dry-run (allowlist) --------------------------------
+    def _check_dry_run(
+        self, command: str, tokens: list[str], segments: list[_Segment]
+    ) -> str | None:
+        if not self._run_dry_run or self._shell is None or len(segments) != 1:
+            return None  # only single, unpiped, unredirected commands (minimal v1 allowlist)
+        if any(tok in _COMMAND_ENDERS or _REDIRECT.match(tok) for tok in tokens):
+            return None
+        seg = segments[0]
+        by_sub = _DRY_RUN_FLAG.get(seg.command)
+        if by_sub is None:
+            return None
+        sub = next((a for a in seg.args if not a.startswith("-")), None)
+        flag = by_sub.get(sub, by_sub.get(None))
+        if flag is None:
+            return None
+        flag_name = flag.split("=", 1)[0]
+        if any(a == flag or a.startswith(flag_name) for a in seg.args):
+            return None  # already a dry-run invocation
+        dry_command = f"{command} {flag}"
+        try:
+            proc = subprocess.run(
+                [self._shell, "-c", dry_command],
+                capture_output=True,
+                text=True,
+                timeout=_DRY_RUN_TIMEOUT,
+                stdin=subprocess.DEVNULL,
+                cwd=self._cwd,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None  # a flaky/slow dry-run (e.g. network) must never false-reject
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip().splitlines()
+            reason = detail[0] if detail else f"exited {proc.returncode}"
+            return f"native dry-run failed ({dry_command}): {reason}"
+        return None
 
     # -- ladder step 5: danger classification ------------------------------------
     def _classify(self, command: str, tokens: list[str], segments: list[_Segment]) -> Danger:

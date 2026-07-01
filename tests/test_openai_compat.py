@@ -257,7 +257,7 @@ def test_e2e_generate_parses_contract():
     gen = _run(generate(prov, MSGS))
     s = gen.suggestion
     assert (s.command, s.explanation, s.danger.value) == ("ls -la", "list files", "safe")
-    assert (s.confidence, s.needs, s.alternatives) == (0.95, (), ())
+    assert (s.confidence, s.needs) == (0.95, ())
 
 
 def test_e2e_degradation_json_rung_fails_then_text_rung():

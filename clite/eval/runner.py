@@ -106,7 +106,7 @@ def run_eval(
             raise ValueError(f"unknown prompt ids: {', '.join(sorted(unknown))}")
         suite = tuple(p for p in suite if p.id in prompt_ids)
     grounding = SystemGrounding()
-    validator = CommandValidator(grounding, cwd=cwd)
+    validator = CommandValidator(grounding, cwd=cwd, run_dry_run=False)  # never execute (PRD §11)
     return [
         asyncio.run(
             _run_backend(config, name, suite, grounding, validator, cwd=cwd, progress=progress)

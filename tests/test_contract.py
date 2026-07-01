@@ -13,7 +13,6 @@ def test_to_dict_round_trips_through_parse_payload():
         danger=Danger.SAFE,
         confidence=0.9,
         needs=(),
-        alternatives=("ls",),
     )
     reparsed = parse_payload(original.to_dict())
     assert reparsed == original
@@ -22,5 +21,4 @@ def test_to_dict_round_trips_through_parse_payload():
 def test_schema_lists_required_keys():
     schema = contract_json_schema()
     assert schema["required"] == ["command", "explanation", "danger", "confidence", "needs"]
-    assert "alternatives" in schema["properties"]
-    assert "alternatives" not in schema["required"]
+    assert "alternatives" not in schema["properties"]  # exactly one command, never options

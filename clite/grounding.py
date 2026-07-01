@@ -120,10 +120,12 @@ class SystemGrounding:
             "Installed tools you should prefer (with their key flags):\n"
             + "\n".join(tools)
             + "\n\nOnly use tools from this list, shell builtins, or tools you are certain "
-            "are installed; never invent flags. Respond with only a JSON object matching "
-            'this shape, no prose around it:\n{"command": "...", "explanation": "...", '
+            "are installed; never invent flags. Commit to exactly one command — never a "
+            "list of options or alternatives; if you are unsure, pick your best answer. "
+            "Respond with only a JSON object matching this shape, no prose around it:\n"
+            '{"command": "...", "explanation": "...", '
             '"danger": "safe|caution|destructive", "confidence": 0.0-1.0, '
-            '"needs": ["binaries", "used"], "alternatives": []}'
+            '"needs": ["binaries", "used"]}'
         )
 
     def enrich(self, needs: tuple[str, ...], problems: tuple[str, ...]) -> str:

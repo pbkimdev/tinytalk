@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
+import clite.validate as validate_mod
 from clite.contract import Danger, Suggestion
 from clite.validate import CommandValidator
 
@@ -25,7 +28,9 @@ class StubGrounding:
 
 
 def validator(cwd: str = ".", help_texts: dict[str, str] | None = None) -> CommandValidator:
-    return CommandValidator(StubGrounding(help_texts), cwd=cwd)  # type: ignore[arg-type]
+    # run_dry_run=False: the DESTRUCTIVE/CAUTION corpora include real git/npm/rsync
+    # invocations — dry-run is covered separately, with subprocess mocked.
+    return CommandValidator(StubGrounding(help_texts), cwd=cwd, run_dry_run=False)  # type: ignore[arg-type]
 
 
 def suggest(command: str, danger: Danger = Danger.SAFE) -> Suggestion:
@@ -170,3 +175,96 @@ def test_wrapped_commands_are_still_checked():
 def test_shell_keywords_and_builtins_are_not_missing_binaries():
     result = validator()(suggest("for f in *.txt; do echo $f; done"))
     assert result.ok, result.problems
+
+
+# -- native dry-run (PRD §7 step 4) -------------------------------------------
+
+
+def test_native_dry_run_rejects_when_tool_exits_nonzero(monkeypatch):
+    def fake_run(argv, **kwargs):
+        if "-n" in argv:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return subprocess.CompletedProcess(argv, 1, "", "fatal: no configured push destination")
+
+    monkeypatch.setattr(validate_mod.subprocess, "run", fake_run)
+    result = CommandValidator(StubGrounding(), cwd=".", run_dry_run=True)(
+        suggest("git push origin main")
+    )
+    assert not result.ok
+    assert any(
+        "git push origin main --dry-run" in p and "no configured push" in p for p in result.problems
+    )
+
+
+def test_native_dry_run_passes_when_tool_exits_zero(monkeypatch):
+    monkeypatch.setattr(
+        validate_mod.subprocess,
+        "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "", ""),
+    )
+    result = CommandValidator(StubGrounding(), cwd=".", run_dry_run=True)(
+        suggest("git push origin main")
+    )
+    assert result.ok
+
+
+def test_native_dry_run_skipped_for_non_allowlisted_tool(monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(validate_mod.subprocess, "run", fake_run)
+    result = CommandValidator(StubGrounding(), cwd=".", run_dry_run=True)(suggest("ls -la"))
+    assert result.ok
+    assert len(calls) == 1  # only the parse check — `ls` isn't in the dry-run allowlist
+
+
+def test_native_dry_run_skipped_for_pipeline(monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(validate_mod.subprocess, "run", fake_run)
+    CommandValidator(StubGrounding(), cwd=".", run_dry_run=True)(
+        suggest("git push origin main | head")
+    )
+    assert len(calls) == 1  # parse only — a pipeline is outside the minimal allowlist
+
+
+def test_native_dry_run_skipped_when_flag_already_present(monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(validate_mod.subprocess, "run", fake_run)
+    CommandValidator(StubGrounding(), cwd=".", run_dry_run=True)(
+        suggest("git push origin main --dry-run")
+    )
+    assert len(calls) == 1  # parse only — already a dry-run invocation
+
+
+def test_native_dry_run_disabled_by_default_flag():
+    v = CommandValidator(StubGrounding(), cwd=".")  # type: ignore[arg-type]
+    assert v._run_dry_run is True  # interactive default; eval opts out explicitly
+
+
+def test_native_dry_run_off_skips_execution_entirely(monkeypatch):
+    def fail_if_called(argv, **kwargs):
+        if "-n" in argv:
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        raise AssertionError("dry-run must not execute when run_dry_run=False")
+
+    monkeypatch.setattr(validate_mod.subprocess, "run", fail_if_called)
+    result = CommandValidator(StubGrounding(), cwd=".", run_dry_run=False)(  # type: ignore[arg-type]
+        suggest("git push origin main")
+    )
+    assert result.ok

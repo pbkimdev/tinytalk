@@ -107,7 +107,6 @@ def parse_payload(data: object) -> Suggestion:
         raise FormatError(f"confidence out of range: {confidence}")
 
     needs = _string_tuple(data["needs"], "needs")
-    alternatives = _string_tuple(data.get("alternatives", []), "alternatives")
 
     return Suggestion(
         command=command,
@@ -115,7 +114,6 @@ def parse_payload(data: object) -> Suggestion:
         danger=danger,
         confidence=float(confidence),
         needs=needs,
-        alternatives=alternatives,
     )
 
 
