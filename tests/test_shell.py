@@ -57,6 +57,7 @@ def test_init_zsh_prints_widget(capsys):
     assert main(["init", "zsh"]) == 0
     script = capsys.readouterr().out
     assert "zle -N accept-line _clite_accept_line" in script
+    assert "bindkey '?' _clite_question" in script  # `?` on empty line toggles AI mode
     assert "clite --widget" in script
     assert "DESTRUCTIVE" in script  # destructive commands inserted commented
     assert "CLITE_SESSION_CONTEXT" in script

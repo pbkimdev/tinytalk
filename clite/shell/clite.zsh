@@ -1,45 +1,87 @@
 # CLITE zsh integration (#35, PRD §8).
 # Install:  eval "$(clite init zsh)"   (or source this file from .zshrc)
 #
-# Type `? <what you want>` and press Enter: the validated command replaces your
-# editing buffer for review — CLITE never runs anything itself. Destructive
-# commands are inserted commented out.
+# Press `?` on an empty line to toggle AI mode: your prompt gains a colored
+# `AI` badge and the `?` is never inserted. Type what you want and press
+# Enter — the validated command replaces your editing buffer for review;
+# CLITE never runs anything itself. Destructive commands are inserted
+# commented out. Backspace on an empty line (or `?` again) leaves AI mode.
+
+typeset -g _CLITE_AI_MODE=0
+
+_clite_ai_on() {
+  _CLITE_AI_MODE=1
+  PREDISPLAY="AI "
+  region_highlight+=("P0 2 fg=cyan,bold")
+}
+
+_clite_ai_off() {
+  _CLITE_AI_MODE=0
+  PREDISPLAY=""
+  POSTDISPLAY=""
+  region_highlight=("${(@)region_highlight:#P0 2 *}")
+}
+
+# `?` at the start of an empty line toggles AI mode; anywhere else it is a
+# literal `?`.
+_clite_question() {
+  if [[ -z "$BUFFER" ]]; then
+    if (( _CLITE_AI_MODE )); then _clite_ai_off; else _clite_ai_on; fi
+  else
+    zle .self-insert
+  fi
+}
+zle -N _clite_question
+bindkey '?' _clite_question
+
+_clite_backspace() {
+  if (( _CLITE_AI_MODE )) && [[ -z "$BUFFER" ]]; then
+    _clite_ai_off
+  else
+    zle .backward-delete-char
+  fi
+}
+zle -N _clite_backspace
+bindkey '^?' _clite_backspace
+bindkey '^H' _clite_backspace
 
 _clite_accept_line() {
-  if [[ "$BUFFER" == \?* ]]; then
-    local request="${BUFFER#\?}"
-    request="${request# }"
-    if [[ -n "$request" ]]; then
-      zle -M "clite: thinking…"
-      local out
-      out="$(CLITE_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
-             command clite --widget -- "$request" 2>/dev/null)"
-      if [[ $? -ne 0 || -z "$out" ]]; then
-        zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
-        return 0
-      fi
-      local clite_command clite_danger clite_explanation
-      eval "$out"   # shlex-quoted assignments emitted by `clite --widget`
-      if [[ "$clite_danger" == "destructive" ]]; then
-        BUFFER="# DESTRUCTIVE — review, then remove the #: $clite_command"
-      else
-        BUFFER="$clite_command"
-      fi
-      CURSOR=${#BUFFER}
-      zle -M "[$clite_danger] $clite_explanation"
+  if (( _CLITE_AI_MODE )) && [[ -n "$BUFFER" ]]; then
+    # Progress indicator lives in POSTDISPLAY (inside the edit region): a mid-widget
+    # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by one
+    # row, so the replaced buffer overdraws the previous line. `zle -M` is only safe
+    # here at the very end of the widget, as part of one final redisplay.
+    POSTDISPLAY=" [thinking...]"
+    zle -R
+    local out rc
+    out="$(CLITE_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
+           command clite --widget -- "$BUFFER" 2>/dev/null)"
+    rc=$?
+    POSTDISPLAY=""
+    if [[ $rc -ne 0 || -z "$out" ]]; then
+      zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
       return 0
     fi
+    local clite_command clite_danger clite_explanation
+    eval "$out"   # shlex-quoted assignments emitted by `clite --widget`
+    _clite_ai_off
+    if [[ "$clite_danger" == "destructive" ]]; then
+      BUFFER="# DESTRUCTIVE — review, then remove the #: $clite_command"
+    else
+      BUFFER="$clite_command"
+    fi
+    CURSOR=${#BUFFER}
+    zle -M "[$clite_danger] $clite_explanation"
+    return 0
   fi
   zle .accept-line
 }
 zle -N accept-line _clite_accept_line
 
-# Visible prompt-mode indicator while the line starts with `?`.
-_clite_indicator() {
-  if [[ "$BUFFER" == \?* ]]; then
-    POSTDISPLAY=$'\n[clite prompt mode]'
-  elif [[ "$POSTDISPLAY" == $'\n[clite prompt mode]' ]]; then
-    POSTDISPLAY=""
-  fi
+# A fresh prompt never starts in AI mode (covers Ctrl-C mid-request).
+autoload -Uz add-zle-hook-widget
+_clite_line_init() {
+  (( _CLITE_AI_MODE )) && _clite_ai_off
+  return 0
 }
-zle -N zle-line-pre-redraw _clite_indicator
+add-zle-hook-widget line-init _clite_line_init
