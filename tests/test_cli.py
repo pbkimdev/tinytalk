@@ -83,3 +83,17 @@ def test_missing_config_is_actionable(tmp_path, capsys):
 def test_unknown_backend_flag_fails_cleanly(config_path, capsys):
     assert main(["--config", config_path, "--backend", "nope", "list"]) == 1
     assert "unknown backend" in capsys.readouterr().err
+
+
+def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
+    import clite.eval.runner as runner_mod
+
+    provider = StubProvider(
+        Capabilities(),
+        lambda request, i: Completion(text=json.dumps(PAYLOAD), usage=Usage(10, 5, 15)),
+    )
+    monkeypatch.setattr(runner_mod, "make_provider", lambda cfg: provider)
+    assert main(["eval", "--config", config_path, "--prompts", "list-by-size"]) == 0
+    out = capsys.readouterr().out
+    assert "backend" in out
+    assert "list-by-size" in out

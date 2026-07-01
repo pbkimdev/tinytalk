@@ -90,6 +90,30 @@ class _Segment:
     args: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ValidationReport:
+    """Per-step ladder outcome — the eval harness scores each step separately."""
+
+    parse_problem: str | None
+    binary_problems: tuple[str, ...]
+    flag_problems: tuple[str, ...]
+    danger: str
+
+    @property
+    def parses(self) -> bool:
+        return self.parse_problem is None
+
+    @property
+    def binaries_exist(self) -> bool:
+        return self.parses and not self.binary_problems
+
+    @property
+    def problems(self) -> tuple[str, ...]:
+        if self.parse_problem is not None:
+            return (self.parse_problem,)
+        return self.binary_problems + self.flag_problems
+
+
 class CommandValidator:
     """The tier controller's `Validator` hook. Callable: `Suggestion → ValidationResult`."""
 
@@ -99,22 +123,34 @@ class CommandValidator:
         self._shell = shutil.which("zsh") or shutil.which("sh")
 
     def __call__(self, suggestion: Suggestion) -> ValidationResult:
+        report = self.report(suggestion)
+        return ValidationResult(
+            ok=not report.problems, danger=report.danger, problems=report.problems
+        )
+
+    def report(self, suggestion: Suggestion) -> ValidationReport:
         command = suggestion.command
 
         parse_problem = self._check_parse(command)
         if parse_problem:
             # Unparseable — nothing further is meaningful; over-warn on danger.
-            return ValidationResult(
-                ok=False, danger=Danger.DESTRUCTIVE.value, problems=(parse_problem,)
+            return ValidationReport(
+                parse_problem=parse_problem,
+                binary_problems=(),
+                flag_problems=(),
+                danger=Danger.DESTRUCTIVE.value,
             )
 
         tokens = _tokenize(command)
         segments = _segments(tokens)
-        problems = self._check_binaries(segments) + self._check_flags(segments)
-
         danger = self._classify(command, tokens, segments)
         final = max(danger, suggestion.danger, key=_DANGER_ORDER.__getitem__)
-        return ValidationResult(ok=not problems, danger=final.value, problems=tuple(problems))
+        return ValidationReport(
+            parse_problem=None,
+            binary_problems=tuple(self._check_binaries(segments)),
+            flag_problems=tuple(self._check_flags(segments)),
+            danger=final.value,
+        )
 
     # -- ladder step 1: parse ---------------------------------------------------
     def _check_parse(self, command: str) -> str | None:
@@ -216,6 +252,11 @@ def _segment_danger(seg: _Segment) -> Danger:
     if name in _SAFE_COMMANDS or name in _BUILTINS or name in _KEYWORDS:
         return Danger.SAFE
     return Danger.CAUTION  # unknown commands: over-warn
+
+
+def command_words(command: str) -> list[str]:
+    """Command-position words, in order — used by the eval assertion DSL (#32)."""
+    return [seg.command for seg in _segments(_tokenize(command))]
 
 
 def _tokenize(command: str) -> list[str]:

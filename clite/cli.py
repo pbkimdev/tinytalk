@@ -38,13 +38,51 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_eval_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="clite eval",
+        description="Benchmark configured backends over the built-in prompt suite.",
+    )
+    parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/clite)")
+    parser.add_argument("--backends", metavar="A,B", help="backends to score (default: all)")
+    parser.add_argument("--prompts", metavar="ID,ID", help="run a subset of the suite")
+    parser.add_argument("--export", metavar="PATH", help="write results to a .json or .csv file")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if argv[:1] == ["eval"]:
+        return _eval(build_eval_parser().parse_args(argv[1:]))
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
         build_parser().print_help()
         return 0
     return _run(args, request_text)
+
+
+def _eval(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from clite.config import ConfigError, load_config
+    from clite.eval.runner import export, render_leaderboard, render_matrix, run_eval
+
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+        backends = args.backends.split(",") if args.backends else sorted(config.backends)
+        prompt_ids = args.prompts.split(",") if args.prompts else None
+        reports = run_eval(config, backends, prompt_ids=prompt_ids, cwd=os.getcwd())
+    except (ConfigError, ValueError) as exc:
+        print(f"clite: {exc}", file=sys.stderr)
+        return 1
+    print(render_leaderboard(reports))
+    print()
+    print(render_matrix(reports))
+    if args.export:
+        export(reports, Path(args.export))
+        print(f"\nresults written to {args.export}", file=sys.stderr)
+    return 0
 
 
 def _run(args: argparse.Namespace, request_text: str) -> int:
