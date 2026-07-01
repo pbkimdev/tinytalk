@@ -130,7 +130,10 @@ def test_factory_builds_openai_compat(tmp_path, monkeypatch):
     assert not provider.capabilities.supports_native_json
 
 
-def test_factory_claude_not_built_yet(tmp_path):
+def test_factory_builds_claude_agent(tmp_path):
+    from clite.provider.claude_agent import ClaudeAgentProvider
+
     cfg = load_config(write(tmp_path, GOOD))
-    with pytest.raises(ConfigError, match="#27"):
-        make_provider(cfg.backend("claude"))
+    provider = make_provider(cfg.backend("claude"))
+    assert isinstance(provider, ClaudeAgentProvider)
+    assert provider.capabilities.supports_native_json

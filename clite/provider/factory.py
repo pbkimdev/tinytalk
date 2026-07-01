@@ -30,7 +30,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             capabilities=_capabilities(cfg),
         )
     if cfg.kind == "claude-agent-sdk":
-        raise ConfigError(
-            f"backend {cfg.name!r}: the claude-agent-sdk adapter is not built yet (#27)"
-        )
+        from clite.provider.claude_agent import ClaudeAgentProvider
+
+        return ClaudeAgentProvider(model=cfg.model)
     raise ConfigError(f"backend {cfg.name!r}: unknown kind {cfg.kind!r}")
