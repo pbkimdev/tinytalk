@@ -52,6 +52,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     from pathlib import Path
 
     from clite.config import ConfigError, load_config
+    from clite.grounding import SystemGrounding
     from clite.provider.factory import make_provider
     from clite.tiers import NoValidCommand, TierController, TierRequest
 
@@ -63,7 +64,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         if config.escalation_backend and config.escalation_backend != backend_cfg.name:
             escalation_cfg = config.backend(config.escalation_backend)
             escalation = lambda: make_provider(escalation_cfg)  # noqa: E731 — deferred, lazy import
-        controller = TierController(provider, escalation=escalation)
+        controller = TierController(provider, escalation=escalation, grounding=SystemGrounding())
         request = TierRequest(prompt=request_text, cwd=os.getcwd())
         result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
