@@ -51,6 +51,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     import asyncio
     from pathlib import Path
 
+    from clite.cache import ExactCache
     from clite.config import ConfigError, load_config
     from clite.grounding import SystemGrounding
     from clite.provider.factory import make_provider
@@ -69,6 +70,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         controller = TierController(
             provider,
             escalation=escalation,
+            cache=ExactCache(config.cache_dir) if config.cache_enabled else None,
             grounding=grounding,
             validator=CommandValidator(grounding, cwd=os.getcwd()),
         )

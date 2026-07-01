@@ -15,6 +15,9 @@ backend = "local"
 kind = "openai-compat"
 base_url = "http://localhost:11434/v1"
 model = "test-model"
+
+[cache]
+enabled = false
 """
 
 PAYLOAD = {
