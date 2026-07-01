@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="emit the full suggestion as JSON")
     parser.add_argument(
+        "--widget",
+        action="store_true",
+        help="emit shell-evalable clite_* assignments (used by the zsh widget)",
+    )
+    parser.add_argument(
         "request",
         nargs="*",
         help="what you want to do, in plain English",
@@ -54,12 +59,25 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if argv[:1] == ["eval"]:
         return _eval(build_eval_parser().parse_args(argv[1:]))
+    if argv[:1] == ["init"]:
+        return _init(argv[1:])
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
         build_parser().print_help()
         return 0
     return _run(args, request_text)
+
+
+def _init(argv: list[str]) -> int:
+    """`clite init zsh` — print the shell integration script for eval/source."""
+    if argv != ["zsh"]:
+        print("usage: clite init zsh", file=sys.stderr)
+        return 2
+    from importlib.resources import files
+
+    print((files("clite") / "shell" / "clite.zsh").read_text(encoding="utf-8"), end="")
+    return 0
 
 
 def _eval(args: argparse.Namespace) -> int:
@@ -112,7 +130,12 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             grounding=grounding,
             validator=CommandValidator(grounding, cwd=os.getcwd()),
         )
-        request = TierRequest(prompt=request_text, cwd=os.getcwd())
+        session_context = os.environ.get("CLITE_SESSION_CONTEXT", "")
+        if session_context:
+            from clite.redact import redact
+
+            session_context = redact(session_context)
+        request = TierRequest(prompt=request_text, cwd=os.getcwd(), session_context=session_context)
         result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
         print(f"clite: {exc}", file=sys.stderr)
@@ -126,7 +149,19 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         print(f"clite: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    if args.json:
+    if args.widget:
+        import shlex
+
+        print(
+            "\n".join(
+                (
+                    f"clite_command={shlex.quote(result.suggestion.command)}",
+                    f"clite_danger={shlex.quote(result.validation.danger)}",
+                    f"clite_explanation={shlex.quote(result.suggestion.explanation)}",
+                )
+            )
+        )
+    elif args.json:
         print(
             json.dumps(
                 {
