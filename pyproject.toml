@@ -5,7 +5,7 @@ name = "clite"
 version = "0.0.1"
 description = "Turn plain English at the shell into a real, validated command."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{ name = "Paul B. Kim" }]
 # Runtime deps are added per provider/feature issue. The pivot makes the two
 # agent SDKs first-class backends (Claude Agent SDK, OpenAI Codex SDK), with a
