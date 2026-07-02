@@ -33,13 +33,15 @@ CLITE is built around fixing exactly those:
 
 ## Status
 
-Early. There's no working release yet — the core engine spine has started landing (a transport-agnostic
-provider seam, the structured-output contract, a strict `format_ok` parser, and the model-degradation
-chain), but it isn't wired to the CLI. The full picture lives in:
+v1 works end-to-end: `clite "what you want"` (or `?` in zsh) runs config → provider seam
+(Claude Agent SDK, or any OpenAI-compatible endpoint — Ollama, llama.cpp, MLX servers) → tier
+controller (T0 exact cache → T1 → T2) → capability grounding → validation & safety → a command
+in your editing buffer, never auto-run. `clite eval` benchmarks your configured backends on your
+own machine — format, assertions, danger calls, tokens, latency, cost over a 25-prompt suite
+(see the [v1 epic's closing evidence](https://github.com/paulbkim-dev/clite/issues/25)).
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
-- **[PRD.md](./docs/agents/PRD.md)** — the spec: how it decides, how it stays safe, how it's measured.
-- **[The issues](https://github.com/paulbkim-dev/clite/issues)** — v1, in progress.
+- **[The issues](https://github.com/paulbkim-dev/clite/issues)** — what's landed and what's next.
 
 ## How it'll work
 
