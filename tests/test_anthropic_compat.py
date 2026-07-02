@@ -6,15 +6,15 @@ import json
 import httpx
 import pytest
 
-from clite.contract import contract_json_schema
-from clite.provider.anthropic_compat import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.anthropic_compat import (
     AnthropicCompatProvider,
     ProviderHTTPError,
     ProviderResponseError,
     ProviderTransportError,
     list_models,
 )
-from clite.provider.base import (
+from tinytalk.provider.base import (
     Capabilities,
     CompletionRequest,
     Message,
@@ -31,7 +31,7 @@ VALID = {
     "confidence": 0.95,
     "needs": [],
 }
-MSGS = [Message(role=Role.SYSTEM, content="you are clite"), Message(role=Role.USER, content="list files")]
+MSGS = [Message(role=Role.SYSTEM, content="you are tt"), Message(role=Role.USER, content="list files")]
 
 
 def _run(coro):
@@ -104,7 +104,7 @@ def test_system_message_split_from_messages():
     prov, reqs = _provider(lambda req, i: httpx.Response(200, json=_envelope(blocks=[])))
     _run(prov.complete(CompletionRequest(MSGS)))
     body = _body(reqs[0])
-    assert body["system"] == "you are clite"
+    assert body["system"] == "you are tt"
     assert body["messages"] == [{"role": "user", "content": "list files"}]
 
 

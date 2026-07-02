@@ -1,6 +1,6 @@
-# AGENTS.md — CLITE
+# AGENTS.md — TinyTalk
 
-CLITE turns plain English at the shell into a real, validated command. New here? Read
+TinyTalk turns plain English at the shell into a real, validated command. New here? Read
 [README.md](./README.md); the intent lives in [VISION.md](./VISION.md).
 
 ## How we work
@@ -50,6 +50,6 @@ Only people with write access can trigger any of this; keep `main` behind branch
 - **Python** — managed with `uv`; installed as a CLI (`uv tool install` / `pipx`). The two agent
   SDKs (Claude Agent SDK, OpenAI Codex SDK) are first-class in-process backends, which is why this is
   Python and not Go.
-- We never let CLITE auto-run the shell commands it generates; the product always hands control back to
+- We never let TinyTalk auto-run the shell commands it generates; the product always hands control back to
   the user, and so do we when we script it.
 - Keep each change scoped to its issue.

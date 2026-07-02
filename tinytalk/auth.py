@@ -1,4 +1,4 @@
-"""`clite auth` — interactive provider setup wizard (PRD-provider-setup.md §7).
+"""`tt auth` — interactive provider setup wizard (PRD-provider-setup.md §7).
 
 Picks one provider kind, authenticates against it using that provider's own idiom, tests
 the credential with one real call (list-models where the provider has one, a minimal
@@ -14,7 +14,7 @@ config-field mapping, model/effort resolution, the TOML merge — is unit-testab
 scripted fake, while the real `questionary`-backed prompts are exercised by hand (DoD
 §8: scripting real keypresses against an interactive library isn't practical). Every
 `questionary`/`keyring`/adapter import here is lazy, matching the cold-start discipline
-applied everywhere else — `clite auth` is a deliberately occasional, heavier codepath,
+applied everywhere else — `tt auth` is a deliberately occasional, heavier codepath,
 but the module itself must stay cheap to import for `--version`/`--help`.
 """
 
@@ -196,7 +196,7 @@ def _setup_openai_compat(io: WizardIO, *, prober=None) -> BackendDraft | None:
         models, err = probe(base_url, api_key)
         if err is None:
             break
-        print(f"clite auth: credential test against {base_url} failed: {err}")
+        print(f"tt auth: credential test against {base_url} failed: {err}")
         if not _retry(io):
             return None
         base_url_default = base_url
@@ -232,7 +232,7 @@ def _setup_anthropic_compat(io: WizardIO, *, prober=None) -> BackendDraft | None
         models, err = probe(base_url, api_key)
         if err is None:
             break
-        print(f"clite auth: credential test against {base_url} failed: {err}")
+        print(f"tt auth: credential test against {base_url} failed: {err}")
         if not _retry(io):
             return None
         base_url_default = base_url
@@ -261,7 +261,7 @@ def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None
     probe = prober or _probe_claude_agent
     print(
         "Auth follows the Claude Agent SDK's own convention: an existing `claude` CLI "
-        "login, or ANTHROPIC_API_KEY set in your environment. clite manages no secret here."
+        "login, or ANTHROPIC_API_KEY set in your environment. tt manages no secret here."
     )
     model = _pick_model(io, list(_CLAUDE_CURATED_MODELS))
     if model is None:
@@ -269,9 +269,9 @@ def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None
     while True:
         err = probe(model)
         if err is None:
-            print("clite auth: Claude Agent SDK test call succeeded.")
+            print("tt auth: Claude Agent SDK test call succeeded.")
             break
-        print(f"clite auth: Claude Agent SDK test call failed: {err}")
+        print(f"tt auth: Claude Agent SDK test call failed: {err}")
         print("(log in with `claude` in another terminal, or export ANTHROPIC_API_KEY, then retry)")
         if not _retry(io):
             return None
@@ -288,14 +288,14 @@ def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendD
         return None
     if not already:
         api_key = io.password(
-            "OpenAI API key (persists into the Codex CLI's own login, not stored by clite):"
+            "OpenAI API key (persists into the Codex CLI's own login, not stored by tt):"
         )
         if not api_key:
             return None
         try:
             (login or _login_codex)(api_key)
         except Exception as exc:
-            print(f"clite auth: codex login failed: {exc}")
+            print(f"tt auth: codex login failed: {exc}")
             return None
 
     probe = prober or _probe_codex
@@ -303,7 +303,7 @@ def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendD
         models, err = probe()
         if err is None:
             break
-        print(f"clite auth: codex model discovery failed: {err}")
+        print(f"tt auth: codex model discovery failed: {err}")
         if not _retry(io):
             return None
 
@@ -329,7 +329,7 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
 
     models, err = probe(region, profile, None, None)
     if err is not None:
-        print(f"clite auth: bedrock credential test failed: {err}")
+        print(f"tt auth: bedrock credential test failed: {err}")
     secret = None
     if not models:
         use_explicit = io.confirm(
@@ -352,7 +352,7 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
                         }
                     )
                     break
-                print(f"clite auth: bedrock credential test failed: {err}")
+                print(f"tt auth: bedrock credential test failed: {err}")
                 if not _retry(io):
                     return None
 
@@ -363,7 +363,7 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
     if model is None:
         return None
 
-    from clite.provider.bedrock import is_claude_model
+    from tinytalk.provider.bedrock import is_claude_model
 
     is_claude = is_claude_model(model)
     effort = _pick_effort(io, ("low", "medium", "high")) if is_claude else None
@@ -400,9 +400,9 @@ def _setup_azure_openai(io: WizardIO, *, prober=None) -> BackendDraft | None:
             return None
         err = probe(endpoint, deployment, api_version, api_key)
         if err is None:
-            print("clite auth: Azure OpenAI test call succeeded.")
+            print("tt auth: Azure OpenAI test call succeeded.")
             break
-        print(f"clite auth: Azure OpenAI test call failed: {err}")
+        print(f"tt auth: Azure OpenAI test call failed: {err}")
         if not _retry(io):
             return None
 
@@ -437,7 +437,7 @@ _KIND_SETUP = {
 def _probe_openai_compat(base_url: str, api_key: str | None) -> tuple[list[str], str | None]:
     import asyncio
 
-    from clite.provider.openai_compat import list_models
+    from tinytalk.provider.openai_compat import list_models
 
     try:
         return asyncio.run(list_models(base_url, api_key=api_key)), None
@@ -448,7 +448,7 @@ def _probe_openai_compat(base_url: str, api_key: str | None) -> tuple[list[str],
 def _probe_anthropic_compat(base_url: str, api_key: str) -> tuple[list[dict], str | None]:
     import asyncio
 
-    from clite.provider.anthropic_compat import list_models
+    from tinytalk.provider.anthropic_compat import list_models
 
     try:
         return asyncio.run(list_models(base_url, api_key)), None
@@ -457,7 +457,7 @@ def _probe_anthropic_compat(base_url: str, api_key: str) -> tuple[list[dict], st
 
 
 def _probe_codex() -> tuple[list, str | None]:
-    from clite.provider.codex_agent import list_models
+    from tinytalk.provider.codex_agent import list_models
 
     try:
         return list_models(), None
@@ -466,7 +466,7 @@ def _probe_codex() -> tuple[list, str | None]:
 
 
 def _login_codex(api_key: str) -> None:
-    from clite.provider.codex_agent import login_api_key
+    from tinytalk.provider.codex_agent import login_api_key
 
     login_api_key(api_key)
 
@@ -474,7 +474,7 @@ def _login_codex(api_key: str) -> None:
 def _probe_bedrock(
     region: str, profile: str | None, access_key_id: str | None, secret_access_key: str | None
 ) -> tuple[list[dict], str | None]:
-    from clite.provider.bedrock import list_foundation_models
+    from tinytalk.provider.bedrock import list_foundation_models
 
     try:
         return (
@@ -493,8 +493,8 @@ def _probe_bedrock(
 def _probe_claude_agent(model: str) -> str | None:
     import asyncio
 
-    from clite.provider.base import CompletionRequest, Message, Role
-    from clite.provider.claude_agent import ClaudeAgentProvider
+    from tinytalk.provider.base import CompletionRequest, Message, Role
+    from tinytalk.provider.claude_agent import ClaudeAgentProvider
 
     provider = ClaudeAgentProvider(model=model)
     request = CompletionRequest(
@@ -512,8 +512,8 @@ def _probe_azure_openai(
 ) -> str | None:
     import asyncio
 
-    from clite.provider.azure_openai import AzureOpenAIProvider
-    from clite.provider.base import CompletionRequest, Message, Role
+    from tinytalk.provider.azure_openai import AzureOpenAIProvider
+    from tinytalk.provider.base import CompletionRequest, Message, Role
 
     provider = AzureOpenAIProvider(endpoint, deployment, api_version, api_key=api_key)
     request = CompletionRequest(
@@ -561,7 +561,7 @@ def _suggest_name(existing: list[str]) -> str:
 def _store_secret(account: str, value: str) -> None:
     import keyring
 
-    keyring.set_password("clite", account, value)
+    keyring.set_password("tinytalk", account, value)
 
 
 # --- config.toml read-modify-write (tomlkit; preserves everything else untouched) ---

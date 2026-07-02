@@ -7,10 +7,10 @@ import json
 
 import pytest
 
-from clite.contract import Danger
-from clite.engine import generate
-from clite.provider.base import CompletionRequest, Message, ResponseFormat, Role
-from clite.provider.claude_agent import ClaudeAgentError, ClaudeAgentProvider
+from tinytalk.contract import Danger
+from tinytalk.engine import generate
+from tinytalk.provider.base import CompletionRequest, Message, ResponseFormat, Role
+from tinytalk.provider.claude_agent import ClaudeAgentError, ClaudeAgentProvider
 
 PAYLOAD = {
     "command": "du -h -d1 . | sort -hr | head -20",
@@ -50,7 +50,7 @@ def fake_query(*messages, capture=None):
 def request(fmt=ResponseFormat.JSON_OBJECT, **kwargs):
     return CompletionRequest(
         messages=[
-            Message(Role.SYSTEM, "you are clite"),
+            Message(Role.SYSTEM, "you are tt"),
             Message(Role.USER, "disk usage"),
         ],
         response_format=fmt,
@@ -78,11 +78,11 @@ def test_structured_output_surfaces_as_json_text():
     assert completion.model == "claude-sonnet-5"
     # request mapping: system → system_prompt, user → prompt, schema requested
     assert capture["prompt"] == "disk usage"
-    assert capture["options"].system_prompt == "you are clite"
+    assert capture["options"].system_prompt == "you are tt"
     assert capture["options"].output_format == {
         "type": "json_schema",
         "schema": __import__(
-            "clite.contract", fromlist=["contract_json_schema"]
+            "tinytalk.contract", fromlist=["contract_json_schema"]
         ).contract_json_schema(),
     }
 

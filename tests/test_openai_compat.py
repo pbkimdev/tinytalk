@@ -12,9 +12,9 @@ import json
 import httpx
 import pytest
 
-from clite.contract import contract_json_schema
-from clite.engine import generate
-from clite.provider.base import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.engine import generate
+from tinytalk.provider.base import (
     Capabilities,
     CompletionRequest,
     Message,
@@ -23,7 +23,7 @@ from clite.provider.base import (
     Role,
     Tool,
 )
-from clite.provider.openai_compat import (
+from tinytalk.provider.openai_compat import (
     OpenAICompatProvider,
     ProviderHTTPError,
     ProviderResponseError,

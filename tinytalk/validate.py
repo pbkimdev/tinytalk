@@ -18,9 +18,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from clite.contract import Danger, Suggestion
-from clite.grounding import SystemGrounding
-from clite.tiers import ValidationResult
+from tinytalk.contract import Danger, Suggestion
+from tinytalk.grounding import SystemGrounding
+from tinytalk.tiers import ValidationResult
 
 _PARSE_TIMEOUT = 3.0
 

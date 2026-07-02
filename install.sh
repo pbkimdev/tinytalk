@@ -1,5 +1,5 @@
 #!/bin/sh
-# CLITE installer (#58) — install the CLI, scaffold config, wire the zsh widget.
+# TinyTalk installer (#58) — install the CLI, scaffold config, wire the zsh widget.
 #
 #   ./install.sh [--yes] [--no-rc]
 #
@@ -7,7 +7,7 @@
 #   --no-rc  never touch ~/.zshrc
 #
 # This script installs and configures only. It never runs a generated command
-# and never edits your shell config without asking — same posture as CLITE.
+# and never edits your shell config without asking — same posture as TinyTalk.
 
 set -eu
 
@@ -28,34 +28,34 @@ REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # 1. Install the CLI from this clone.
 if command -v uv >/dev/null 2>&1; then
-  say "installing clite with uv from $REPO_DIR ..."
+  say "installing TinyTalk with uv from $REPO_DIR ..."
   uv tool install --force "$REPO_DIR"
 elif command -v pipx >/dev/null 2>&1; then
-  say "uv not found; installing clite with pipx from $REPO_DIR ..."
+  say "uv not found; installing TinyTalk with pipx from $REPO_DIR ..."
   pipx install --force "$REPO_DIR"
 else
-  say "install.sh: need uv (preferred) or pipx to install clite." >&2
+  say "install.sh: need uv (preferred) or pipx to install TinyTalk." >&2
   say "  get uv: https://docs.astral.sh/uv/getting-started/installation/" >&2
   exit 1
 fi
 
 # 2. Verify the binary resolves.
-if command -v clite >/dev/null 2>&1; then
-  say "installed: $(clite --version)"
+if command -v tt >/dev/null 2>&1; then
+  say "installed: $(tt --version)"
 else
-  say "clite installed but not on \$PATH — add this to your shell profile:" >&2
+  say "tt installed but not on \$PATH — add this to your shell profile:" >&2
   say '  export PATH="$HOME/.local/bin:$PATH"' >&2
 fi
 
 # 3. Scaffold the config — only if missing, never overwrite.
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/clite"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tinytalk"
 CONFIG="$CONFIG_DIR/config.toml"
 if [ -f "$CONFIG" ]; then
   say "config: $CONFIG already exists — left untouched"
 else
   mkdir -p "$CONFIG_DIR"
   cat > "$CONFIG" <<'EOF'
-# CLITE config — backends, posture, cache, prices (see clite/config.py).
+# TinyTalk config — backends, posture, cache, prices (see tinytalk/config.py).
 [defaults]
 backend = "claude"
 posture = "hybrid"
@@ -82,12 +82,12 @@ EOF
 fi
 
 # 4. Wire the ? widget into .zshrc — consent-gated, marker-guarded, idempotent.
-MARKER="# clite zsh integration (added by install.sh)"
+MARKER="# tt zsh integration (added by install.sh)"
 ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 if [ "$NO_RC" = 1 ]; then
-  say "zsh: skipped (--no-rc); enable any time with: eval \"\$(clite init zsh)\""
-elif ! clite init zsh >/dev/null 2>&1; then
-  say "zsh: this clite build doesn't support 'init zsh' yet — skipped."
+  say "zsh: skipped (--no-rc); enable any time with: eval \"\$(tt init zsh)\""
+elif ! tt init zsh >/dev/null 2>&1; then
+  say "zsh: this tt build doesn't support 'init zsh' yet — skipped."
   say "     update the clone and re-run ./install.sh to wire the ? widget."
 elif [ -f "$ZSHRC" ] && grep -qF "$MARKER" "$ZSHRC"; then
   say "zsh: $ZSHRC already wired — left untouched"
@@ -102,15 +102,15 @@ else
     y|Y|yes)
       {
         printf '\n%s\n' "$MARKER"
-        printf 'eval "$(clite init zsh)"\n'
+        printf 'eval "$(tt init zsh)"\n'
       } >>"$ZSHRC"
       say "zsh: added the ? widget to $ZSHRC (takes effect in new shells)"
       ;;
-    *) say "zsh: skipped; enable any time with: eval \"\$(clite init zsh)\"" ;;
+    *) say "zsh: skipped; enable any time with: eval \"\$(tt init zsh)\"" ;;
   esac
 fi
 
 say ""
-say 'done. try:   clite "list files by size"      or, in a new shell:   ? show my disk usage'
-say "benchmark:   clite eval"
-say "uninstall:   uv tool uninstall clite   (and remove the marker block from $ZSHRC)"
+say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my disk usage'
+say "benchmark:   tt eval"
+say "uninstall:   uv tool uninstall tinytalk   (and remove the marker block from $ZSHRC)"

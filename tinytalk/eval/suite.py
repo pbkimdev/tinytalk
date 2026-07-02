@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from clite.validate import command_words
+from tinytalk.validate import command_words
 
 
 @dataclass(frozen=True)

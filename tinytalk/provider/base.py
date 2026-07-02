@@ -1,4 +1,4 @@
-"""Transport-agnostic provider seam for CLITE.
+"""Transport-agnostic provider seam for TinyTalk.
 
 Mirrors the proven Go #8 transport (`Name()`/`Complete`, `Request`/`Response`/
 `Usage`/`Message`/`Tool`/`ToolCall`/`ResponseFormat`) in Python idiom. The seam is

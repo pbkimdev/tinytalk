@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from clite.provider.base import (
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,

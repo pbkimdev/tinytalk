@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 import stat
 
-from clite.grounding import SystemGrounding, host_facts, installed_binaries
-from clite.tiers import TierRequest
+from tinytalk.grounding import SystemGrounding, host_facts, installed_binaries
+from tinytalk.tiers import TierRequest
 
 
 def make_exe(directory, name, body='#!/bin/sh\necho "usage: fake [-x] [-y FILE]"\n'):

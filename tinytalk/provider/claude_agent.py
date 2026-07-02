@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Callable
 
-from clite.provider.base import (
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
@@ -106,7 +106,7 @@ class ClaudeAgentProvider:
 
 
 def _contract_schema() -> dict:
-    from clite.contract import contract_json_schema
+    from tinytalk.contract import contract_json_schema
 
     return contract_json_schema()
 

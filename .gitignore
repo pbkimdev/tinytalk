@@ -17,7 +17,7 @@ venv/
 .env
 *.local
 
-# CLITE local runtime caches
+# TinyTalk local runtime caches
 /.cache/
 
 # OS / editor

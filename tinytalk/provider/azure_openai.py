@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import httpx
 
-from clite.provider.base import Capabilities
-from clite.provider.openai_compat import OpenAICompatProvider
+from tinytalk.provider.base import Capabilities
+from tinytalk.provider.openai_compat import OpenAICompatProvider
 
 
 class AzureOpenAIProvider(OpenAICompatProvider):

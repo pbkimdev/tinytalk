@@ -1,5 +1,5 @@
-from clite.contract import Danger, Suggestion, contract_json_schema
-from clite.parsing import parse_payload
+from tinytalk.contract import Danger, Suggestion, contract_json_schema
+from tinytalk.parsing import parse_payload
 
 
 def test_danger_values():

@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from clite.contract import contract_json_schema
-from clite.provider.base import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.base import (
     Capabilities,
     CompletionRequest,
     Message,
@@ -17,9 +17,9 @@ from clite.provider.base import (
     Role,
     Tool,
 )
-from clite.provider.bedrock import BedrockError, BedrockProvider, list_foundation_models
+from tinytalk.provider.bedrock import BedrockError, BedrockProvider, list_foundation_models
 
-MSGS = [Message(Role.SYSTEM, "you are clite"), Message(Role.USER, "list files")]
+MSGS = [Message(Role.SYSTEM, "you are tt"), Message(Role.USER, "list files")]
 
 
 class FakeRuntimeClient:
@@ -75,7 +75,7 @@ def test_system_message_split():
     prov = BedrockProvider("some-model", region="us-east-1", client=client)
     _run(prov.complete(CompletionRequest(MSGS)))
     payload = client.calls[0]
-    assert payload["system"] == [{"text": "you are clite"}]
+    assert payload["system"] == [{"text": "you are tt"}]
     assert payload["messages"] == [{"role": "user", "content": [{"text": "list files"}]}]
 
 

@@ -11,7 +11,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 INSTALL = REPO / "install.sh"
-MARKER = "# clite zsh integration (added by install.sh)"
+MARKER = "# tt zsh integration (added by install.sh)"
 
 
 def make_exe(directory: Path, name: str, body: str) -> Path:
@@ -23,7 +23,7 @@ def make_exe(directory: Path, name: str, body: str) -> Path:
 
 @pytest.fixture
 def sandbox(tmp_path):
-    """Fake HOME plus a bin dir with stub `uv` and `clite` on an isolated PATH."""
+    """Fake HOME plus a bin dir with stub `uv` and `tt` on an isolated PATH."""
     home = tmp_path / "home"
     home.mkdir()
     fakebin = tmp_path / "bin"
@@ -32,8 +32,8 @@ def sandbox(tmp_path):
     make_exe(fakebin, "uv", f'#!/bin/sh\necho "$@" >> "{uv_log}"\nexit 0\n')
     make_exe(
         fakebin,
-        "clite",
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "clite 0.0.1"; fi\nexit 0\n',
+        "tt",
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
     )
     env = {
         "HOME": str(home),
@@ -61,18 +61,18 @@ def test_install_scaffolds_and_wires(sandbox):
     # the CLI was installed from the repo clone via uv
     assert f"tool install --force {REPO}" in uv_log.read_text()
 
-    config = home / ".config" / "clite" / "config.toml"
+    config = home / ".config" / "tinytalk" / "config.toml"
     assert "[defaults]" in config.read_text()
 
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(MARKER) == 1
-    assert 'eval "$(clite init zsh)"' in zshrc
+    assert 'eval "$(tt init zsh)"' in zshrc
 
 
 def test_second_run_changes_nothing(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes").returncode == 0
-    config = home / ".config" / "clite" / "config.toml"
+    config = home / ".config" / "tinytalk" / "config.toml"
     zshrc = home / ".zshrc"
     config_before, zshrc_before = config.read_text(), zshrc.read_text()
 
@@ -85,7 +85,7 @@ def test_second_run_changes_nothing(sandbox):
 
 def test_existing_config_and_zshrc_content_untouched(sandbox):
     home, env, _ = sandbox
-    config_dir = home / ".config" / "clite"
+    config_dir = home / ".config" / "tinytalk"
     config_dir.mkdir(parents=True)
     (config_dir / "config.toml").write_text("# my precious config\n")
     (home / ".zshrc").write_text("# my precious zshrc\n")
@@ -119,11 +119,11 @@ def test_prompt_defaults_to_no(sandbox):
 
 def test_rc_step_self_skips_without_init_zsh(sandbox, tmp_path):
     home, env, _ = sandbox
-    # a clite build whose `init zsh` fails (pre-#57 skeleton)
+    # a tt build whose `init zsh` fails (pre-#57 skeleton)
     make_exe(
         Path(env["PATH"].split(os.pathsep)[0]),
-        "clite",
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "clite 0.0.1"; exit 0; fi\nexit 1\n',
+        "tt",
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; exit 0; fi\nexit 1\n',
     )
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
@@ -135,7 +135,7 @@ def test_fails_actionably_without_uv_or_pipx(sandbox, tmp_path):
     home, env, _ = sandbox
     emptybin = tmp_path / "emptybin"
     emptybin.mkdir()
-    env["PATH"] = f"{emptybin}:/usr/bin:/bin"  # no uv, no pipx, no clite
+    env["PATH"] = f"{emptybin}:/usr/bin:/bin"  # no uv, no pipx, no tt
     proc = run_install(env, "--yes")
     assert proc.returncode == 1
     assert "uv" in proc.stderr

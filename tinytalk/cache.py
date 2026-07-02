@@ -15,16 +15,16 @@ import platform
 import re
 from pathlib import Path
 
-from clite.contract import Suggestion
-from clite.parsing import FormatError, parse_payload
-from clite.tiers import TierRequest
+from tinytalk.contract import Suggestion
+from tinytalk.parsing import FormatError, parse_payload
+from tinytalk.tiers import TierRequest
 
 _WS = re.compile(r"\s+")
 
 
 def default_cache_dir() -> Path:
     xdg = os.environ.get("XDG_CACHE_HOME") or "~/.cache"
-    return Path(xdg).expanduser() / "clite"
+    return Path(xdg).expanduser() / "tinytalk"
 
 
 def _os_fingerprint() -> str:

@@ -1,9 +1,9 @@
 """OpenAI-compatible provider adapter (#29).
 
-Implements the `Provider` seam (`clite.provider.base`) over any OpenAI-compatible
+Implements the `Provider` seam (`tinytalk.provider.base`) over any OpenAI-compatible
 `POST {base_url}/chat/completions` endpoint, so the degradation chain
-(`clite.engine.generate`) can drive a local backend (Ollama / llama.cpp) end to end
-and the strict parser (`clite.parsing`) can turn the reply into a `Suggestion`.
+(`tinytalk.engine.generate`) can drive a local backend (Ollama / llama.cpp) end to end
+and the strict parser (`tinytalk.parsing`) can turn the reply into a `Suggestion`.
 
 A pure leaf: it maps the engine's per-rung `CompletionRequest` onto the wire and the
 reply back to a `Completion`. It never judges *content* — a clean HTTP 200 whose body
@@ -17,8 +17,8 @@ import json
 
 import httpx
 
-from clite.contract import contract_json_schema
-from clite.provider.base import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
@@ -215,7 +215,7 @@ class OpenAICompatProvider:
 async def list_models(
     base_url: str, *, api_key: str | None = None, client: httpx.AsyncClient | None = None
 ) -> list[str]:
-    """`GET {base_url}/models` — used by `clite auth` for live model discovery."""
+    """`GET {base_url}/models` — used by `tt auth` for live model discovery."""
     headers = {}
     if api_key and api_key.strip():
         headers["Authorization"] = f"Bearer {api_key}"

@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-import clite.provider.factory as factory
-from clite.cli import build_parser, main
-from clite.provider.base import Capabilities, Completion, Usage
+import tinytalk.provider.factory as factory
+from tinytalk.cli import build_parser, main
+from tinytalk.provider.base import Capabilities, Completion, Usage
 from tests.stubs import StubProvider
 
 CONFIG = """\
@@ -53,7 +53,7 @@ def test_version_exits_zero():
 
 def test_no_request_prints_help_and_succeeds(capsys):
     assert main([]) == 0
-    assert "clite" in capsys.readouterr().out.lower()
+    assert "tt" in capsys.readouterr().out.lower()
 
 
 def test_request_prints_command_to_stdout(config_path, stub_backend, capsys):
@@ -86,7 +86,7 @@ def test_unknown_backend_flag_fails_cleanly(config_path, capsys):
 
 
 def test_auth_subcommand_success(tmp_path, monkeypatch, capsys):
-    import clite.auth as auth_mod
+    import tinytalk.auth as auth_mod
 
     monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: "local")
     config_path = tmp_path / "config.toml"
@@ -99,7 +99,7 @@ def test_auth_subcommand_success(tmp_path, monkeypatch, capsys):
 
 
 def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
-    import clite.auth as auth_mod
+    import tinytalk.auth as auth_mod
 
     monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: None)
     assert main(["auth", "--config", str(tmp_path / "config.toml")]) == 1
@@ -107,7 +107,7 @@ def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
 
 
 def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
-    import clite.eval.runner as runner_mod
+    import tinytalk.eval.runner as runner_mod
 
     provider = StubProvider(
         Capabilities(),

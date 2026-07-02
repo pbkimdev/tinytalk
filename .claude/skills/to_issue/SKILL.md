@@ -1,15 +1,15 @@
 ---
 name: to_issue
-description: Turn a requirement into a properly-contextualized GitHub issue for the CLITE repo, in this repo's mandated review-friendly format. Use when the user wants to create, draft, file, or open an issue here, or convert a requirement / feature / bug / spike into a clite GitHub issue.
+description: Turn a requirement into a properly-contextualized GitHub issue for the TinyTalk repo, in this repo's mandated review-friendly format. Use when the user wants to create, draft, file, or open an issue here, or convert a requirement / feature / bug / spike into a TinyTalk GitHub issue.
 ---
 
-# to_issue — CLITE issue authoring
+# to_issue — TinyTalk issue authoring
 
 Turn a requirement (feature, bug, chore, spike) into a GitHub issue in this repo that a reviewer can
 fully judge **without chasing external context**. Every issue MUST follow the template below.
 
 ## When to use
-The user gives a requirement and wants it filed as a GitHub issue in the `clite` repo, or asks to
+The user gives a requirement and wants it filed as a GitHub issue in the TinyTalk repo, or asks to
 draft / create / file / open an issue here.
 
 ## Workflow

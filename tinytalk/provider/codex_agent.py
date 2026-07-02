@@ -3,8 +3,8 @@
 Implements the `Provider` seam over `openai_codex.Codex` — a thin wrapper that drives a
 local `codex` CLI binary via JSON-RPC, not an HTTP client to a "Codex API". Auth is
 stateful, not per-call: `login_api_key()` persists a key into the SDK's own local
-storage, or an existing local Codex CLI session is reused — clite manages no secret
-here. The SDK (and its bundled CLI binary) is an optional extra (`clite[codex]`) and is
+storage, or an existing local Codex CLI session is reused — tt manages no secret
+here. The SDK (and its bundled CLI binary) is an optional extra (`tinytalk[codex]`) and is
 imported lazily so unselected backends never pay for it.
 
 `openai-codex` is pre-1.0 (0.1.0b3 at time of writing) — its API surface may shift; this
@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 
-from clite.provider.base import (
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
@@ -33,7 +33,7 @@ EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh")
 # codex_factory() -> a context-manager yielding a Codex-like object; injectable for tests.
 CodexFactory = Callable[[], object]
 
-_INSTALL_HINT = "openai-codex is not installed; `uv sync --extra codex` (or pip install 'clite[codex]')"
+_INSTALL_HINT = "openai-codex is not installed; `uv sync --extra codex` (or pip install 'tinytalk[codex]')"
 
 
 class CodexAgentError(ProviderError):
@@ -96,7 +96,7 @@ def _open_codex(codex_factory: CodexFactory | None):
 
 
 def list_models(*, codex_factory: CodexFactory | None = None, include_hidden: bool = True) -> list:
-    """`codex.models(include_hidden=True)` — used by `clite auth` for live model discovery."""
+    """`codex.models(include_hidden=True)` — used by `tt auth` for live model discovery."""
     with _open_codex(codex_factory) as codex:
         return codex.models(include_hidden=include_hidden)
 
@@ -104,7 +104,7 @@ def list_models(*, codex_factory: CodexFactory | None = None, include_hidden: bo
 def login_api_key(api_key: str, *, codex_factory: CodexFactory | None = None) -> None:
     """`codex.login_api_key(key)` — persists the key into the SDK's own local storage.
 
-    clite never stores this secret itself; the Codex CLI's own local session takes over
+    tt never stores this secret itself; the Codex CLI's own local session takes over
     after this call, same as reusing an existing ChatGPT/device-code login.
     """
     with _open_codex(codex_factory) as codex:
@@ -112,7 +112,7 @@ def login_api_key(api_key: str, *, codex_factory: CodexFactory | None = None) ->
 
 
 def _contract_schema() -> dict:
-    from clite.contract import contract_json_schema
+    from tinytalk.contract import contract_json_schema
 
     return contract_json_schema()
 

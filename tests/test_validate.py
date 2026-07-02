@@ -6,9 +6,9 @@ import subprocess
 
 import pytest
 
-import clite.validate as validate_mod
-from clite.contract import Danger, Suggestion
-from clite.validate import CommandValidator
+import tinytalk.validate as validate_mod
+from tinytalk.contract import Danger, Suggestion
+from tinytalk.validate import CommandValidator
 
 # Every binary the test corpus mentions — the validator sees a fixed world.
 BINARIES = frozenset(

@@ -1,4 +1,4 @@
-"""Shell integration (#35): redaction, `clite init zsh`, `--widget` output."""
+"""Shell integration (#35): redaction, `tt init zsh`, `--widget` output."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import subprocess
 
 import pytest
 
-from clite.cli import main
-from clite.redact import redact
+from tinytalk.cli import main
+from tinytalk.redact import redact
 
 # --- redaction ----------------------------------------------------------------
 
@@ -50,17 +50,17 @@ def test_context_is_capped():
     assert len(redact("x" * 10_000)) == 2000
 
 
-# --- clite init zsh -------------------------------------------------------------
+# --- tt init zsh -------------------------------------------------------------
 
 
 def test_init_zsh_prints_widget(capsys):
     assert main(["init", "zsh"]) == 0
     script = capsys.readouterr().out
-    assert "zle -N accept-line _clite_accept_line" in script
-    assert "bindkey '?' _clite_question" in script  # `?` on empty line toggles AI mode
-    assert "clite --widget" in script
+    assert "zle -N accept-line _tt_accept_line" in script
+    assert "bindkey '?' _tt_question" in script  # `?` on empty line toggles AI mode
+    assert "tt --widget" in script
     assert "DESTRUCTIVE" in script  # destructive commands inserted commented
-    assert "CLITE_SESSION_CONTEXT" in script
+    assert "TT_SESSION_CONTEXT" in script
 
 
 def test_init_unknown_shell_fails(capsys):
@@ -102,8 +102,8 @@ PAYLOAD = {
 
 @pytest.fixture
 def stubbed_cli(tmp_path, monkeypatch):
-    import clite.provider.factory as factory
-    from clite.provider.base import Capabilities, Completion
+    import tinytalk.provider.factory as factory
+    from tinytalk.provider.base import Capabilities, Completion
     from tests.stubs import StubProvider
 
     config = tmp_path / "config.toml"
@@ -117,11 +117,11 @@ def test_widget_output_is_shell_evalable(stubbed_cli, capsys):
     config, _ = stubbed_cli
     assert main(["--config", config, "--widget", "find", "big", "logs"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("clite_command=")
-    assert "clite_danger=safe" in out
+    assert out.startswith("tt_command=")
+    assert "tt_danger=safe" in out
     if shutil.which("zsh"):
         proc = subprocess.run(
-            ["zsh", "-c", 'eval "$1"; print -r -- "$clite_command"', "_", out],
+            ["zsh", "-c", 'eval "$1"; print -r -- "$tt_command"', "_", out],
             capture_output=True,
             text=True,
         )
@@ -131,7 +131,7 @@ def test_widget_output_is_shell_evalable(stubbed_cli, capsys):
 
 def test_session_context_reaches_model_redacted(stubbed_cli, capsys, monkeypatch):
     config, provider = stubbed_cli
-    monkeypatch.setenv("CLITE_SESSION_CONTEXT", "export API_KEY=sk-verysecretkey12345678\nls -la")
+    monkeypatch.setenv("TT_SESSION_CONTEXT", "export API_KEY=sk-verysecretkey12345678\nls -la")
     assert main(["--config", config, "find", "big", "logs"]) == 0
     user_message = provider.requests[0].messages[1].content
     assert "Recent commands in this session" in user_message

@@ -6,8 +6,8 @@ import json
 
 import httpx
 
-from clite.provider.azure_openai import AzureOpenAIProvider
-from clite.provider.base import CompletionRequest, Message, Provider, Role
+from tinytalk.provider.azure_openai import AzureOpenAIProvider
+from tinytalk.provider.base import CompletionRequest, Message, Provider, Role
 
 MSGS = [Message(role=Role.USER, content="list files")]
 

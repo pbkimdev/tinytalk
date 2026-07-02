@@ -1,0 +1,36 @@
+#!/bin/sh
+# Fake `tt --widget` for shell-UI testing: canned responses after a delay.
+# The Nth call prints ${TT_STUB_RESPONSES}/N verbatim; a missing file exits 1,
+# which exercises the widget's error path. Without TT_STUB_RESPONSES set, three
+# built-in responses: a safe echo greeting, a safe du pipeline, then a command
+# containing the history-expansion hazard `.[!.]*` (#62).
+# Env: TT_STUB_STATE (call-counter file), TT_STUB_DELAY (seconds, default 1).
+state="${TT_STUB_STATE:-${TMPDIR:-/tmp}/tt-stub-count}"
+n=$(cat "$state" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" > "$state"
+sleep "${TT_STUB_DELAY:-1}"
+if [ -n "${TT_STUB_RESPONSES:-}" ]; then
+  cat "$TT_STUB_RESPONSES/$n" 2>/dev/null || exit 1
+  exit 0
+fi
+case "$n" in
+  1) cat <<'EOF'
+tt_command='echo "Hello! I'\''m TinyTalk — tell me what you'\''d like to do and I'\''ll turn it into a shell command."'
+tt_danger=safe
+tt_explanation='Prints a greeting message.'
+EOF
+  ;;
+  2) cat <<'EOF'
+tt_command='du -h -d 1 . | sort -rh | head -n 3'
+tt_danger=safe
+tt_explanation='Lists disk usage of each item one level deep in the current directory (~), in human-readable sizes, sorted largest first, showing only the top 3.'
+EOF
+  ;;
+  *) cat <<'EOF'
+tt_command='print -r ok-histexpand .[!.]*(N)'
+tt_danger=safe
+tt_explanation='Prints a marker plus any hidden entries (nullglob).'
+EOF
+  ;;
+esac

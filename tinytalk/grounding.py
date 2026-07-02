@@ -15,7 +15,7 @@ import re
 import shutil
 import subprocess
 
-from clite.tiers import TierRequest
+from tinytalk.tiers import TierRequest
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
 _HELP_TIMEOUT = 3.0
@@ -114,7 +114,7 @@ class SystemGrounding:
             f"- {name}: {desc}" for name, desc in CURATED_TOOLS.items() if name in self.binaries
         ]
         return (
-            "You are CLITE. Turn the user's plain-English request into exactly one "
+            "You are TinyTalk. Turn the user's plain-English request into exactly one "
             "runnable shell command (a pipeline counts as one command) for their system.\n"
             f"{host_facts()}\n\n"
             "Installed tools you should prefer (with their key flags):\n"

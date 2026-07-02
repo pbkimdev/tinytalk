@@ -4,11 +4,11 @@ Implements the `Provider` seam over `bedrock-runtime`'s `converse()` API, which 
 tool-calling across model vendors closely enough to mirror the Anthropic Messages API
 shape (`toolConfig`/`toolUse` vs. `tools`/`tool_use`). boto3 is synchronous; calls run in
 a thread via `asyncio.to_thread` so they don't block the event loop. `boto3` is an
-optional extra (`clite[bedrock]`) and is imported lazily so unselected backends never
+optional extra (`tinytalk[bedrock]`) and is imported lazily so unselected backends never
 pay for it.
 
 Credentials default to boto3's own chain (env vars, `~/.aws/credentials`, IAM role) via
-`region`/`profile` — no secret for clite to manage. An explicit access-key pair is a
+`region`/`profile` — no secret for tt to manage. An explicit access-key pair is a
 fallback for when that chain doesn't apply.
 """
 
@@ -17,8 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 
-from clite.contract import contract_json_schema
-from clite.provider.base import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
@@ -39,7 +39,7 @@ def is_claude_model(model: str) -> bool:
     """Claude on Bedrock: 'anthropic.claude-*' or a cross-region profile 'us.anthropic.claude-*'."""
     return "anthropic." in model
 
-_INSTALL_HINT = "boto3 is not installed; `uv sync --extra bedrock` (or pip install 'clite[bedrock]')"
+_INSTALL_HINT = "boto3 is not installed; `uv sync --extra bedrock` (or pip install 'tinytalk[bedrock]')"
 
 
 class BedrockError(ProviderError):
@@ -217,7 +217,7 @@ def list_foundation_models(
     aws_secret_access_key: str | None = None,
     client: object | None = None,
 ) -> list[dict]:
-    """`bedrock.list_foundation_models()` — used by `clite auth` for live model discovery.
+    """`bedrock.list_foundation_models()` — used by `tt auth` for live model discovery.
 
     Lists the region's model *catalog*, not confirmed per-account entitlement (PRD §3) —
     an unauthorized model choice surfaces as a runtime error on first real use, not here.

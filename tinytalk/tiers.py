@@ -18,10 +18,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
-from clite.contract import Suggestion
-from clite.engine import Generation, generate
-from clite.parsing import FormatError
-from clite.provider.base import Message, Provider, ProviderError, Role, Usage
+from tinytalk.contract import Suggestion
+from tinytalk.engine import Generation, generate
+from tinytalk.parsing import FormatError
+from tinytalk.provider.base import Message, Provider, ProviderError, Role, Usage
 
 
 @dataclass(frozen=True)
@@ -83,7 +83,7 @@ class NullCache:
 
 
 _BASE_SYSTEM = """\
-You are CLITE. Turn the user's plain-English request into exactly one runnable
+You are TinyTalk. Turn the user's plain-English request into exactly one runnable
 shell command (a pipeline counts as one command) for their system. Commit to
 exactly one command — never a list of options or alternatives. Respond with
 only a JSON object matching this shape, no prose around it:
