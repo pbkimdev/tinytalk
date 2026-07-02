@@ -135,11 +135,26 @@ _tt_accept_line() {
       PREDISPLAY="$_TT_BADGE "
       region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
     }
-    if [[ $rc -ne 0 || -z "$out" ]]; then
-      zle -M "tt: no valid command (try rephrasing; check \`tt\` on the CLI)"
+    local tt_command tt_danger tt_explanation tt_error_kind tt_error_message tt_backend
+    if [[ $rc -ne 0 ]]; then
+      if [[ -n "$out" && "$out" == tt_* ]]; then
+        eval "$out"   # shlex-quoted assignments emitted by `tt --widget`
+        if [[ -n "$tt_error_kind" ]]; then
+          if [[ "$tt_error_kind" == "transport" ]]; then
+            zle -M "tt: ${tt_error_message:-backend failed; check \`tt\` on the CLI}"
+          else
+            zle -M "tt: ${tt_error_message:-no valid command; try rephrasing}"
+          fi
+          return 0
+        fi
+      fi
+      zle -M "tt: command failed (check \`tt\` on the CLI)"
       return 0
     fi
-    local tt_command tt_danger tt_explanation
+    if [[ -z "$out" ]]; then
+      zle -M "tt: command failed (check \`tt\` on the CLI)"
+      return 0
+    fi
     eval "$out"   # shlex-quoted assignments emitted by `tt --widget`
     _tt_ai_off
     # The inserted command is machine text: an unquoted `!` in it (e.g. the POSIX

@@ -174,5 +174,49 @@ def test_both_tiers_provider_error_raises_no_valid_command():
         raise ProviderError("still down")
 
     primary = StubProvider(Capabilities(), boom)
-    with pytest.raises(NoValidCommand):
+    with pytest.raises(NoValidCommand) as exc:
         run(TierController(primary))
+    assert exc.value.kind == "transport"
+    assert exc.value.backend == "stub"
+
+
+def test_final_provider_error_after_format_error_is_transport():
+    def boom(request, attempt):
+        raise ProviderError("fallback died")
+
+    primary = text_provider(Completion(text="not json"), Completion(text="<html>bad gateway</html>"))
+    fallback = StubProvider(Capabilities(), boom)
+    fallback.name = "cloud"
+
+    with pytest.raises(NoValidCommand) as exc:
+        run(TierController(primary, escalation=lambda: fallback, escalation_name="cloud"))
+
+    assert exc.value.kind == "transport"
+    assert exc.value.backend == "cloud"
+    assert exc.value.last is None
+
+
+def test_final_provider_error_after_invalid_command_remains_no_command():
+    def never_ok(s: Suggestion) -> ValidationResult:
+        return ValidationResult(ok=False, danger="safe", problems=("missing binary",))
+
+    def boom(request, attempt):
+        raise ProviderError("fallback died")
+
+    primary = text_provider(completion_for("missing-tool"))
+    fallback = StubProvider(Capabilities(), boom)
+    fallback.name = "cloud"
+
+    with pytest.raises(NoValidCommand) as exc:
+        run(
+            TierController(
+                primary,
+                escalation=lambda: fallback,
+                escalation_name="cloud",
+                validator=never_ok,
+            )
+        )
+
+    assert exc.value.kind == "no_command"
+    assert exc.value.backend == "cloud"
+    assert exc.value.last is not None

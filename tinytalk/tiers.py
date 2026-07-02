@@ -51,11 +51,20 @@ class TierResult:
 class NoValidCommand(Exception):
     """Every tier failed; carries the last attempt (if any) for diagnostics."""
 
-    def __init__(self, problems: tuple[str, ...], last: Suggestion | None = None):
+    def __init__(
+        self,
+        problems: tuple[str, ...],
+        last: Suggestion | None = None,
+        *,
+        kind: str = "no_command",
+        backend: str = "",
+    ):
         detail = "; ".join(problems) or "no backend produced a parseable suggestion"
         super().__init__(detail)
         self.problems = problems
         self.last = last
+        self.kind = kind
+        self.backend = backend
 
 
 class Cache(Protocol):
@@ -115,9 +124,11 @@ class TierController:
         cache: Cache | None = None,
         grounding: Grounding | None = None,
         validator: Validator = permissive_validator,
+        escalation_name: str = "",
     ):
         self._provider = provider
         self._escalation = escalation
+        self._escalation_name = escalation_name
         self._cache = cache or NullCache()
         self._grounding = grounding or StaticGrounding()
         self._validate = validator
@@ -161,12 +172,25 @@ class TierController:
         # T2 — enriched grounding + fallback backend when configured.
         needs = last.needs if last is not None else ()
         extra = self._grounding.enrich(needs, problems)
-        provider = self._escalation() if self._escalation is not None else self._provider
+        try:
+            provider = self._escalation() if self._escalation is not None else self._provider
+        except Exception as exc:
+            backend = self._escalation_name or self._provider.name
+            raise NoValidCommand(
+                problems + (str(exc),), last, kind="transport", backend=backend
+            ) from exc
         messages = self._messages(request, extra=extra, problems=problems)
         try:
             gen = await generate(provider, messages)
-        except (FormatError, ProviderError) as exc:
-            raise NoValidCommand(problems + (str(exc),), last) from exc
+        except ProviderError as exc:
+            kind = "transport" if last is None else "no_command"
+            raise NoValidCommand(
+                problems + (str(exc),), last, kind=kind, backend=provider.name
+            ) from exc
+        except FormatError as exc:
+            raise NoValidCommand(
+                problems + (str(exc),), last, kind="no_command", backend=provider.name
+            ) from exc
         usage, attempts = _accumulate(usage, attempts, gen)
         validation = self._validate(gen.suggestion)
         if validation.ok:
@@ -179,7 +203,12 @@ class TierController:
                 attempts=attempts,
                 backend=provider.name,
             )
-        raise NoValidCommand(problems + validation.problems, gen.suggestion)
+        raise NoValidCommand(
+            problems + validation.problems,
+            gen.suggestion,
+            kind="no_command",
+            backend=provider.name,
+        )
 
     def _messages(
         self, request: TierRequest, *, extra: str, problems: tuple[str, ...] = ()
