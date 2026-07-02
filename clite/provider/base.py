@@ -13,6 +13,11 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 
 
+class ProviderError(Exception):
+    """Base for every adapter's own error type — lets tiers.py catch any backend's
+    transport/auth/rate-limit fault without importing that backend's module."""
+
+
 class Role(str, Enum):
     SYSTEM = "system"
     USER = "user"

@@ -22,6 +22,7 @@ from clite.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
+    ProviderError,
     ResponseFormat,
     ToolCall,
     Usage,
@@ -30,7 +31,7 @@ from clite.provider.base import (
 _CONTRACT_TOOL_NAME = "suggest_command"
 
 
-class OpenAICompatError(Exception):
+class OpenAICompatError(ProviderError):
     """Base error for the OpenAI-compatible adapter."""
 
 
@@ -81,7 +82,7 @@ class OpenAICompatProvider:
     async def complete(self, request: CompletionRequest) -> Completion:
         payload = self._build_payload(request)
         headers = self._headers()
-        url = f"{self.base_url}/chat/completions"
+        url = self._url()
         try:
             if self._client is not None:
                 resp = await self._client.post(url, json=payload, headers=headers)
@@ -100,6 +101,9 @@ class OpenAICompatProvider:
         except (json.JSONDecodeError, ValueError) as exc:
             raise ProviderResponseError(f"response body is not JSON: {exc}") from exc
         return self._parse_response(data)
+
+    def _url(self) -> str:
+        return f"{self.base_url}/chat/completions"
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -206,3 +210,27 @@ class OpenAICompatProvider:
             completion_tokens=_field("completion_tokens"),
             total_tokens=_field("total_tokens"),
         )
+
+
+async def list_models(
+    base_url: str, *, api_key: str | None = None, client: httpx.AsyncClient | None = None
+) -> list[str]:
+    """`GET {base_url}/models` — used by `clite auth` for live model discovery."""
+    headers = {}
+    if api_key and api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key}"
+    url = f"{base_url.rstrip('/')}/models"
+    if client is not None:
+        resp = await client.get(url, headers=headers)
+    else:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            resp = await c.get(url, headers=headers)
+    if resp.status_code // 100 != 2:
+        raise ProviderHTTPError(resp.status_code, resp.text)
+    try:
+        data = resp.json()
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ProviderResponseError(f"models response body is not JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        raise ProviderResponseError("models envelope has no data list")
+    return [m["id"] for m in data["data"] if isinstance(m, dict) and isinstance(m.get("id"), str)]

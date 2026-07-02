@@ -13,7 +13,16 @@ authors = [{ name = "Paul B. Kim" }]
 dependencies = [
     "claude-agent-sdk>=0.2.110",
     "httpx>=0.27",
+    "keyring>=25",
+    "questionary>=2.0",
+    "tomlkit>=0.13",
 ]
+
+# Heavier per-provider SDKs are opt-in — `uv tool install 'clite[bedrock]'` etc. — so the
+# base install stays light for users who only need one or two backends (PRD-provider-setup.md §2).
+[project.optional-dependencies]
+bedrock = ["boto3>=1.34"]
+codex = ["openai-codex>=0.1.0b3"]
 
 [project.scripts]
 clite = "clite.cli:main"
@@ -30,3 +39,9 @@ packages = ["clite"]
 
 [tool.ruff]
 line-length = 100
+
+# CLITE integrates with zsh and reads OS/coreutils facts — macOS/Linux only.
+[tool.uv]
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+# `openai-codex` (clite[codex]) is pre-1.0 and pins its bundled CLI binary to a prerelease too.
+prerelease = "allow"

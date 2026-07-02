@@ -55,12 +55,23 @@ def build_eval_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_auth_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="clite auth",
+        description="Interactively set up a provider backend (PRD-provider-setup.md).",
+    )
+    parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/clite)")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if argv[:1] == ["eval"]:
         return _eval(build_eval_parser().parse_args(argv[1:]))
     if argv[:1] == ["init"]:
         return _init(argv[1:])
+    if argv[:1] == ["auth"]:
+        return _auth(build_auth_parser().parse_args(argv[1:]))
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
@@ -100,6 +111,31 @@ def _eval(args: argparse.Namespace) -> int:
     if args.export:
         export(reports, Path(args.export))
         print(f"\nresults written to {args.export}", file=sys.stderr)
+    return 0
+
+
+def _auth(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from clite.auth import QuestionaryIO, run_auth_wizard
+    from clite.config import ConfigError, default_config_path, load_config
+
+    config_path = Path(args.config) if args.config else default_config_path()
+    result = run_auth_wizard(config_path, QuestionaryIO())
+    if result is None:
+        print("clite auth: cancelled", file=sys.stderr)
+        return 1
+    print(f"clite: backend {result!r} saved to {config_path}")
+    try:
+        config = load_config(config_path)
+    except ConfigError as exc:  # should never happen — surface loudly if it does
+        print(f"clite: the written config failed validation: {exc}", file=sys.stderr)
+        return 1
+    line = f"default backend: {config.default_backend}"
+    if config.escalation_backend:
+        line += f"; fallback: {config.escalation_backend}"
+    print(line)
+    print('Try it: clite "show me disk usage"')
     return 0
 
 

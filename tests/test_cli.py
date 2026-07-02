@@ -85,6 +85,27 @@ def test_unknown_backend_flag_fails_cleanly(config_path, capsys):
     assert "unknown backend" in capsys.readouterr().err
 
 
+def test_auth_subcommand_success(tmp_path, monkeypatch, capsys):
+    import clite.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: "local")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG)  # _auth re-reads the written file to report defaults
+    assert main(["auth", "--config", str(config_path)]) == 0
+    out = capsys.readouterr().out
+    assert "'local' saved" in out
+    assert str(config_path) in out
+    assert "default backend: local" in out
+
+
+def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
+    import clite.auth as auth_mod
+
+    monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: None)
+    assert main(["auth", "--config", str(tmp_path / "config.toml")]) == 1
+    assert "cancelled" in capsys.readouterr().err
+
+
 def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
     import clite.eval.runner as runner_mod
 

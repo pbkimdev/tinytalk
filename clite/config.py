@@ -12,9 +12,17 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VALID_KINDS = ("openai-compat", "claude-agent-sdk")
+VALID_KINDS = (
+    "openai-compat",
+    "anthropic-compat",
+    "claude-agent-sdk",
+    "codex-agent-sdk",
+    "bedrock",
+    "azure-openai",
+)
 VALID_POSTURES = ("local", "hybrid", "cloud")
 VALID_CAPABILITIES = ("tool_calling", "native_json", "grammar")
+VALID_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 _EXAMPLE = """\
 [defaults]
@@ -39,10 +47,23 @@ class BackendConfig:
     base_url: str | None = None
     api_key_env: str | None = None
     capabilities: tuple[str, ...] = ()
+    keyring_account: str | None = None  # OS-keychain lookup, tried when api_key_env is unset/empty
+    effort: str | None = None  # passed through as reasoning_effort; see VALID_EFFORTS
+    aws_region: str | None = None  # bedrock only
+    aws_profile: str | None = None  # bedrock only
+    azure_api_version: str | None = None  # azure-openai only
 
     @property
     def api_key(self) -> str | None:
-        return os.environ.get(self.api_key_env) if self.api_key_env else None
+        if self.api_key_env:
+            value = os.environ.get(self.api_key_env)
+            if value:
+                return value
+        if self.keyring_account:
+            import keyring
+
+            return keyring.get_password("clite", self.keyring_account)
+        return None
 
 
 @dataclass(frozen=True)
@@ -86,7 +107,8 @@ def load_config(path: Path | None = None) -> Config:
         raw = path.read_bytes()
     except FileNotFoundError:
         raise ConfigError(
-            f"no config found at {path}\nCreate it with at least:\n\n{_EXAMPLE}"
+            f"no config found at {path}\nRun `clite auth` to set one up, or create it by "
+            f"hand — a minimal example:\n\n{_EXAMPLE}"
         ) from None
     try:
         data = tomllib.loads(raw.decode("utf-8"))
@@ -157,8 +179,10 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
         raise ConfigError(f'{where} must set model = "<model-id>"')
 
     base_url = entry.get("base_url")
-    if kind == "openai-compat" and (not isinstance(base_url, str) or not base_url):
-        raise ConfigError(f"{where} kind openai-compat requires base_url")
+    if kind in ("openai-compat", "azure-openai") and (
+        not isinstance(base_url, str) or not base_url
+    ):
+        raise ConfigError(f"{where} kind {kind} requires base_url")
 
     capabilities = entry.get("capabilities", [])
     if not isinstance(capabilities, list) or not all(isinstance(c, str) for c in capabilities):
@@ -173,6 +197,30 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
     if api_key_env is not None and not isinstance(api_key_env, str):
         raise ConfigError(f"{where} api_key_env must be a string")
 
+    keyring_account = entry.get("keyring_account")
+    if keyring_account is not None and not isinstance(keyring_account, str):
+        raise ConfigError(f"{where} keyring_account must be a string")
+
+    effort = entry.get("effort")
+    if effort is not None and effort not in VALID_EFFORTS:
+        raise ConfigError(f"{where} unknown effort {effort!r}; valid: {', '.join(VALID_EFFORTS)}")
+
+    aws_region = entry.get("aws_region")
+    if aws_region is not None and not isinstance(aws_region, str):
+        raise ConfigError(f"{where} aws_region must be a string")
+    if kind == "bedrock" and not aws_region:
+        raise ConfigError(f"{where} kind bedrock requires aws_region")
+
+    aws_profile = entry.get("aws_profile")
+    if aws_profile is not None and not isinstance(aws_profile, str):
+        raise ConfigError(f"{where} aws_profile must be a string")
+
+    azure_api_version = entry.get("azure_api_version")
+    if azure_api_version is not None and not isinstance(azure_api_version, str):
+        raise ConfigError(f"{where} azure_api_version must be a string")
+    if kind == "azure-openai" and not azure_api_version:
+        raise ConfigError(f"{where} kind azure-openai requires azure_api_version")
+
     return BackendConfig(
         name=name,
         kind=kind,
@@ -180,6 +228,11 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
         base_url=base_url if isinstance(base_url, str) else None,
         api_key_env=api_key_env,
         capabilities=tuple(capabilities),
+        keyring_account=keyring_account,
+        effort=effort,
+        aws_region=aws_region,
+        aws_profile=aws_profile,
+        azure_api_version=azure_api_version,
     )
 
 

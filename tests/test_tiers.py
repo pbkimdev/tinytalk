@@ -8,7 +8,7 @@ import json
 import pytest
 
 from clite.contract import Danger, Suggestion
-from clite.provider.base import Capabilities, Completion, Usage
+from clite.provider.base import Capabilities, Completion, ProviderError, Usage
 from clite.tiers import (
     NoValidCommand,
     TierController,
@@ -156,3 +156,23 @@ def test_t2_without_escalation_reuses_primary():
     assert result.tier == 2
     assert result.suggestion.command == "good"
     assert len(primary.requests) == 2
+
+
+def test_t1_provider_error_falls_back():
+    def boom(request, attempt):
+        raise ProviderError("upstream unreachable")
+
+    primary = StubProvider(Capabilities(), boom)
+    fallback = text_provider(completion_for())
+    result = run(TierController(primary, escalation=lambda: fallback))
+    assert result.tier == 2
+    assert result.suggestion.command == "du -h -d1 . | sort -hr"
+
+
+def test_both_tiers_provider_error_raises_no_valid_command():
+    def boom(request, attempt):
+        raise ProviderError("still down")
+
+    primary = StubProvider(Capabilities(), boom)
+    with pytest.raises(NoValidCommand):
+        run(TierController(primary))
