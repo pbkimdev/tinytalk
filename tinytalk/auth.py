@@ -153,14 +153,50 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
 
 
 def _slot_label(slot: str, backends) -> str:
-    role = "used first" if slot == "primary" else "used when the primary fails"
     if slot in backends:
-        return f"{slot} — {role} (now {_describe(backends[slot])})"
-    return f"{slot} — {role} (not set)"
+        return f"{slot} — {_describe(backends[slot])}"
+    return f"{slot} — (not set)"
 
 
 def _describe(table) -> str:
-    return f"{table.get('kind', '?')}/{table.get('model', '?')}"
+    return f"{_alias(table)}/{table.get('model', '?')}"
+
+
+_KIND_ALIASES = {
+    "claude-agent-sdk": "claude",
+    "codex-agent-sdk": "codex",
+    "anthropic-compat": "anthropic",
+    "bedrock": "bedrock",
+}
+
+
+def _alias(table) -> str:
+    """Short provider name: explicit `alias` key, else derived from kind/base_url (#80)."""
+    alias = table.get("alias")
+    if alias:
+        return alias
+    kind = table.get("kind", "?")
+    if kind in _KIND_ALIASES:
+        return _KIND_ALIASES[kind]
+    from urllib.parse import urlsplit
+
+    host = urlsplit(table.get("base_url") or "").hostname or ""
+    if _is_local(host):
+        return "local"
+    labels = host.split(".")
+    return labels[-2] if len(labels) >= 2 else kind
+
+
+def _is_local(host: str) -> bool:
+    if host == "localhost":
+        return True
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
 
 
 def _retry(io: WizardIO) -> bool:
