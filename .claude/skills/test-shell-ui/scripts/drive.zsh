@@ -59,9 +59,29 @@ t send-keys -t ui -l '?'; sleep 0.3
 t send-keys -t ui -l 'top disk usage'; sleep 0.3
 t send-keys -t ui Enter
 sleep $WAIT
-print "\n=== request 2 inserted (final screen) ==="
+print "\n=== request 2 inserted ==="
+mid2=$(t capture-pane -t ui -p -S -50)
+print -r -- "$mid2" | grep -v '^ *$' | tail -4
+
+# Request 3 carries the history-expansion hazard `.[!.]*` (#62): accepting it must
+# run it (no `event not found`), and `!!` at the NEXT prompt must expand again.
+t send-keys -t ui Enter          # accept & run request 2
+sleep 1.5
+t send-keys -t ui -l '?'; sleep 0.3
+t send-keys -t ui -l 'print marker and hidden entries'; sleep 0.3
+t send-keys -t ui Enter
+sleep $WAIT
+t send-keys -t ui Enter          # accept & run: `print -r ok-histexpand .[!.]*(N)`
+sleep 1
+# `!!` must expand at the next prompt (histchars restored). Do NOT accept the
+# result: under hist_verify the recalled line re-expands its own `!` — a stock
+# zsh footgun unrelated to the widget — so clear it instead.
+t send-keys -t ui -l '!!'; t send-keys -t ui Enter
+sleep 1
+print "\n=== request 3 (histexpand hazard) + !! (final screen) ==="
 final=$(t capture-pane -t ui -p -S -50)
-print -r -- "$final" | grep -v '^ *$'
+t send-keys -t ui C-u; sleep 0.3   # drop any hist_verify re-presented buffer
+print -r -- "$final" | grep -v '^ *$' | tail -6
 
 # Collision checks: redraw bugs EAT earlier lines silently, so assert the old
 # content is still there — "the new line looks right" proves nothing.
@@ -73,11 +93,18 @@ for n in {1..8}; do
 done
 print -r -- "$final" | grep -qE "^Hello! I'm CLITE — tell me what you'd like" \
   || { print "FAIL: request-1 output line was overdrawn"; fail=1; }
-print -r -- "$final" | grep -qF "du -h -d 1 . | sort -rh | head -n 3" \
+print -r -- "$mid2" | grep -qF "du -h -d 1 . | sort -rh | head -n 3" \
   || { print "FAIL: request-2 command not in the buffer"; fail=1; }
-print -r -- "$final" | grep -qF "[safe] Lists disk usage" \
+print -r -- "$mid2" | grep -qF "[safe] Lists disk usage" \
   || { print "FAIL: explanation message missing"; fail=1; }
 print -r -- "$final" | grep -q "thinking" \
   && { print "FAIL: stale thinking spinner left on screen"; fail=1; }
+print -r -- "$final" | grep -q "event not found" \
+  && { print "FAIL: inserted command was history-expanded (#62)"; fail=1; }
+print -r -- "$final" | grep -qF "command not found: !!" \
+  && { print "FAIL: !! stayed literal at the next prompt; histchars not restored (#62)"; fail=1; }
+# >=3 sightings = insert echo + its output + the !!-expanded line (echoed or re-run).
+(( $(print -r -- "$final" | grep -c "ok-histexpand") >= 3 )) \
+  || { print "FAIL: no evidence !! expanded after restore (#62)"; fail=1; }
 (( fail )) && { print "RESULT: FAIL — display collision or missing UI element"; exit 1; }
-print "RESULT: PASS — no lines eaten; badge, command, and message all rendered"
+print "RESULT: PASS — no lines eaten; badge, command, message, and histexpand guard all good"

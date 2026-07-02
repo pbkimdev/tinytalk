@@ -8,6 +8,7 @@
 # commented out. Backspace on an empty line (or `?` again) leaves AI mode.
 
 typeset -g _CLITE_AI_MODE=0
+typeset -g _CLITE_SAVED_HISTCHARS=""
 
 _clite_ai_on() {
   _CLITE_AI_MODE=1
@@ -85,6 +86,13 @@ _clite_accept_line() {
     local clite_command clite_danger clite_explanation
     eval "$out"   # shlex-quoted assignments emitted by `clite --widget`
     _clite_ai_off
+    # The inserted command is machine text: an unquoted `!` in it (e.g. the POSIX
+    # glob `.[!.]*`) must not history-expand when the user accepts the line (#62).
+    # `unsetopt banghist` would be undone by this function's localoptions the
+    # moment the widget returns, so swap the event character out via $histchars
+    # (a variable, immune to localoptions); line-init restores it at the next prompt.
+    [[ -z "$_CLITE_SAVED_HISTCHARS" ]] && _CLITE_SAVED_HISTCHARS=$histchars
+    histchars=$'\x01'"${histchars[2,3]}"
     if [[ "$clite_danger" == "destructive" ]]; then
       BUFFER="# DESTRUCTIVE — review, then remove the #: $clite_command"
     else
@@ -102,6 +110,10 @@ zle -N accept-line _clite_accept_line
 autoload -Uz add-zle-hook-widget
 _clite_line_init() {
   (( _CLITE_AI_MODE )) && _clite_ai_off
+  if [[ -n "$_CLITE_SAVED_HISTCHARS" ]]; then
+    histchars=$_CLITE_SAVED_HISTCHARS
+    _CLITE_SAVED_HISTCHARS=""
+  fi
   return 0
 }
 add-zle-hook-widget line-init _clite_line_init
