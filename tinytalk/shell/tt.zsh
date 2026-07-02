@@ -188,3 +188,13 @@ _tt_line_init() {
   return 0
 }
 add-zle-hook-widget line-init _tt_line_init
+
+# Syntax highlighters (e.g. fast-syntax-highlighting) rebuild region_highlight
+# inside every wrapped widget, wiping the badge's letter spans until the next
+# ~100ms tick — the wave blinks on each keystroke (#84). This hook runs after
+# the widget and before redisplay, so repainting here always wins.
+_tt_line_pre_redraw() {
+  (( _TT_AI_MODE )) && _tt_wave_paint
+  return 0
+}
+add-zle-hook-widget line-pre-redraw _tt_line_pre_redraw

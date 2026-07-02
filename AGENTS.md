@@ -1,7 +1,8 @@
 # AGENTS.md — TinyTalk
 
 TinyTalk turns plain English at the shell into a real, validated command. New here? Read
-[README.md](./README.md); the intent lives in [VISION.md](./VISION.md).
+[README.md](./README.md); the intent lives in [VISION.md](./VISION.md). Terms (prompt mode,
+badge, slot, …) are defined in [GLOSSARY.md](./GLOSSARY.md) — use them as written there.
 
 ## How we work
 
