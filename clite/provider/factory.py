@@ -29,8 +29,64 @@ def make_provider(cfg: BackendConfig) -> Provider:
             api_key=cfg.api_key,
             capabilities=_capabilities(cfg),
         )
+    if cfg.kind == "anthropic-compat":
+        from clite.provider.anthropic_compat import DEFAULT_BASE_URL, AnthropicCompatProvider
+
+        return AnthropicCompatProvider(
+            model=cfg.model,
+            base_url=cfg.base_url or DEFAULT_BASE_URL,
+            api_key=cfg.api_key,
+        )
+    if cfg.kind == "azure-openai":
+        from clite.provider.azure_openai import AzureOpenAIProvider
+
+        assert cfg.base_url is not None  # guaranteed by config validation
+        assert cfg.azure_api_version is not None  # guaranteed by config validation
+        return AzureOpenAIProvider(
+            cfg.base_url,
+            cfg.model,
+            cfg.azure_api_version,
+            api_key=cfg.api_key,
+            capabilities=_capabilities(cfg),
+        )
     if cfg.kind == "claude-agent-sdk":
         from clite.provider.claude_agent import ClaudeAgentProvider
 
         return ClaudeAgentProvider(model=cfg.model)
+    if cfg.kind == "codex-agent-sdk":
+        from clite.provider.codex_agent import CodexAgentProvider
+
+        return CodexAgentProvider(model=cfg.model)
+    if cfg.kind == "bedrock":
+        from clite.provider.bedrock import BedrockProvider
+
+        assert cfg.aws_region is not None  # guaranteed by config validation
+        access_key_id, secret_access_key = _bedrock_credential_pair(cfg)
+        return BedrockProvider(
+            model=cfg.model,
+            region=cfg.aws_region,
+            profile=cfg.aws_profile,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            capabilities=_capabilities(cfg),
+        )
     raise ConfigError(f"backend {cfg.name!r}: unknown kind {cfg.kind!r}")
+
+
+def _bedrock_credential_pair(cfg: BackendConfig) -> tuple[str | None, str | None]:
+    """The keyring/env-resolved secret holds a `{"aws_access_key_id", "aws_secret_access_key"}`
+    JSON blob for bedrock — the explicit-credential fallback when boto3's own default
+    credential chain doesn't apply. A missing/malformed blob just means "use the default
+    chain", not an error."""
+    import json
+
+    raw = cfg.api_key
+    if not raw:
+        return None, None
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return None, None
+    if not isinstance(parsed, dict):
+        return None, None
+    return parsed.get("aws_access_key_id"), parsed.get("aws_secret_access_key")

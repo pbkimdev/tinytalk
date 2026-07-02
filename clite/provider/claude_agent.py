@@ -18,6 +18,7 @@ from clite.provider.base import (
     Completion,
     CompletionRequest,
     Message,
+    ProviderError,
     ResponseFormat,
     Role,
     Usage,
@@ -29,7 +30,7 @@ _EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 QueryFn = Callable[..., AsyncIterator[object]]
 
 
-class ClaudeAgentError(Exception):
+class ClaudeAgentError(ProviderError):
     """The SDK failed or returned an error result."""
 
 

@@ -112,6 +112,93 @@ def test_api_key_from_env(tmp_path, monkeypatch):
     assert cfg.backend("local").api_key is None
 
 
+def test_api_key_env_present_skips_keyring(tmp_path, monkeypatch):
+    text = GOOD.replace(
+        'api_key_env = "MY_KEY"', 'api_key_env = "MY_KEY"\nkeyring_account = "local"'
+    )
+    cfg = load_config(write(tmp_path, text))
+    monkeypatch.setenv("MY_KEY", "sekrit")
+
+    def boom(service, account):
+        raise AssertionError("keyring should not be consulted when the env var is set")
+
+    monkeypatch.setattr("keyring.get_password", boom)
+    assert cfg.backend("local").api_key == "sekrit"
+
+
+def test_api_key_falls_back_to_keyring(tmp_path, monkeypatch):
+    text = GOOD.replace(
+        'api_key_env = "MY_KEY"', 'api_key_env = "MY_KEY"\nkeyring_account = "local"'
+    )
+    cfg = load_config(write(tmp_path, text))
+    monkeypatch.delenv("MY_KEY", raising=False)
+    monkeypatch.setattr(
+        "keyring.get_password",
+        lambda service, account: "from-keyring" if (service, account) == ("clite", "local") else None,
+    )
+    assert cfg.backend("local").api_key == "from-keyring"
+
+
+@pytest.mark.parametrize(
+    "kind,extra",
+    [
+        ("anthropic-compat", ""),
+        ("codex-agent-sdk", ""),
+        ("bedrock", '\naws_region = "us-east-1"'),
+        ("azure-openai", '\nbase_url = "https://my.openai.azure.com"\nazure_api_version = "2026-01-01-preview"'),
+    ],
+)
+def test_new_kinds_validate(tmp_path, kind, extra):
+    text = f"""\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "{kind}"
+model = "some-model"{extra}
+"""
+    cfg = load_config(write(tmp_path, text))
+    assert cfg.backend().kind == kind
+
+
+def test_bedrock_requires_aws_region(tmp_path):
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "bedrock"
+model = "anthropic.claude-opus-4-8-v1:0"
+"""
+    with pytest.raises(ConfigError, match="requires aws_region"):
+        load_config(write(tmp_path, text))
+
+
+def test_azure_requires_base_url_and_api_version(tmp_path):
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "azure-openai"
+model = "gpt-5-4"
+"""
+    with pytest.raises(ConfigError, match="requires base_url"):
+        load_config(write(tmp_path, text))
+
+    text_missing_version = text.replace(
+        'model = "gpt-5-4"', 'model = "gpt-5-4"\nbase_url = "https://my.openai.azure.com"'
+    )
+    with pytest.raises(ConfigError, match="requires azure_api_version"):
+        load_config(write(tmp_path, text_missing_version))
+
+
+def test_unknown_effort(tmp_path):
+    text = GOOD.replace('kind = "openai-compat"', 'kind = "openai-compat"\neffort = "ludicrous"')
+    with pytest.raises(ConfigError, match="unknown effort"):
+        load_config(write(tmp_path, text))
+
+
 def test_default_config_path_respects_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CLITE_CONFIG", str(tmp_path / "custom.toml"))
     assert default_config_path() == tmp_path / "custom.toml"
@@ -137,3 +224,101 @@ def test_factory_builds_claude_agent(tmp_path):
     provider = make_provider(cfg.backend("claude"))
     assert isinstance(provider, ClaudeAgentProvider)
     assert provider.capabilities.supports_native_json
+
+
+def test_factory_builds_anthropic_compat_with_default_base_url(tmp_path):
+    from clite.provider.anthropic_compat import AnthropicCompatProvider
+
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "anthropic-compat"
+model = "claude-sonnet-5"
+"""
+    cfg = load_config(write(tmp_path, text))
+    provider = make_provider(cfg.backend())
+    assert isinstance(provider, AnthropicCompatProvider)
+    assert provider.base_url == "https://api.anthropic.com"
+    assert provider.capabilities.supports_tool_calling  # adapter's own default, not config-driven
+
+
+def test_factory_builds_azure_openai(tmp_path):
+    from clite.provider.azure_openai import AzureOpenAIProvider
+
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "azure-openai"
+model = "gpt-5-4"
+base_url = "https://my-resource.openai.azure.com"
+azure_api_version = "2026-01-01-preview"
+capabilities = ["tool_calling"]
+"""
+    cfg = load_config(write(tmp_path, text))
+    provider = make_provider(cfg.backend())
+    assert isinstance(provider, AzureOpenAIProvider)
+    assert provider.name == "azure-openai:gpt-5-4"
+    assert provider.capabilities.supports_tool_calling
+
+
+def test_factory_builds_codex_agent(tmp_path):
+    from clite.provider.codex_agent import CodexAgentProvider
+
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "codex-agent-sdk"
+model = "gpt-5.4-codex"
+"""
+    cfg = load_config(write(tmp_path, text))
+    provider = make_provider(cfg.backend())
+    assert isinstance(provider, CodexAgentProvider)
+
+
+def test_factory_builds_bedrock_with_ambient_credentials(tmp_path):
+    from clite.provider.bedrock import BedrockProvider
+
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "bedrock"
+model = "anthropic.claude-opus-4-8-v1:0"
+aws_region = "us-east-1"
+aws_profile = "clite"
+"""
+    cfg = load_config(write(tmp_path, text))
+    provider = make_provider(cfg.backend())
+    assert isinstance(provider, BedrockProvider)
+    assert provider.name == "bedrock:anthropic.claude-opus-4-8-v1:0"
+
+
+def test_factory_builds_bedrock_with_explicit_credential_blob(tmp_path, monkeypatch):
+    from clite.provider.bedrock import BedrockProvider
+
+    text = """\
+[defaults]
+backend = "b"
+
+[backends.b]
+kind = "bedrock"
+model = "anthropic.claude-opus-4-8-v1:0"
+aws_region = "us-east-1"
+api_key_env = "BEDROCK_CREDS"
+"""
+    cfg = load_config(write(tmp_path, text))
+    monkeypatch.setenv(
+        "BEDROCK_CREDS",
+        '{"aws_access_key_id": "AKIA123", "aws_secret_access_key": "shh"}',
+    )
+    provider = make_provider(cfg.backend())
+    assert isinstance(provider, BedrockProvider)
+    assert provider._access_key_id == "AKIA123"
+    assert provider._secret_access_key == "shh"

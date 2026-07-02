@@ -1,8 +1,12 @@
 """Tier controller — cheapest path first, escalate only on failure (#31, PRD §4).
 
 T0 consults the cache; T1 asks the default backend with grounding context; T2
-re-asks with enriched grounding (on-demand help) and the escalation backend when
-one is configured. A validation gate runs between tiers: pass → return (and
+re-asks with enriched grounding (on-demand help) and the fallback backend when
+one is configured. T1 falls through to T2 both on a bad-output validation
+failure and on a provider-level fault (transport/auth/rate-limit — anything
+raised as a `ProviderError`), so a dead or misconfigured primary backend
+doesn't fail the whole request when a fallback is configured (PRD-provider-
+setup.md §6). A validation gate runs between tiers: pass → return (and
 cache), fail → escalate. The controller never executes commands.
 
 The cache (#36), grounding (#33), and validation (#34) hooks have permissive
@@ -17,7 +21,7 @@ from typing import Callable, Protocol
 from clite.contract import Suggestion
 from clite.engine import Generation, generate
 from clite.parsing import FormatError
-from clite.provider.base import Message, Provider, Role, Usage
+from clite.provider.base import Message, Provider, ProviderError, Role, Usage
 
 
 @dataclass(frozen=True)
@@ -150,17 +154,17 @@ class TierController:
                 )
             problems = validation.problems
             last = gen.suggestion
-        except FormatError as exc:
+        except (FormatError, ProviderError) as exc:
             problems = (str(exc),)
 
-        # T2 — enriched grounding + escalation backend when configured.
+        # T2 — enriched grounding + fallback backend when configured.
         needs = last.needs if last is not None else ()
         extra = self._grounding.enrich(needs, problems)
         provider = self._escalation() if self._escalation is not None else self._provider
         messages = self._messages(request, extra=extra, problems=problems)
         try:
             gen = await generate(provider, messages)
-        except FormatError as exc:
+        except (FormatError, ProviderError) as exc:
             raise NoValidCommand(problems + (str(exc),), last) from exc
         usage, attempts = _accumulate(usage, attempts, gen)
         validation = self._validate(gen.suggestion)
