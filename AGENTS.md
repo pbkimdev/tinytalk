@@ -1,8 +1,7 @@
 # AGENTS.md — CLITE
 
 CLITE turns plain English at the shell into a real, validated command. New here? Read
-[README.md](./README.md); the intent lives in [VISION.md](./VISION.md) and the full spec in
-[PRD.md](./docs/agents/PRD.md).
+[README.md](./README.md); the intent lives in [VISION.md](./VISION.md).
 
 ## How we work
 

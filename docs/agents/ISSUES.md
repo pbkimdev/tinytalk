@@ -16,5 +16,5 @@ everything else hangs off the engine.
 | [#5 Shell integration](https://github.com/paulbkim-dev/clite/issues/5) | The `?` prompt in zsh; drop the command in your buffer, you press Enter | #1, #4 |
 | [#6 Caching](https://github.com/paulbkim-dev/clite/issues/6) | Don't pay twice for the same question | #1, #3 |
 
-New issues should match the same shape — the `to_issue` skill writes them for you. The reasoning is
-in [PRD.md](./PRD.md); the intent behind it all is in [VISION.md](../../VISION.md).
+New issues should match the same shape — the `to_issue` skill writes them for you. The intent
+behind it all is in [VISION.md](../../VISION.md).
