@@ -153,6 +153,67 @@ enabled = false
     assert load_config(config_path).backend("first").model == "claude-sonnet-5"
 
 
+def test_added_backend_separated_from_next_section(tmp_path, monkeypatch):
+    """#75: the inserted table must not glue the following section header onto itself."""
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """\
+[defaults]
+backend = "first"
+
+[backends.first]
+kind = "claude-agent-sdk"
+model = "claude-sonnet-5"
+
+[cache]
+enabled = false
+"""
+    )
+    io = ScriptedIO(
+        [
+            "add",
+            "second",
+            "claude-agent-sdk",
+            "claude-haiku-4-5",
+            auth._NO_EFFORT,
+            False,
+            False,
+            True,
+        ]
+    )
+    assert auth.run_auth_wizard(config_path, io) == "second"
+
+    text = config_path.read_text()
+    assert "\n\n[cache]" in text  # blank line between [backends.second] and the next section
+    assert "\n\n\n" not in text  # and no double-spacing introduced anywhere
+
+
+def test_added_backend_separated_when_file_lacks_trailing_newline(tmp_path, monkeypatch):
+    """#75: a hand-edited config without a final newline still gets a blank-line separator."""
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[defaults]\nbackend = "first"\n\n'
+        '[backends.first]\nkind = "claude-agent-sdk"\nmodel = "claude-sonnet-5"'
+    )
+    io = ScriptedIO(
+        [
+            "add",
+            "second",
+            "claude-agent-sdk",
+            "claude-haiku-4-5",
+            auth._NO_EFFORT,
+            False,
+            False,
+            True,
+        ]
+    )
+    assert auth.run_auth_wizard(config_path, io) == "second"
+
+    assert 'model = "claude-sonnet-5"\n\n[backends.second]' in config_path.read_text()
+
+
 def test_set_primary_fallback_action(tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
