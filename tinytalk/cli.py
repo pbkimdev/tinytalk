@@ -151,6 +151,12 @@ def _auth(args: argparse.Namespace) -> int:
     return 0
 
 
+def _emit_widget(**pairs: object) -> None:
+    import shlex
+
+    print("\n".join(f"{key}={shlex.quote(str(value))}" for key, value in pairs.items()))
+
+
 def _run(args: argparse.Namespace, request_text: str) -> int:
     import asyncio
     from pathlib import Path
@@ -162,18 +168,23 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     from tinytalk.tiers import NoValidCommand, TierController, TierRequest
     from tinytalk.validate import CommandValidator
 
+    backend_name = args.backend or ""
     try:
         config = load_config(Path(args.config) if args.config else None)
         backend_cfg = config.backend(args.backend)
+        backend_name = backend_cfg.name
         provider = make_provider(backend_cfg)
         escalation = None
+        escalation_name = ""
         if config.escalation_backend and config.escalation_backend != backend_cfg.name:
             escalation_cfg = config.backend(config.escalation_backend)
+            escalation_name = escalation_cfg.name
             escalation = lambda: make_provider(escalation_cfg)  # noqa: E731 — deferred, lazy import
         grounding = SystemGrounding()
         controller = TierController(
             provider,
             escalation=escalation,
+            escalation_name=escalation_name,
             cache=ExactCache(config.cache_dir) if config.cache_enabled else None,
             grounding=grounding,
             validator=CommandValidator(grounding, cwd=os.getcwd()),
@@ -189,25 +200,31 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         print(f"tt: {exc}", file=sys.stderr)
         return 1
     except NoValidCommand as exc:
-        print(f"tt: no valid command: {exc}", file=sys.stderr)
-        if args.json and exc.last is not None:
+        backend = exc.backend or backend_cfg.name
+        if exc.kind == "transport":
+            message = f"backend {backend!r} failed: {exc}"
+            print(f"tt: {message}", file=sys.stderr)
+        else:
+            message = f"no valid command: {exc}"
+            print(f"tt: {message}", file=sys.stderr)
+        if args.widget:
+            _emit_widget(tt_error_kind=exc.kind, tt_error_message=message, tt_backend=backend)
+        elif args.json and exc.last is not None:
             print(json.dumps({"ok": False, "problems": list(exc.problems)}))
         return 1
     except Exception as exc:  # provider/transport faults — keep the shell usable
-        print(f"tt: {type(exc).__name__}: {exc}", file=sys.stderr)
+        subject = f"backend {backend_name!r}" if backend_name else "backend"
+        message = f"{subject} failed: {type(exc).__name__}: {exc}"
+        print(f"tt: {message}", file=sys.stderr)
+        if args.widget:
+            _emit_widget(tt_error_kind="transport", tt_error_message=message, tt_backend=backend_name)
         return 1
 
     if args.widget:
-        import shlex
-
-        print(
-            "\n".join(
-                (
-                    f"tt_command={shlex.quote(result.suggestion.command)}",
-                    f"tt_danger={shlex.quote(result.validation.danger)}",
-                    f"tt_explanation={shlex.quote(result.suggestion.explanation)}",
-                )
-            )
+        _emit_widget(
+            tt_command=result.suggestion.command,
+            tt_danger=result.validation.danger,
+            tt_explanation=result.suggestion.explanation,
         )
     elif args.json:
         print(

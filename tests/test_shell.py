@@ -91,6 +91,25 @@ model = "test-model"
 enabled = false
 """
 
+ESCALATION_CONFIG = """\
+[defaults]
+backend = "local"
+escalation_backend = "cloud"
+
+[backends.local]
+kind = "openai-compat"
+base_url = "http://localhost:11434/v1"
+model = "local-model"
+
+[backends.cloud]
+kind = "openai-compat"
+base_url = "https://api.example.test/v1"
+model = "cloud-model"
+
+[cache]
+enabled = false
+"""
+
 PAYLOAD = {
     "command": "find . -name '*.log' -size +10M",
     "explanation": "large log files",
@@ -127,6 +146,85 @@ def test_widget_output_is_shell_evalable(stubbed_cli, capsys):
         )
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout.strip() == PAYLOAD["command"]
+
+
+def test_widget_transport_error_is_shell_assignments(tmp_path, monkeypatch, capsys):
+    import tinytalk.provider.factory as factory
+
+    config = tmp_path / "config.toml"
+    config.write_text(CONFIG)
+
+    def fail_provider(cfg):
+        raise ImportError("missing optional SDK")
+
+    monkeypatch.setattr(factory, "make_provider", fail_provider)
+
+    assert main(["--config", str(config), "--widget", "find", "big", "logs"]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("tt_error_kind=transport\n")
+    assert "tt_backend=local" in out
+    assert "missing optional SDK" in out
+    assert '{"ok": false' not in out
+
+
+def test_widget_transport_error_uses_failing_fallback_backend(tmp_path, monkeypatch, capsys):
+    import tinytalk.provider.factory as factory
+    from tinytalk.provider.base import Capabilities, ProviderError
+    from tests.stubs import StubProvider
+
+    config = tmp_path / "config.toml"
+    config.write_text(ESCALATION_CONFIG)
+
+    def primary_boom(request, attempt):
+        raise ProviderError("connection refused")
+
+    def fallback_boom(request, attempt):
+        raise ProviderError("HTTP 401")
+
+    primary = StubProvider(Capabilities(), primary_boom)
+    primary.name = "local"
+    fallback = StubProvider(Capabilities(), fallback_boom)
+    fallback.name = "cloud"
+
+    monkeypatch.setattr(
+        factory,
+        "make_provider",
+        lambda cfg: fallback if cfg.name == "cloud" else primary,
+    )
+
+    assert main(["--config", str(config), "--widget", "find", "big", "logs"]) == 1
+    captured = capsys.readouterr()
+    assert "backend 'cloud' failed" in captured.err
+    assert "HTTP 401" in captured.out
+    assert "tt_backend=cloud" in captured.out
+    assert "tt_backend=local" not in captured.out
+
+
+def test_widget_json_failure_still_emits_assignments(tmp_path, monkeypatch, capsys):
+    import tinytalk.provider.factory as factory
+    from tinytalk.provider.base import Capabilities, Completion
+    from tests.stubs import StubProvider
+
+    payload = {
+        "command": "frobnicate --bad",
+        "explanation": "not actually installed",
+        "danger": "safe",
+        "confidence": 0.8,
+        "needs": ["frobnicate"],
+    }
+    config = tmp_path / "config.toml"
+    config.write_text(CONFIG)
+    provider = StubProvider(
+        Capabilities(),
+        [Completion(text=json.dumps(payload)), Completion(text=json.dumps(payload))],
+    )
+    monkeypatch.setattr(factory, "make_provider", lambda cfg: provider)
+
+    assert main(["--config", str(config), "--widget", "--json", "use", "frobnicate"]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("tt_error_kind=no_command\n")
+    assert "tt_error_message=" in out
+    assert '{"ok": false' not in out
 
 
 def test_session_context_reaches_model_redacted(stubbed_cli, capsys, monkeypatch):

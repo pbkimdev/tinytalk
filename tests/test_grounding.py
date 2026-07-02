@@ -43,6 +43,22 @@ def test_system_prompt_reflects_host(tmp_path):
     assert '"danger"' in prompt  # contract shape included
 
 
+def test_system_prompt_includes_kubernetes_and_bash_tools_only_when_installed(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("docker", "kubectl", "helm", "bash", "tee", "printf"):
+        make_exe(bin_dir, name)
+    g = SystemGrounding(path=str(bin_dir))
+    prompt = g.system_prompt(TierRequest(prompt="x"))
+    assert "- docker: containers/images;" in prompt
+    assert "- kubectl: Kubernetes CLI;" in prompt
+    assert "- helm: Kubernetes package manager;" in prompt
+    assert "- bash: Bash shell;" in prompt
+    assert "- tee: copy stdin to files and stdout;" in prompt
+    assert "- printf: format text portably;" in prompt
+    assert "- rg:" not in prompt
+
+
 def test_host_facts_names_userland_flavor():
     facts = host_facts()
     assert "userland" in facts
