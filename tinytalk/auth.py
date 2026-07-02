@@ -572,8 +572,6 @@ def _load_or_new(path: Path):
 
     if path.exists():
         text = path.read_text()
-        # A hand-edited file may lack a final newline; without it tomlkit appends
-        # the new table with no separating blank line.
         if text and not text.endswith("\n"):
             text += "\n"
         return tomlkit.parse(text)
@@ -591,10 +589,6 @@ def _write_backend(doc, name: str, fields: dict, *, set_default: bool, set_fallb
         if value:
             table[key] = value
     if backends_existed:
-        # tomlkit inserts the new table mid-document with no trailing blank line,
-        # gluing the next section header onto it (#75). Fresh documents don't need
-        # this — there tomlkit separates sections itself, and adding it would
-        # double-space the file.
         table.add(tomlkit.nl())
     doc["backends"][name] = table
 
