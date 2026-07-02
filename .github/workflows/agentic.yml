@@ -1,6 +1,6 @@
 name: agentic
 # Thin caller — copy this to a project's .github/workflows/agentic.yml.
-# All the logic lives in paulbkim-dev/agentic-workflows; during dev we track @main (a moving ref).
+# All the logic lives in pbkimdev/agentic-workflows; during dev we track @main (a moving ref).
 
 on:
   issues:
@@ -21,5 +21,5 @@ permissions:
 
 jobs:
   pipeline:
-    uses: paulbkim-dev/agentic-workflows/.github/workflows/dispatch.yml@main
+    uses: pbkimdev/agentic-workflows/.github/workflows/dispatch.yml@main
     secrets: inherit
