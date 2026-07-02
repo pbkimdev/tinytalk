@@ -571,19 +571,25 @@ def _load_or_new(path: Path):
     import tomlkit
 
     if path.exists():
-        return tomlkit.parse(path.read_text())
+        text = path.read_text()
+        if text and not text.endswith("\n"):
+            text += "\n"
+        return tomlkit.parse(text)
     return tomlkit.document()
 
 
 def _write_backend(doc, name: str, fields: dict, *, set_default: bool, set_fallback: bool) -> None:
     import tomlkit
 
-    if "backends" not in doc:
+    backends_existed = "backends" in doc
+    if not backends_existed:
         doc["backends"] = tomlkit.table(is_super_table=True)
     table = tomlkit.table()
     for key, value in fields.items():
         if value:
             table[key] = value
+    if backends_existed:
+        table.add(tomlkit.nl())
     doc["backends"][name] = table
 
     if "defaults" not in doc:
