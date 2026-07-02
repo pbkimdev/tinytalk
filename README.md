@@ -38,10 +38,10 @@ v1 works end-to-end: `tt "what you want"` (or `?` in zsh) runs config → provid
 controller (T0 exact cache → T1 → T2) → capability grounding → validation & safety → a command
 in your editing buffer, never auto-run. `tt eval` benchmarks your configured backends on your
 own machine — format, assertions, danger calls, tokens, latency, cost over a 25-prompt suite
-(see the [v1 epic's closing evidence](https://github.com/paulbkim-dev/clite/issues/25)).
+(see the [v1 epic's closing evidence](https://github.com/paulbkim-dev/tinytalk/issues/25)).
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
-- **[The issues](https://github.com/paulbkim-dev/clite/issues)** — what's landed and what's next.
+- **[The issues](https://github.com/paulbkim-dev/tinytalk/issues)** — what's landed and what's next.
 
 ## How it'll work
 
