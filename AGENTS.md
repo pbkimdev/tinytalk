@@ -5,7 +5,7 @@ TinyTalk turns plain English at the shell into a real, validated command. New he
 
 ## How we work
 
-**Every piece of work is a [GitHub issue](https://github.com/paulbkim-dev/clite/issues).** Some issues
+**Every piece of work is a [GitHub issue](https://github.com/paulbkim-dev/tinytalk/issues).** Some issues
 stand alone; others break into sub-issues. Either is fine — split only when it helps.
 
 For each issue:
