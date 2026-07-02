@@ -7,9 +7,9 @@ import json
 
 import pytest
 
-from clite.contract import contract_json_schema
-from clite.provider.base import CompletionRequest, Message, Role
-from clite.provider.codex_agent import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.base import CompletionRequest, Message, Role
+from tinytalk.provider.codex_agent import (
     CodexAgentError,
     CodexAgentProvider,
     list_models,
@@ -74,7 +74,7 @@ def factory(capture, result=None):
 def request(fmt=None, **kwargs):
     return CompletionRequest(
         messages=[
-            Message(Role.SYSTEM, "you are clite"),
+            Message(Role.SYSTEM, "you are tt"),
             Message(Role.USER, "disk usage"),
         ],
         **kwargs,
@@ -89,7 +89,7 @@ def test_structured_output_completion():
     completion = asyncio.run(provider.complete(request()))
     assert json.loads(completion.text) == PAYLOAD
     assert completion.model == "gpt-5.4"
-    assert capture["prompt"] == "you are clite\n\ndisk usage"
+    assert capture["prompt"] == "you are tt\n\ndisk usage"
     assert capture["turn_kwargs"]["output_schema"] == contract_json_schema()
 
 

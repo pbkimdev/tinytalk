@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 
-from clite.cache import ExactCache, cache_key
-from clite.contract import Danger, Suggestion
-from clite.provider.base import Capabilities, Completion
-from clite.tiers import TierController, TierRequest
+from tinytalk.cache import ExactCache, cache_key
+from tinytalk.contract import Danger, Suggestion
+from tinytalk.provider.base import Capabilities, Completion
+from tinytalk.tiers import TierController, TierRequest
 from tests.stubs import StubProvider
 
 SUGGESTION = Suggestion(

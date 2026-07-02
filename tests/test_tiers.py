@@ -7,9 +7,9 @@ import json
 
 import pytest
 
-from clite.contract import Danger, Suggestion
-from clite.provider.base import Capabilities, Completion, ProviderError, Usage
-from clite.tiers import (
+from tinytalk.contract import Danger, Suggestion
+from tinytalk.provider.base import Capabilities, Completion, ProviderError, Usage
+from tinytalk.tiers import (
     NoValidCommand,
     TierController,
     TierRequest,

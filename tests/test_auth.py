@@ -1,4 +1,4 @@
-"""`clite auth` wizard tests: decision logic (kind->config mapping, credential-test
+"""`tt auth` wizard tests: decision logic (kind->config mapping, credential-test
 retry/abort, model/effort resolution, confirm gate, TOML merge-write) driven by a
 scripted fake IO — no real questionary prompts, network calls, or SDKs involved
 (PRD-provider-setup.md §8). Wizard-written configs are asserted valid per load_config,
@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 import tomllib
 
-import clite.auth as auth
-from clite.config import load_config
+import tinytalk.auth as auth
+from tinytalk.config import load_config
 
 
 class ScriptedIO:
@@ -606,7 +606,7 @@ def test_secret_stored_via_keyring_and_referenced_by_account(tmp_path, monkeypat
     )
     result = auth.run_auth_wizard(config_path, io)
     assert result == "primary"
-    assert stored == {("clite", "primary"): "sk-real"}
+    assert stored == {("tinytalk", "primary"): "sk-real"}
     doc = _read(config_path)
     assert doc["backends"]["primary"]["keyring_account"] == "primary"
     assert "api_key" not in doc["backends"]["primary"]  # never written in plaintext

@@ -13,8 +13,8 @@ import json
 
 import httpx
 
-from clite.contract import contract_json_schema
-from clite.provider.base import (
+from tinytalk.contract import contract_json_schema
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     CompletionRequest,
@@ -204,7 +204,7 @@ def _split_messages(messages: list[Message]) -> tuple[str, list[dict]]:
 async def list_models(
     base_url: str, api_key: str, *, client: httpx.AsyncClient | None = None
 ) -> list[dict]:
-    """`GET {base_url}/v1/models` — used by `clite auth` for live model discovery.
+    """`GET {base_url}/v1/models` — used by `tt auth` for live model discovery.
 
     Each entry's `capabilities.effort` (when present) lists the reasoning-effort levels
     that specific model supports — the wizard reads this directly rather than guessing.

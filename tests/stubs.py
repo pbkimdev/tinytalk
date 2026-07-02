@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from clite.provider.base import Capabilities, Completion, CompletionRequest
+from tinytalk.provider.base import Capabilities, Completion, CompletionRequest
 
 
 class StubProvider:

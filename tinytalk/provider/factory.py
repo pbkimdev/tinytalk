@@ -6,8 +6,8 @@ Adapters are imported lazily so the hot path never pays for SDKs it doesn't use
 
 from __future__ import annotations
 
-from clite.config import BackendConfig, ConfigError
-from clite.provider.base import Capabilities, Provider
+from tinytalk.config import BackendConfig, ConfigError
+from tinytalk.provider.base import Capabilities, Provider
 
 
 def _capabilities(cfg: BackendConfig) -> Capabilities:
@@ -20,7 +20,7 @@ def _capabilities(cfg: BackendConfig) -> Capabilities:
 
 def make_provider(cfg: BackendConfig) -> Provider:
     if cfg.kind == "openai-compat":
-        from clite.provider.openai_compat import OpenAICompatProvider
+        from tinytalk.provider.openai_compat import OpenAICompatProvider
 
         assert cfg.base_url is not None  # guaranteed by config validation
         return OpenAICompatProvider(
@@ -30,7 +30,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             capabilities=_capabilities(cfg),
         )
     if cfg.kind == "anthropic-compat":
-        from clite.provider.anthropic_compat import DEFAULT_BASE_URL, AnthropicCompatProvider
+        from tinytalk.provider.anthropic_compat import DEFAULT_BASE_URL, AnthropicCompatProvider
 
         return AnthropicCompatProvider(
             model=cfg.model,
@@ -38,7 +38,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             api_key=cfg.api_key,
         )
     if cfg.kind == "azure-openai":
-        from clite.provider.azure_openai import AzureOpenAIProvider
+        from tinytalk.provider.azure_openai import AzureOpenAIProvider
 
         assert cfg.base_url is not None  # guaranteed by config validation
         assert cfg.azure_api_version is not None  # guaranteed by config validation
@@ -50,15 +50,15 @@ def make_provider(cfg: BackendConfig) -> Provider:
             capabilities=_capabilities(cfg),
         )
     if cfg.kind == "claude-agent-sdk":
-        from clite.provider.claude_agent import ClaudeAgentProvider
+        from tinytalk.provider.claude_agent import ClaudeAgentProvider
 
         return ClaudeAgentProvider(model=cfg.model)
     if cfg.kind == "codex-agent-sdk":
-        from clite.provider.codex_agent import CodexAgentProvider
+        from tinytalk.provider.codex_agent import CodexAgentProvider
 
         return CodexAgentProvider(model=cfg.model)
     if cfg.kind == "bedrock":
-        from clite.provider.bedrock import BedrockProvider
+        from tinytalk.provider.bedrock import BedrockProvider
 
         assert cfg.aws_region is not None  # guaranteed by config validation
         access_key_id, secret_access_key = _bedrock_credential_pair(cfg)

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 
-from clite.contract import Danger, Suggestion
-from clite.provider.base import Completion, ResponseFormat
+from tinytalk.contract import Danger, Suggestion
+from tinytalk.provider.base import Completion, ResponseFormat
 
 
 class FormatError(ValueError):

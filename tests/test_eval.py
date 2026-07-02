@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-import clite.eval.runner as runner_mod
-from clite.config import load_config
-from clite.eval.runner import export, render_leaderboard, render_matrix, run_eval
-from clite.eval.suite import SUITE, check_assertion
-from clite.provider.base import Capabilities, Completion, Usage
+import tinytalk.eval.runner as runner_mod
+from tinytalk.config import load_config
+from tinytalk.eval.runner import export, render_leaderboard, render_matrix, run_eval
+from tinytalk.eval.suite import SUITE, check_assertion
+from tinytalk.provider.base import Capabilities, Completion, Usage
 from tests.stubs import StubProvider
 
 # --- assertion DSL -----------------------------------------------------------

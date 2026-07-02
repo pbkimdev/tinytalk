@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from clite.contract import Danger
-from clite.parsing import FormatError, extract_json_block, parse_completion, parse_payload
-from clite.provider.base import Completion, ResponseFormat, ToolCall
+from tinytalk.contract import Danger
+from tinytalk.parsing import FormatError, extract_json_block, parse_completion, parse_payload
+from tinytalk.provider.base import Completion, ResponseFormat, ToolCall
 
 VALID = {
     "command": "rm file.txt",

@@ -1,4 +1,4 @@
-"""Config loader for `~/.config/clite/config.toml` (#30, PRD §10).
+"""Config loader for `~/.config/tinytalk/config.toml` (#30, PRD §10).
 
 Loads and validates the user config with stdlib `tomllib`. A missing or invalid
 config fails with a `ConfigError` whose message says exactly what to fix and
@@ -62,7 +62,7 @@ class BackendConfig:
         if self.keyring_account:
             import keyring
 
-            return keyring.get_password("clite", self.keyring_account)
+            return keyring.get_password("tinytalk", self.keyring_account)
         return None
 
 
@@ -94,10 +94,10 @@ class Config:
 
 
 def default_config_path() -> Path:
-    if env := os.environ.get("CLITE_CONFIG"):
+    if env := os.environ.get("TT_CONFIG"):
         return Path(env)
     xdg = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
-    return Path(xdg).expanduser() / "clite" / "config.toml"
+    return Path(xdg).expanduser() / "tinytalk" / "config.toml"
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -107,7 +107,7 @@ def load_config(path: Path | None = None) -> Config:
         raw = path.read_bytes()
     except FileNotFoundError:
         raise ConfigError(
-            f"no config found at {path}\nRun `clite auth` to set one up, or create it by "
+            f"no config found at {path}\nRun `tt auth` to set one up, or create it by "
             f"hand — a minimal example:\n\n{_EXAMPLE}"
         ) from None
     try:

@@ -17,13 +17,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from clite.config import Config
-from clite.eval.suite import SUITE, EvalPrompt, check_assertion
-from clite.grounding import SystemGrounding
-from clite.provider.base import Usage
-from clite.provider.factory import make_provider
-from clite.tiers import NoValidCommand, TierController, TierRequest
-from clite.validate import CommandValidator
+from tinytalk.config import Config
+from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
+from tinytalk.grounding import SystemGrounding
+from tinytalk.provider.base import Usage
+from tinytalk.provider.factory import make_provider
+from tinytalk.tiers import NoValidCommand, TierController, TierRequest
+from tinytalk.validate import CommandValidator
 
 
 @dataclass(frozen=True)

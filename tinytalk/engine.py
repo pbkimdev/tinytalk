@@ -9,9 +9,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from clite.contract import Suggestion, contract_json_schema
-from clite.parsing import FormatError, parse_completion
-from clite.provider.base import (
+from tinytalk.contract import Suggestion, contract_json_schema
+from tinytalk.parsing import FormatError, parse_completion
+from tinytalk.provider.base import (
     Capabilities,
     CompletionRequest,
     Message,

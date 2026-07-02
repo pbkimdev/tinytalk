@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from clite.engine import build_ladder, generate, generate_sync
-from clite.parsing import FormatError
-from clite.provider.base import (
+from tinytalk.engine import build_ladder, generate, generate_sync
+from tinytalk.parsing import FormatError
+from tinytalk.provider.base import (
     Capabilities,
     Completion,
     Message,

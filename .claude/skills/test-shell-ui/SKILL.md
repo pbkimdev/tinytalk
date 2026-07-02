@@ -1,14 +1,14 @@
 ---
 name: test-shell-ui
-description: Drive the CLITE zsh widget in a real terminal (tmux) with a stubbed `clite` binary to verify interactive UI behavior or reproduce display bugs. Use when changing clite/shell/clite.zsh, reproducing prompt/redraw glitches or line collisions, or proving a widget fix end-to-end.
+description: Drive the TinyTalk zsh widget in a real terminal (tmux) with a stubbed `tt` binary to verify interactive UI behavior or reproduce display bugs. Use when changing tinytalk/shell/tt.zsh, reproducing prompt/redraw glitches or line collisions, or proving a widget fix end-to-end.
 ---
 
-# Test the shell UI (tmux + stubbed clite)
+# Test the shell UI (tmux + stubbed tt)
 
 ZLE display behavior — the AI badge, buffer replacement, `zle -M` message placement,
 scrolling — only exists in a real terminal. `zsh -n` and the pytest suite cannot see a
 redraw that overdraws the previous line. This skill drives the widget in a tmux pane,
-with a fake `clite` on PATH so runs are fast, deterministic, and offline.
+with a fake `tt` on PATH so runs are fast, deterministic, and offline.
 
 ## Quick start
 
@@ -22,26 +22,26 @@ with a fake `clite` on PATH so runs are fast, deterministic, and offline.
 the bottom row), prints screen captures per stage, and exits PASS/FAIL. Run it under both
 the real config and `-f`: prompt frameworks and syntax highlighters change redraw behavior.
 
-To test other flows (destructive commands, backend failure), point `CLITE_STUB_RESPONSES`
+To test other flows (destructive commands, backend failure), point `TT_STUB_RESPONSES`
 at a directory of files `1`, `2`, … — each is printed verbatim as that call's
-`clite --widget` output; a missing file makes the stub exit 1 (the widget's error path).
+`tt --widget` output; a missing file makes the stub exit 1 (the widget's error path).
 Copy the scenario section of `drive.zsh` and adapt the keystrokes/checks.
 
 ## Files
 
 - `scripts/drive.zsh` — tmux driver: spawns the shell, stubs PATH, sends keystrokes,
   captures screens, asserts nothing was overdrawn.
-- `scripts/clite-stub` — fake `clite`: emits canned `clite_command=…` / `clite_danger=…` /
-  `clite_explanation=…` after `CLITE_STUB_DELAY` seconds (default 1) to simulate backend latency.
+- `scripts/tt-stub` — fake `tt`: emits canned `tt_command=…` / `tt_danger=…` /
+  `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency.
 
 ## The strategy (reuse these rules when writing new scenarios)
 
-1. **Real terminal, real config.** Use tmux (`-L clite-ui` private socket; `kill-server`
+1. **Real terminal, real config.** Use tmux (`-L tt-ui` private socket; `kill-server`
    when done) so user sessions are untouched. Verify against the user's actual `~/.zshrc`
    as well as `zsh -f` — bugs can appear in either.
 2. **Stub the binary inside the pane.** `path=(<stubdir> $path)` must be typed *in* the
    pane after the rc files ran; PATH set via the environment gets clobbered by `.zshrc`
-   and the real binary answers instead. Always confirm with `which clite`.
+   and the real binary answers instead. Always confirm with `which tt`.
 3. **Put the prompt on the bottom row** (`seq 8` first). zle scroll/anchor bugs only
    trigger when a growing message area forces the screen to scroll.
 4. **Never type ahead.** Wait out the stub delay before the next keystroke; queued input

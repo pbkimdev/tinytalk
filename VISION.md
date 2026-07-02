@@ -1,4 +1,4 @@
-# What CLITE is
+# What TinyTalk is
 
 > This is the source of truth for _what we're building and why_, and it stands on its own. The spec
 > and the issues point back here — not the other way around. If anything ever disagrees about intent,
@@ -6,7 +6,7 @@
 
 I want to type what I mean at the shell and get the command for it.
 
-Not a chatbot, not a web search — just this: I describe the outcome in plain English, CLITE works out
+Not a chatbot, not a web search — just this: I describe the outcome in plain English, TinyTalk works out
 the right combination of tools I already have, and it hands me a command that runs. I read it, maybe
 tweak it, and hit Enter.
 

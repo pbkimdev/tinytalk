@@ -1,0 +1,175 @@
+# TinyTalk zsh integration (#35, PRD §8).
+# Install:  eval "$(tt init zsh)"   (or source this file from .zshrc)
+#
+# Press `?` on an empty line to toggle AI mode: your prompt gains a `TinyTalk`
+# badge with a spectrum wave animating through its letters, and the `?` is
+# never inserted. Type what you want and press Enter — the validated command
+# replaces your editing buffer for review; TinyTalk never runs anything itself.
+# Destructive commands are inserted commented out. Backspace on an empty line
+# (or `?` again) leaves AI mode.
+
+typeset -g _TT_AI_MODE=0
+typeset -g _TT_SAVED_HISTCHARS=""
+typeset -g _TT_BADGE="TinyTalk"
+typeset -g _TT_WAVE_FD=""
+typeset -gi _TT_WAVE_PHASE=0
+# 256-color spectrum for the badge, palindromic so the cycle has no seam.
+typeset -ga _TT_SPECTRA=(51 45 39 33 63 99 135 171 207 213 207 171 135 99 63 39 45)
+
+# One region_highlight span per badge letter (P = PREDISPLAY offsets), colors
+# shifted by the phase so the spectrum travels through the text.
+_tt_wave_paint() {
+  local -i i idx n=$#_TT_SPECTRA
+  region_highlight=("${(@)region_highlight:#P<0-7> <1-8> *}")  # the 8 letter spans below
+  for (( i = 0; i < $#_TT_BADGE; i++ )); do
+    (( idx = ((i - _TT_WAVE_PHASE) % n + n) % n + 1 ))
+    region_highlight+=("P$i $((i + 1)) fg=${_TT_SPECTRA[idx]},bold")
+  done
+}
+
+# Idle animation: a ticker feeds one line per frame into a pipe; the zle -F
+# widget handler advances the wave on each. The ticker dies on SIGPIPE as
+# soon as _tt_wave_stop closes the fd — no pid to track.
+_tt_wave_start() {
+  [[ -n "$_TT_WAVE_FD" ]] && return 0
+  exec {_TT_WAVE_FD}< <(
+    typeset -i have_zselect=0
+    zmodload zsh/zselect 2>/dev/null && have_zselect=1
+    while print tick 2>/dev/null; do
+      if (( have_zselect )); then zselect -t 10 2>/dev/null; else command sleep 0.1; fi
+    done
+  )
+  zle -F -w "$_TT_WAVE_FD" _tt_wave_tick
+}
+
+_tt_wave_stop() {
+  [[ -n "$_TT_WAVE_FD" ]] || return 0
+  zle -F "$_TT_WAVE_FD" 2>/dev/null
+  exec {_TT_WAVE_FD}<&-
+  _TT_WAVE_FD=""
+  _TT_WAVE_PHASE=0
+}
+
+_tt_wave_tick() {
+  local _junk
+  IFS= read -r -u "$_TT_WAVE_FD" _junk || { _tt_wave_stop; return 0; }
+  # Drain frames that queued while a widget (e.g. the thinking spinner) ran,
+  # so the wave doesn't fast-forward afterwards.
+  while IFS= read -r -t 0 -u "$_TT_WAVE_FD" _junk; do :; done
+  (( _TT_WAVE_PHASE++ ))
+  _tt_wave_paint
+  zle -R
+}
+zle -N _tt_wave_tick
+
+_tt_ai_on() {
+  _TT_AI_MODE=1
+  PREDISPLAY="$_TT_BADGE "
+  _tt_wave_paint
+  _tt_wave_start
+}
+
+_tt_ai_off() {
+  _TT_AI_MODE=0
+  _tt_wave_stop
+  PREDISPLAY=""
+  POSTDISPLAY=""
+  region_highlight=("${(@)region_highlight:#P<0-7> <1-8> *}")
+}
+
+# `?` at the start of an empty line toggles AI mode; anywhere else it is a
+# literal `?`.
+_tt_question() {
+  if [[ -z "$BUFFER" ]]; then
+    if (( _TT_AI_MODE )); then _tt_ai_off; else _tt_ai_on; fi
+  else
+    zle .self-insert
+  fi
+}
+zle -N _tt_question
+bindkey '?' _tt_question
+
+_tt_backspace() {
+  if (( _TT_AI_MODE )) && [[ -z "$BUFFER" ]]; then
+    _tt_ai_off
+  else
+    zle .backward-delete-char
+  fi
+}
+zle -N _tt_backspace
+bindkey '^?' _tt_backspace
+bindkey '^H' _tt_backspace
+
+_tt_accept_line() {
+  if (( _TT_AI_MODE )) && [[ -n "$BUFFER" ]]; then
+    # The spinner lives in PREDISPLAY (inside the edit region): a mid-widget
+    # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
+    # one row, so the replaced buffer overdraws the previous line. `zle -M` is only
+    # safe at the very end of the widget, as part of one final redisplay.
+    setopt localoptions nomonitor nonotify
+    local -i have_zselect=0
+    zmodload zsh/zselect 2>/dev/null && have_zselect=1
+    local tmp="$(mktemp)" out rc=1
+    {
+      TT_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
+        command tt --widget -- "$BUFFER" >"$tmp" 2>/dev/null
+      print -n $? >"$tmp.rc"
+    } &
+    local pid=$!
+    local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+    local -i i=1
+    region_highlight+=("0 $#BUFFER fg=8")
+    {
+      while [[ ! -e "$tmp.rc" ]]; do
+        PREDISPLAY="$_TT_BADGE ${frames[i]} "
+        (( _TT_WAVE_PHASE++ ))
+        _tt_wave_paint
+        zle -R
+        (( i = i % $#frames + 1 ))
+        if (( have_zselect )); then zselect -t 12 2>/dev/null; else command sleep 0.12; fi
+      done
+      rc="$(<"$tmp.rc")" out="$(<"$tmp")"
+    } always {
+      kill $pid 2>/dev/null
+      rm -f "$tmp" "$tmp.rc"
+      PREDISPLAY="$_TT_BADGE "
+      region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
+    }
+    if [[ $rc -ne 0 || -z "$out" ]]; then
+      zle -M "tt: no valid command (try rephrasing; check \`tt\` on the CLI)"
+      return 0
+    fi
+    local tt_command tt_danger tt_explanation
+    eval "$out"   # shlex-quoted assignments emitted by `tt --widget`
+    _tt_ai_off
+    # The inserted command is machine text: an unquoted `!` in it (e.g. the POSIX
+    # glob `.[!.]*`) must not history-expand when the user accepts the line (#62).
+    # `unsetopt banghist` would be undone by this function's localoptions the
+    # moment the widget returns, so swap the event character out via $histchars
+    # (a variable, immune to localoptions); line-init restores it at the next prompt.
+    [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
+    histchars=$'\x01'"${histchars[2,3]}"
+    if [[ "$tt_danger" == "destructive" ]]; then
+      BUFFER="# DESTRUCTIVE — review, then remove the #: $tt_command"
+    else
+      BUFFER="$tt_command"
+    fi
+    CURSOR=${#BUFFER}
+    zle -M "[$tt_danger] $tt_explanation"
+    return 0
+  fi
+  zle .accept-line
+}
+zle -N accept-line _tt_accept_line
+
+# A fresh prompt never starts in AI mode (covers Ctrl-C mid-request).
+autoload -Uz add-zle-hook-widget
+_tt_line_init() {
+  (( _TT_AI_MODE )) && _tt_ai_off
+  if [[ -n "$_TT_SAVED_HISTCHARS" ]]; then
+    histchars=$_TT_SAVED_HISTCHARS
+    _TT_SAVED_HISTCHARS=""
+  fi
+  return 0
+}
+add-zle-hook-widget line-init _tt_line_init
