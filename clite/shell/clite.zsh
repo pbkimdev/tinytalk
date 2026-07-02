@@ -47,7 +47,7 @@ bindkey '^H' _clite_backspace
 
 _clite_accept_line() {
   if (( _CLITE_AI_MODE )) && [[ -n "$BUFFER" ]]; then
-    # The spinner lives in POSTDISPLAY (inside the edit region): a mid-widget
+    # The spinner lives in PREDISPLAY (inside the edit region): a mid-widget
     # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
     # one row, so the replaced buffer overdraws the previous line. `zle -M` is only
     # safe at the very end of the widget, as part of one final redisplay.
@@ -63,9 +63,10 @@ _clite_accept_line() {
     local pid=$!
     local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     local -i i=1
+    region_highlight+=("0 $#BUFFER fg=8")
     {
       while [[ ! -e "$tmp.rc" ]]; do
-        POSTDISPLAY=" ${frames[i]} thinking"
+        PREDISPLAY="AI ${frames[i]} "
         zle -R
         (( i = i % $#frames + 1 ))
         if (( have_zselect )); then zselect -t 12 2>/dev/null; else command sleep 0.12; fi
@@ -74,7 +75,8 @@ _clite_accept_line() {
     } always {
       kill $pid 2>/dev/null
       rm -f "$tmp" "$tmp.rc"
-      POSTDISPLAY=""
+      PREDISPLAY="AI "
+      region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
     }
     if [[ $rc -ne 0 || -z "$out" ]]; then
       zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
