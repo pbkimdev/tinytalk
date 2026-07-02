@@ -59,7 +59,8 @@ def _probe_seq(*errors):
 def test_fresh_config_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
-    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-opus-4-8", "high", True])
+    # Fresh config: no slot picker — the wizard goes straight to primary (#78).
+    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", "high", True])
     result = auth.run_auth_wizard(config_path, io)
     assert result == "primary"
 
@@ -74,15 +75,15 @@ def test_fresh_config_end_to_end(tmp_path, monkeypatch):
     assert load_config(config_path).default_backend == "primary"  # valid per load_config (DoD)
 
 
-def test_existing_config_add_backend_preserves_other_tables(tmp_path, monkeypatch):
+def test_existing_config_setup_fallback_preserves_other_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         """\
 [defaults]
-backend = "first"
+backend = "primary"
 
-[backends.first]
+[backends.primary]
 kind = "claude-agent-sdk"
 model = "claude-sonnet-5"
 
@@ -92,38 +93,35 @@ enabled = false
     )
     io = ScriptedIO(
         [
-            "add",
-            "second",
+            "fallback",  # slot
             "claude-agent-sdk",
             "claude-haiku-4-5",
             auth._NO_EFFORT,
-            False,  # make default?
-            True,  # set fallback?
             True,  # write?
         ]
     )
     result = auth.run_auth_wizard(config_path, io)
-    assert result == "second"
+    assert result == "fallback"
 
     doc = _read(config_path)
-    assert doc["backends"]["first"] == {"kind": "claude-agent-sdk", "model": "claude-sonnet-5"}
+    assert doc["backends"]["primary"] == {"kind": "claude-agent-sdk", "model": "claude-sonnet-5"}
     assert doc["cache"]["enabled"] is False
-    assert doc["backends"]["second"] == {"kind": "claude-agent-sdk", "model": "claude-haiku-4-5"}
-    assert doc["defaults"]["backend"] == "first"  # set_default answered False — unchanged
-    assert doc["defaults"]["escalation_backend"] == "second"  # set_fallback answered True
+    assert doc["backends"]["fallback"] == {"kind": "claude-agent-sdk", "model": "claude-haiku-4-5"}
+    assert doc["defaults"]["backend"] == "primary"  # untouched by a fallback write
+    assert doc["defaults"]["escalation_backend"] == "fallback"  # implied by the slot
     cfg = load_config(config_path)  # valid per load_config (DoD)
-    assert cfg.escalation_backend == "second"
+    assert cfg.escalation_backend == "fallback"
 
 
-def test_existing_config_replace_backend(tmp_path, monkeypatch):
+def test_existing_config_replace_primary_confirms_upfront(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         """\
 [defaults]
-backend = "first"
+backend = "primary"
 
-[backends.first]
+[backends.primary]
 kind = "claude-agent-sdk"
 model = "claude-haiku-4-5"
 
@@ -133,24 +131,75 @@ enabled = false
     )
     io = ScriptedIO(
         [
-            "replace",
-            "first",  # which backend to replace
+            "primary",  # slot
+            True,  # replace the existing primary?
             "claude-agent-sdk",
             "claude-sonnet-5",
             auth._NO_EFFORT,
-            True,  # keep as default?
-            False,  # set fallback?
             True,  # write?
         ]
     )
     result = auth.run_auth_wizard(config_path, io)
-    assert result == "first"
+    assert result == "primary"
 
     doc = _read(config_path)
-    assert doc["backends"]["first"] == {"kind": "claude-agent-sdk", "model": "claude-sonnet-5"}
+    assert doc["backends"]["primary"] == {"kind": "claude-agent-sdk", "model": "claude-sonnet-5"}
     assert doc["cache"]["enabled"] is False  # untouched
-    assert doc["defaults"]["backend"] == "first"
-    assert load_config(config_path).backend("first").model == "claude-sonnet-5"
+    assert doc["defaults"]["backend"] == "primary"
+    assert load_config(config_path).backend("primary").model == "claude-sonnet-5"
+
+
+def test_legacy_default_offers_slots_and_primary_takes_over(tmp_path, monkeypatch):
+    """A hand-written config with a non-slot default keeps its tables; primary takes the role."""
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[defaults]\nbackend = "legacy"\n\n[backends.legacy]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
+    )
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+
+    doc = _read(config_path)
+    assert doc["defaults"]["backend"] == "primary"
+    assert doc["backends"]["legacy"] == {"kind": "claude-agent-sdk", "model": "x"}  # untouched
+
+
+def test_no_valid_default_goes_straight_to_primary(tmp_path, monkeypatch):
+    """defaults.backend missing/dangling → no slot picker; the wizard must yield a valid config."""
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('[backends.orphan]\nkind = "claude-agent-sdk"\nmodel = "x"\n')
+    # First scripted answer is the kind — a slot prompt would consume it and fail the sequence.
+    io = ScriptedIO(["claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    assert _read(config_path)["defaults"]["backend"] == "primary"
+    assert load_config(config_path).default_backend == "primary"
+
+
+def test_replace_deletes_stale_keyring_secret(tmp_path, monkeypatch):
+    """Replacing a keyed slot with a keyless kind must not orphan the keychain entry."""
+    deleted = []
+    monkeypatch.setattr(
+        "keyring.delete_password", lambda service, account: deleted.append((service, account))
+    )
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """\
+[defaults]
+backend = "primary"
+
+[backends.primary]
+kind = "openai-compat"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.4"
+keyring_account = "primary"
+"""
+    )
+    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    assert deleted == [("tinytalk", "primary")]
+    assert "keyring_account" not in _read(config_path)["backends"]["primary"]
 
 
 def test_added_backend_separated_from_next_section(tmp_path, monkeypatch):
@@ -170,22 +219,11 @@ model = "claude-sonnet-5"
 enabled = false
 """
     )
-    io = ScriptedIO(
-        [
-            "add",
-            "second",
-            "claude-agent-sdk",
-            "claude-haiku-4-5",
-            auth._NO_EFFORT,
-            False,
-            False,
-            True,
-        ]
-    )
-    assert auth.run_auth_wizard(config_path, io) == "second"
+    io = ScriptedIO(["fallback", "claude-agent-sdk", "claude-haiku-4-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "fallback"
 
     text = config_path.read_text()
-    assert "\n\n[cache]" in text  # blank line between [backends.second] and the next section
+    assert "\n\n[cache]" in text  # blank line between [backends.fallback] and the next section
     assert "\n\n\n" not in text  # and no double-spacing introduced anywhere
 
 
@@ -197,88 +235,46 @@ def test_added_backend_separated_when_file_lacks_trailing_newline(tmp_path, monk
         '[defaults]\nbackend = "first"\n\n'
         '[backends.first]\nkind = "claude-agent-sdk"\nmodel = "claude-sonnet-5"'
     )
-    io = ScriptedIO(
-        [
-            "add",
-            "second",
-            "claude-agent-sdk",
-            "claude-haiku-4-5",
-            auth._NO_EFFORT,
-            False,
-            False,
-            True,
-        ]
-    )
-    assert auth.run_auth_wizard(config_path, io) == "second"
+    io = ScriptedIO(["fallback", "claude-agent-sdk", "claude-haiku-4-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "fallback"
 
-    assert 'model = "claude-sonnet-5"\n\n[backends.second]' in config_path.read_text()
-
-
-def test_set_primary_fallback_action(tmp_path):
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        """\
-[defaults]
-backend = "first"
-
-[backends.first]
-kind = "claude-agent-sdk"
-model = "claude-sonnet-5"
-
-[backends.second]
-kind = "claude-agent-sdk"
-model = "claude-haiku-4-5"
-"""
-    )
-    io = ScriptedIO(["primary_fallback", "second", "first"])
-    result = auth.run_auth_wizard(config_path, io)
-    assert result == "second"
-
-    doc = _read(config_path)
-    assert doc["defaults"]["backend"] == "second"
-    assert doc["defaults"]["escalation_backend"] == "first"
-
-
-def test_cancel_at_name_writes_nothing(tmp_path):
-    config_path = tmp_path / "config.toml"
-    io = ScriptedIO([None])
-    assert auth.run_auth_wizard(config_path, io) is None
-    assert not config_path.exists()
+    assert 'model = "claude-sonnet-5"\n\n[backends.fallback]' in config_path.read_text()
 
 
 def test_cancel_at_kind_writes_nothing(tmp_path):
     config_path = tmp_path / "config.toml"
-    io = ScriptedIO(["primary", None])
+    io = ScriptedIO([None])  # fresh config: the kind select is the first prompt
     assert auth.run_auth_wizard(config_path, io) is None
     assert not config_path.exists()
+
+
+def test_cancel_at_slot_writes_nothing(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[defaults]\nbackend = "first"\n\n[backends.first]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
+    )
+    before = config_path.read_text()
+    io = ScriptedIO([None])
+    assert auth.run_auth_wizard(config_path, io) is None
+    assert config_path.read_text() == before
 
 
 def test_declined_confirm_gate_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
-    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-opus-4-8", auth._NO_EFFORT, False])
+    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", auth._NO_EFFORT, False])
     assert auth.run_auth_wizard(config_path, io) is None
     assert not config_path.exists()
 
 
-def test_exit_action_on_existing_config(tmp_path):
+def test_declined_replace_confirm_writes_nothing(tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        '[defaults]\nbackend = "first"\n\n[backends.first]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
+        '[defaults]\nbackend = "primary"\n\n'
+        '[backends.primary]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
     )
     before = config_path.read_text()
-    io = ScriptedIO(["exit"])
-    assert auth.run_auth_wizard(config_path, io) is None
-    assert config_path.read_text() == before
-
-
-def test_cancel_at_replace_pick_writes_nothing(tmp_path):
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(
-        '[defaults]\nbackend = "first"\n\n[backends.first]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
-    )
-    before = config_path.read_text()
-    io = ScriptedIO(["replace", None])
+    io = ScriptedIO(["primary", False])  # decline "will replace the existing primary"
     assert auth.run_auth_wizard(config_path, io) is None
     assert config_path.read_text() == before
 
@@ -656,7 +652,6 @@ def test_secret_stored_via_keyring_and_referenced_by_account(tmp_path, monkeypat
     config_path = tmp_path / "config.toml"
     io = ScriptedIO(
         [
-            "primary",
             "openai-compat",
             "https://api.openai.com/v1",
             "sk-real",
@@ -684,7 +679,6 @@ def test_secret_not_stored_when_confirm_declined(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     io = ScriptedIO(
         [
-            "primary",
             "openai-compat",
             "https://api.openai.com/v1",
             "sk-real",
