@@ -1,8 +1,9 @@
 #!/bin/sh
 # Fake `clite --widget` for shell-UI testing: canned responses after a delay.
 # The Nth call prints ${CLITE_STUB_RESPONSES}/N verbatim; a missing file exits 1,
-# which exercises the widget's error path. Without CLITE_STUB_RESPONSES set, two
-# built-in responses: a safe echo greeting, then a safe du pipeline.
+# which exercises the widget's error path. Without CLITE_STUB_RESPONSES set, three
+# built-in responses: a safe echo greeting, a safe du pipeline, then a command
+# containing the history-expansion hazard `.[!.]*` (#62).
 # Env: CLITE_STUB_STATE (call-counter file), CLITE_STUB_DELAY (seconds, default 1).
 state="${CLITE_STUB_STATE:-${TMPDIR:-/tmp}/clite-stub-count}"
 n=$(cat "$state" 2>/dev/null || echo 0)
@@ -20,10 +21,16 @@ clite_danger=safe
 clite_explanation='Prints a greeting message.'
 EOF
   ;;
-  *) cat <<'EOF'
+  2) cat <<'EOF'
 clite_command='du -h -d 1 . | sort -rh | head -n 3'
 clite_danger=safe
 clite_explanation='Lists disk usage of each item one level deep in the current directory (~), in human-readable sizes, sorted largest first, showing only the top 3.'
+EOF
+  ;;
+  *) cat <<'EOF'
+clite_command='print -r ok-histexpand .[!.]*(N)'
+clite_danger=safe
+clite_explanation='Prints a marker plus any hidden entries (nullglob).'
 EOF
   ;;
 esac
