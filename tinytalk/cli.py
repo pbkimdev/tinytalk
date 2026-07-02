@@ -23,6 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tt",
         description="Turn plain English at the shell into a real, validated command.",
+        epilog=(
+            "commands:\n"
+            "  auth        interactively set up a provider backend\n"
+            "  eval        benchmark configured backends over the built-in prompt suite\n"
+            "  init zsh    print the zsh integration script (eval \"$(tt init zsh)\")\n"
+            "\n"
+            "run `tt <command> --help` for command options"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"tt {__version__}")
     parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)")
@@ -82,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
 
 def _init(argv: list[str]) -> int:
     """`tt init zsh` — print the shell integration script for eval/source."""
+    if argv in (["--help"], ["-h"]):
+        print("usage: tt init zsh")
+        return 0
     if argv != ["zsh"]:
         print("usage: tt init zsh", file=sys.stderr)
         return 2

@@ -56,6 +56,13 @@ def test_no_request_prints_help_and_succeeds(capsys):
     assert "tt" in capsys.readouterr().out.lower()
 
 
+def test_help_lists_every_subcommand(capsys):
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    for command in ("auth", "eval", "init zsh"):
+        assert command in out
+
+
 def test_request_prints_command_to_stdout(config_path, stub_backend, capsys):
     assert main(["--config", config_path, "list", "files", "by", "size"]) == 0
     captured = capsys.readouterr()
