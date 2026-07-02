@@ -145,6 +145,7 @@ def test_both_tiers_failing_raises_with_history():
     assert "cmd-a" in str(exc.value)
     assert "cmd-b" in str(exc.value)
     assert exc.value.last is not None
+    assert exc.value.kind == "no_command"
 
 
 def test_t2_without_escalation_reuses_primary():
@@ -174,5 +175,15 @@ def test_both_tiers_provider_error_raises_no_valid_command():
         raise ProviderError("still down")
 
     primary = StubProvider(Capabilities(), boom)
-    with pytest.raises(NoValidCommand):
+    with pytest.raises(NoValidCommand) as exc:
         run(TierController(primary))
+    assert exc.value.kind == "transport"
+    assert exc.value.last is None
+
+
+def test_format_failures_are_no_command_not_transport():
+    primary = text_provider(*(Completion(text="no json") for _ in range(4)))
+    with pytest.raises(NoValidCommand) as exc:
+        run(TierController(primary))
+    assert exc.value.kind == "no_command"
+    assert exc.value.last is None

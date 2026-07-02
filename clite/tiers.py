@@ -51,11 +51,18 @@ class TierResult:
 class NoValidCommand(Exception):
     """Every tier failed; carries the last attempt (if any) for diagnostics."""
 
-    def __init__(self, problems: tuple[str, ...], last: Suggestion | None = None):
+    def __init__(
+        self,
+        problems: tuple[str, ...],
+        last: Suggestion | None = None,
+        *,
+        kind: str = "no_command",
+    ):
         detail = "; ".join(problems) or "no backend produced a parseable suggestion"
         super().__init__(detail)
         self.problems = problems
         self.last = last
+        self.kind = kind
 
 
 class Cache(Protocol):
@@ -136,6 +143,7 @@ class TierController:
         attempts = 0
         problems: tuple[str, ...] = ()
         last: Suggestion | None = None
+        provider_failed_only = False
 
         # T1 — grounded ask against the default backend.
         messages = self._messages(request, extra="")
@@ -157,6 +165,7 @@ class TierController:
             last = gen.suggestion
         except (FormatError, ProviderError) as exc:
             problems = (str(exc),)
+            provider_failed_only = isinstance(exc, ProviderError)
 
         # T2 — enriched grounding + fallback backend when configured.
         needs = last.needs if last is not None else ()
@@ -166,7 +175,12 @@ class TierController:
         try:
             gen = await generate(provider, messages)
         except (FormatError, ProviderError) as exc:
-            raise NoValidCommand(problems + (str(exc),), last) from exc
+            kind = (
+                "transport"
+                if isinstance(exc, ProviderError) and last is None and provider_failed_only
+                else "no_command"
+            )
+            raise NoValidCommand(problems + (str(exc),), last, kind=kind) from exc
         usage, attempts = _accumulate(usage, attempts, gen)
         validation = self._validate(gen.suggestion)
         if validation.ok:

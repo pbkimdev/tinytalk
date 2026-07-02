@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 
 from clite import __version__
@@ -175,9 +176,22 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
         print(f"clite: {exc}", file=sys.stderr)
+        if args.widget:
+            _emit_widget_error(
+                "config",
+                "clite: configuration error; run `clite` on the CLI for details",
+            )
         return 1
     except NoValidCommand as exc:
         print(f"clite: no valid command: {exc}", file=sys.stderr)
+        if args.widget and exc.kind == "transport":
+            backend_name = (
+                backend_cfg.name if "backend_cfg" in locals() else args.backend or "default"
+            )
+            _emit_widget_error(
+                "transport",
+                _backend_fault_message(backend_name, exc.problems),
+            )
         if args.json and exc.last is not None:
             print(json.dumps({"ok": False, "problems": list(exc.problems)}))
         return 1
@@ -186,8 +200,6 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         return 1
 
     if args.widget:
-        import shlex
-
         print(
             "\n".join(
                 (
@@ -216,6 +228,26 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             file=sys.stderr,
         )
     return 0
+
+
+def _emit_widget_error(kind: str, message: str) -> None:
+    print(
+        "\n".join(
+            (
+                f"clite_error={shlex.quote(kind)}",
+                f"clite_message={shlex.quote(_one_line(message))}",
+            )
+        )
+    )
+
+
+def _backend_fault_message(backend: str, problems: tuple[str, ...]) -> str:
+    detail = _one_line(problems[-1] if problems else "provider failed")
+    return f"clite: backend {backend!r} failed: {detail}; check the server or defaults.backend"
+
+
+def _one_line(value: str) -> str:
+    return " ".join(value.split())
 
 
 if __name__ == "__main__":

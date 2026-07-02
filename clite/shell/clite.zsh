@@ -79,12 +79,16 @@ _clite_accept_line() {
       PREDISPLAY="AI "
       region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
     }
-    if [[ $rc -ne 0 || -z "$out" ]]; then
-      zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
+    local clite_command clite_danger clite_explanation clite_error clite_message
+    [[ -n "$out" ]] && eval "$out"   # shlex-quoted assignments emitted by `clite --widget`
+    if [[ $rc -ne 0 || -z "$clite_command" ]]; then
+      if [[ -n "$clite_error" ]]; then
+        zle -M "${clite_message:-clite: backend/configuration error (check \`clite\` on the CLI)}"
+      else
+        zle -M "clite: no valid command (try rephrasing; check \`clite\` on the CLI)"
+      fi
       return 0
     fi
-    local clite_command clite_danger clite_explanation
-    eval "$out"   # shlex-quoted assignments emitted by `clite --widget`
     _clite_ai_off
     # The inserted command is machine text: an unquoted `!` in it (e.g. the POSIX
     # glob `.[!.]*`) must not history-expand when the user accepts the line (#62).

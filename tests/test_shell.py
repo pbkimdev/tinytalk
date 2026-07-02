@@ -129,6 +129,64 @@ def test_widget_output_is_shell_evalable(stubbed_cli, capsys):
         assert proc.stdout.strip() == PAYLOAD["command"]
 
 
+def test_widget_transport_fault_emits_error_contract(tmp_path, monkeypatch, capsys):
+    import clite.provider.factory as factory
+    from clite.provider.base import Capabilities, ProviderError
+    from tests.stubs import StubProvider
+
+    config = tmp_path / "config.toml"
+    config.write_text(CONFIG)
+
+    def fail(_request, _attempt):
+        raise ProviderError("endpoint returned HTTP 500 for user's model")
+
+    provider = StubProvider(Capabilities(), fail)
+    monkeypatch.setattr(factory, "make_provider", lambda cfg: provider)
+
+    assert main(["--config", str(config), "--widget", "find", "big", "logs"]) == 1
+    captured = capsys.readouterr()
+    assert "clite_error=transport" in captured.out
+    assert "local" in captured.out
+    assert "HTTP 500" in captured.out
+    assert "clite: no valid command:" in captured.err
+    if shutil.which("zsh"):
+        proc = subprocess.run(
+            [
+                "zsh",
+                "-c",
+                'eval "$1"; print -r -- "$clite_error|$clite_message"',
+                "_",
+                captured.out,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.strip() == (
+            "transport|clite: backend 'local' failed: endpoint returned HTTP 500 for user's "
+            "model; check the server or defaults.backend"
+        )
+
+
+def test_widget_no_command_failure_emits_no_error_contract(tmp_path, monkeypatch, capsys):
+    import clite.provider.factory as factory
+    from clite.provider.base import Capabilities, Completion
+    from tests.stubs import StubProvider
+
+    config = tmp_path / "config.toml"
+    config.write_text(CONFIG)
+    payload = {**PAYLOAD, "command": "definitely_missing_tinytalk_binary_zzzz"}
+    provider = StubProvider(
+        Capabilities(), lambda _request, _attempt: Completion(text=json.dumps(payload))
+    )
+    monkeypatch.setattr(factory, "make_provider", lambda cfg: provider)
+
+    assert main(["--config", str(config), "--widget", "find", "big", "logs"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "clite: no valid command:" in captured.err
+
+
 def test_session_context_reaches_model_redacted(stubbed_cli, capsys, monkeypatch):
     config, provider = stubbed_cli
     monkeypatch.setenv("CLITE_SESSION_CONTEXT", "export API_KEY=sk-verysecretkey12345678\nls -la")
