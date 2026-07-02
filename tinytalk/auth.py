@@ -86,33 +86,37 @@ class BackendDraft:
 
 
 def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
-    """Run the wizard; returns the backend name written, or None if the user cancelled."""
-    doc = _load_or_new(config_path)
-    existing = sorted(doc["backends"].keys()) if "backends" in doc else []
+    """Run the wizard; returns the slot written ("primary"/"fallback"), or None if cancelled.
 
-    name: str | None = None
-    if existing:
-        action = io.select(
-            f"Configured backends: {', '.join(existing)}.",
+    The wizard manages exactly two slots (#78): `primary` (defaults.backend) and
+    `fallback` (defaults.escalation_backend). Writing a slot replaces it wholesale.
+    """
+    doc = _load_or_new(config_path)
+    backends = doc["backends"] if "backends" in doc else {}
+    defaults = doc["defaults"] if "defaults" in doc else {}
+
+    # Fallback is only offered when the config already has a usable default —
+    # otherwise the written file would fail load_config's defaults.backend check.
+    default_name = defaults.get("backend")
+    if default_name and default_name in backends:
+        slot = io.select(
+            "Which backend do you want to set up?",
             [
-                ("add", "Add a new backend"),
-                ("replace", "Replace an existing backend"),
-                ("primary_fallback", "Set which backend is primary/fallback"),
-                ("exit", "Exit"),
+                ("primary", _slot_label("primary", backends)),
+                ("fallback", _slot_label("fallback", backends)),
             ],
         )
-        if action in (None, "exit"):
+        if slot is None:
             return None
-        if action == "primary_fallback":
-            return _set_primary_fallback(doc, config_path, existing, io)
-        if action == "replace":
-            name = io.select("Replace which backend?", [(n, n) for n in existing])
-            if name is None:
-                return None
+    else:
+        slot = "primary"
 
-    if name is None:
-        name = io.text("Name for this backend:", default=_suggest_name(existing))
-        if not name:
+    replaced = backends[slot] if slot in backends else None
+    if replaced is not None:
+        if not io.confirm(
+            f"Writing a new {slot} will replace the existing one ({_describe(replaced)}). Continue?",
+            default=False,
+        ):
             return None
 
     kind = io.select("Provider kind:", KIND_CHOICES)
@@ -123,14 +127,7 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if draft is None:
         return None
 
-    set_default = (not existing) or bool(
-        io.confirm(f"Make {name!r} the default backend?", default=not existing)
-    )
-    set_fallback = False
-    if existing:
-        set_fallback = bool(io.confirm(f"Set {name!r} as the fallback backend?", default=False))
-
-    print(f"[backends.{name}]")
+    print(f"[backends.{slot}]")
     for key, value in draft.fields.items():
         if value:
             print(f"  {key} = {value!r}")
@@ -139,36 +136,31 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if not io.confirm(f"Write this to {config_path}?", default=True):
         return None
 
+    stale_account = replaced.get("keyring_account") if replaced is not None else None
     if draft.secret:
-        _store_secret(name, draft.secret)
-        draft.fields["keyring_account"] = name
+        _store_secret(slot, draft.secret)
+        draft.fields["keyring_account"] = slot
+        if stale_account == slot:
+            stale_account = None  # overwritten in place
+    if stale_account:
+        _delete_secret(stale_account)
 
-    _write_backend(doc, name, draft.fields, set_default=set_default, set_fallback=set_fallback)
+    _write_backend(
+        doc, slot, draft.fields, set_default=(slot == "primary"), set_fallback=(slot == "fallback")
+    )
     _save(config_path, doc)
-    return name
+    return slot
 
 
-def _set_primary_fallback(doc, config_path: Path, existing: list[str], io: WizardIO) -> str | None:
-    default = io.select("Primary backend:", [(n, n) for n in existing])
-    if default is None:
-        return None
-    fallback_choices = [(_NO_EFFORT, "(none)")] + [(n, n) for n in existing if n != default]
-    fallback = io.select("Fallback backend:", fallback_choices)
-    if fallback is None:
-        return None
+def _slot_label(slot: str, backends) -> str:
+    role = "used first" if slot == "primary" else "used when the primary fails"
+    if slot in backends:
+        return f"{slot} — {role} (now {_describe(backends[slot])})"
+    return f"{slot} — {role} (not set)"
 
-    if "defaults" not in doc:
-        import tomlkit
 
-        doc["defaults"] = tomlkit.table()
-    doc["defaults"]["backend"] = default
-    if fallback != _NO_EFFORT:
-        doc["defaults"]["escalation_backend"] = fallback
-    elif "escalation_backend" in doc["defaults"]:
-        del doc["defaults"]["escalation_backend"]
-
-    _save(config_path, doc)
-    return default
+def _describe(table) -> str:
+    return f"{table.get('kind', '?')}/{table.get('model', '?')}"
 
 
 def _retry(io: WizardIO) -> bool:
@@ -551,17 +543,20 @@ def _pick_effort(io: WizardIO, levels: tuple[str, ...]) -> str | None:
     return picked
 
 
-def _suggest_name(existing: list[str]) -> str:
-    for candidate in ("primary", "backend"):
-        if candidate not in existing:
-            return candidate
-    return f"backend{len(existing) + 1}"
-
-
 def _store_secret(account: str, value: str) -> None:
     import keyring
 
     keyring.set_password("tinytalk", account, value)
+
+
+def _delete_secret(account: str) -> None:
+    import keyring
+    import keyring.errors
+
+    try:
+        keyring.delete_password("tinytalk", account)
+    except keyring.errors.PasswordDeleteError:
+        pass  # already gone
 
 
 # --- config.toml read-modify-write (tomlkit; preserves everything else untouched) ---
