@@ -66,7 +66,18 @@ class QuestionaryIO:
     def text(self, message: str, default: str = "") -> str | None:
         import questionary
 
-        return questionary.text(message, default=default).ask()
+        if not default:
+            return questionary.text(message).ask()
+        from prompt_toolkit.formatted_text import FormattedText
+
+        # The default renders as a dimmed placeholder (typed over, not cleared);
+        # a plain Enter accepts it. Cancel is Ctrl-C (None), not an empty submit (#81).
+        answer = questionary.text(
+            message, placeholder=FormattedText([("fg:#767676", default)])
+        ).ask()
+        if answer is None:
+            return None
+        return answer or default
 
     def password(self, message: str) -> str | None:
         import questionary
