@@ -241,6 +241,49 @@ def test_added_backend_separated_when_file_lacks_trailing_newline(tmp_path, monk
     assert 'model = "claude-sonnet-5"\n\n[backends.fallback]' in config_path.read_text()
 
 
+def test_slot_labels_show_provider_alias():
+    cerebras = {
+        "kind": "openai-compat",
+        "base_url": "https://api.cerebras.ai/v1",
+        "model": "gemma-4-31b",
+    }
+    assert auth._slot_label("primary", {"primary": cerebras}) == "primary — cerebras/gemma-4-31b"
+    assert auth._slot_label("fallback", {}) == "fallback — (not set)"
+
+
+def test_alias_derivation_and_override():
+    def describe(**table):
+        return auth._describe(table)
+
+    assert (
+        describe(kind="openai-compat", base_url="http://localhost:11434/v1", model="q") == "local/q"
+    )
+    assert (
+        describe(kind="openai-compat", base_url="http://127.0.0.1:8000/v1", model="m") == "local/m"
+    )
+    assert (
+        describe(kind="openai-compat", base_url="http://192.168.1.7:3333/v1", model="m")
+        == "local/m"
+    )
+    assert describe(kind="claude-agent-sdk", model="claude-sonnet-5") == "claude/claude-sonnet-5"
+    assert describe(kind="codex-agent-sdk", model="gpt-5.4-codex") == "codex/gpt-5.4-codex"
+    assert (
+        describe(kind="azure-openai", base_url="https://my-res.openai.azure.com", model="d")
+        == "azure/d"
+    )
+    assert (
+        describe(kind="openai-compat", base_url="https://api.openai.com/v1", model="gpt-5.4")
+        == "openai/gpt-5.4"
+    )
+    # explicit alias key wins over derivation
+    assert (
+        describe(
+            kind="openai-compat", base_url="https://api.cerebras.ai/v1", model="m", alias="work"
+        )
+        == "work/m"
+    )
+
+
 def test_cancel_at_kind_writes_nothing(tmp_path):
     config_path = tmp_path / "config.toml"
     io = ScriptedIO([None])  # fresh config: the kind select is the first prompt
