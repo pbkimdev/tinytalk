@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from tinytalk.contract import Suggestion, contract_json_schema
 from tinytalk.parsing import FormatError, parse_completion
+from tinytalk.prompts import CONTRACT_TOOL_DESCRIPTION
 from tinytalk.provider.base import (
     Capabilities,
     CompletionRequest,
@@ -22,8 +23,8 @@ from tinytalk.provider.base import (
 )
 
 _CONTRACT_TOOL = Tool(
-    name="suggest_command",
-    description="Return the validated command suggestion.",
+    name="suggest_command",  # wire identifier — mirrored in the providers, not prompt surface
+    description=CONTRACT_TOOL_DESCRIPTION,
     parameters=contract_json_schema(),
 )
 

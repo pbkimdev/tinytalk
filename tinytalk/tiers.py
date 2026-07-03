@@ -21,6 +21,7 @@ from typing import Callable, Protocol
 from tinytalk.contract import Suggestion
 from tinytalk.engine import Generation, generate
 from tinytalk.parsing import FormatError
+from tinytalk.prompts import STATIC_SYSTEM, user_message
 from tinytalk.provider.base import Message, Provider, ProviderError, Role, Usage
 
 
@@ -91,20 +92,11 @@ class NullCache:
         return None
 
 
-_BASE_SYSTEM = """\
-You are TinyTalk. Turn the user's plain-English request into exactly one runnable
-shell command (a pipeline counts as one command) for their system. Commit to
-exactly one command — never a list of options or alternatives. Respond with
-only a JSON object matching this shape, no prose around it:
-{"command": "...", "explanation": "...", "danger": "safe|caution|destructive",
- "confidence": 0.0-1.0, "needs": ["binaries", "used"]}"""
-
-
 class StaticGrounding:
     """Placeholder grounding: the contract instructions only (real one lands in #33)."""
 
     def system_prompt(self, request: TierRequest) -> str:
-        return _BASE_SYSTEM
+        return STATIC_SYSTEM
 
     def enrich(self, needs: tuple[str, ...], problems: tuple[str, ...]) -> str:
         return ""
@@ -216,18 +208,17 @@ class TierController:
         system = self._grounding.system_prompt(request)
         if extra:
             system = f"{system}\n\n{extra}"
-        user_parts = [request.prompt]
-        if request.cwd and request.cwd != ".":
-            user_parts.append(f"(current directory: {request.cwd})")
-        if request.session_context:
-            user_parts.append(f"Recent commands in this session:\n{request.session_context}")
-        if problems:
-            user_parts.append(
-                "A previous attempt was rejected: " + "; ".join(problems) + ". Fix those issues."
-            )
         return [
             Message(Role.SYSTEM, system),
-            Message(Role.USER, "\n\n".join(user_parts)),
+            Message(
+                Role.USER,
+                user_message(
+                    request.prompt,
+                    cwd=request.cwd,
+                    session_context=request.session_context,
+                    problems=problems,
+                ),
+            ),
         ]
 
 
