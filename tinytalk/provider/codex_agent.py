@@ -140,6 +140,15 @@ def _split_messages(messages: list[Message]) -> tuple[str, str | None]:
 
 
 def _map_usage(raw: object) -> Usage:
+    # SDK 0.1.0b3 returns a TurnResult.usage object whose `.total` is a
+    # TokenUsageBreakdown; earlier builds passed a plain dict. Handle both.
+    total = getattr(raw, "total", None)
+    if total is not None:
+        raw = {
+            "input_tokens": getattr(total, "input_tokens", 0),
+            "output_tokens": getattr(total, "output_tokens", 0),
+            "cached_input_tokens": getattr(total, "cached_input_tokens", 0),
+        }
     if not isinstance(raw, dict):
         return Usage()
 

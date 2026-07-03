@@ -144,9 +144,20 @@ def test_sdk_exception_is_wrapped():
         asyncio.run(provider.complete(request()))
 
 
-def test_missing_sdk_raises_actionable_error():
-    # openai-codex is an optional extra and isn't installed in the dev env — proves the
-    # real (non-injected) path raises an install hint rather than a bare ImportError.
+def test_missing_sdk_raises_actionable_error(monkeypatch):
+    # openai-codex is an optional extra — simulate it being absent (regardless of the
+    # dev env) and prove the real (non-injected) path raises an install hint rather
+    # than a bare ImportError.
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_codex(name, *args, **kwargs):
+        if name == "openai_codex":
+            raise ImportError("No module named 'openai_codex'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_codex)
     provider = CodexAgentProvider("gpt-5.4")
     with pytest.raises(CodexAgentError, match="not installed"):
         asyncio.run(provider.complete(request()))
@@ -193,3 +204,25 @@ def test_default_effort_applied_and_request_wins():
     assert capture["turn_kwargs"]["effort"] == "low"
     asyncio.run(provider.complete(request(reasoning_effort="high")))
     assert capture["turn_kwargs"]["effort"] == "high"
+
+
+def test_usage_object_shape_mapped():
+    """SDK 0.1.0b3: TurnResult.usage is an object with a .total TokenUsageBreakdown."""
+
+    class Breakdown:
+        input_tokens = 26687
+        output_tokens = 5
+        cached_input_tokens = 2432
+
+    class TurnUsage:
+        total = Breakdown()
+
+    capture = {}
+    provider = CodexAgentProvider(
+        "gpt-5.5",
+        codex_factory=factory(capture, FakeResult(final_response="{}", usage=TurnUsage())),
+    )
+    completion = asyncio.run(provider.complete(request()))
+    assert completion.usage.prompt_tokens == 26687
+    assert completion.usage.completion_tokens == 5
+    assert completion.usage.cached_prompt_tokens == 2432
