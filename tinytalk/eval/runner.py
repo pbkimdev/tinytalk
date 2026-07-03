@@ -29,6 +29,8 @@ from tinytalk.validate import CommandValidator
 @dataclass(frozen=True)
 class PromptResult:
     prompt_id: str
+    lang: str = "en"
+    target: str = ""
     command: str | None = None
     error: str | None = None
     format_ok: bool = False
@@ -73,6 +75,28 @@ class BackendReport:
     def assertions_pct(self) -> float:
         return self._pct(lambda r: r.assertions_pass)
 
+    @staticmethod
+    def _strict(r: PromptResult) -> bool:
+        return r.format_ok and r.parses and r.binaries_exist and r.assertions_pass
+
+    @property
+    def strict_pass_pct(self) -> float:
+        return self._pct(self._strict)
+
+    def _strict_pct_for(self, lang: str) -> float:
+        results = [r for r in self.results if r.lang == lang]
+        if not results:
+            return 0.0
+        return 100.0 * sum(1 for r in results if self._strict(r)) / len(results)
+
+    @property
+    def strict_pass_pct_en(self) -> float:
+        return self._strict_pct_for("en")
+
+    @property
+    def strict_pass_pct_ko(self) -> float:
+        return self._strict_pct_for("ko")
+
     @property
     def danger_pct(self) -> float:
         return self._pct(lambda r: r.danger_correct)
@@ -101,10 +125,11 @@ def run_eval(
     progress: bool = True,
 ) -> list[BackendReport]:
     if prompt_ids:
-        unknown = set(prompt_ids) - {p.id for p in suite}
+        # A bare target (e.g. "disk-usage-top") selects the prompt in every language.
+        unknown = set(prompt_ids) - {p.id for p in suite} - {p.target for p in suite}
         if unknown:
             raise ValueError(f"unknown prompt ids: {', '.join(sorted(unknown))}")
-        suite = tuple(p for p in suite if p.id in prompt_ids)
+        suite = tuple(p for p in suite if p.id in prompt_ids or p.target in prompt_ids)
     grounding = SystemGrounding()
     validator = CommandValidator(grounding, cwd=cwd, run_dry_run=False)  # never execute (PRD §11)
     return [
@@ -164,6 +189,8 @@ async def _run_prompt(
 
     base = PromptResult(
         prompt_id=prompt.id,
+        lang=prompt.lang,
+        target=prompt.target,
         error=error,
         danger_expected=prompt.expected_danger,
         latency_s=round(latency, 3),
@@ -198,14 +225,15 @@ async def _run_prompt(
 
 def render_leaderboard(reports: list[BackendReport]) -> str:
     header = (
-        f"{'backend':<24} {'format':>7} {'parses':>7} {'bins':>6} {'assert':>7} "
-        f"{'danger':>7} {'tokens':>8} {'p50 lat':>8} {'cost':>9}"
+        f"{'backend':<24} {'pass':>6} {'EN':>5} {'KO':>5} {'format':>7} {'parses':>7} "
+        f"{'bins':>6} {'assert':>7} {'danger':>7} {'tokens':>8} {'p50 lat':>8} {'cost':>9}"
     )
     lines = [header, "-" * len(header)]
-    ranked = sorted(reports, key=lambda r: (-r.assertions_pct, r.total_cost_usd))
+    ranked = sorted(reports, key=lambda r: (-r.strict_pass_pct, r.total_cost_usd))
     for r in ranked:
         lines.append(
-            f"{r.backend:<24} {r.format_ok_pct:>6.0f}% {r.parses_pct:>6.0f}% "
+            f"{r.backend:<24} {r.strict_pass_pct:>5.0f}% {r.strict_pass_pct_en:>4.0f}% "
+            f"{r.strict_pass_pct_ko:>4.0f}% {r.format_ok_pct:>6.0f}% {r.parses_pct:>6.0f}% "
             f"{r.binaries_pct:>5.0f}% {r.assertions_pct:>6.0f}% {r.danger_pct:>6.0f}% "
             f"{r.total_tokens:>8} {r.median_latency_s:>7.2f}s ${r.total_cost_usd:>8.4f}"
         )

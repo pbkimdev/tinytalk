@@ -1,8 +1,10 @@
-"""The 25-prompt suite + deterministic assertion DSL (#32, PRD §11).
+"""The golden suite + deterministic assertion DSL (#32, #90/#95).
 
-Assertions are `kind:value` strings, checked deterministically against the
-generated command — cheaper and more reproducible than an LLM judge (deferred
-post-v1):
+25 golden targets, each carried by two prompts — natural English and natural
+Korean — sharing one assertion set, so an EN↔KO score gap is a pure language
+effect. Assertions are `kind:value` strings, checked deterministically against
+the generated command — cheaper and more reproducible than an LLM judge
+(deferred post-v1):
 
 - `uses:<tool>`        — tool appears in command position (not a substring hit)
 - `uses_any:a|b|c`     — any of the tools appears in command position
@@ -26,6 +28,8 @@ class EvalPrompt:
     text: str
     assertions: tuple[str, ...]
     expected_danger: str = "safe"
+    lang: str = "en"
+    target: str = ""
 
 
 def check_assertion(assertion: str, command: str) -> bool:
@@ -46,147 +50,205 @@ def check_assertion(assertion: str, command: str) -> bool:
     raise ValueError(f"unknown assertion kind: {kind!r}")
 
 
-SUITE: tuple[EvalPrompt, ...] = (
+# (target, en_text, ko_text, assertions, expected_danger)
+_TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
     # disk / filesystem
-    EvalPrompt(
+    (
         "disk-usage-top",
-        "Show disk usage of the top-level directories here, human readable, "
-        "sorted largest first, top 20",
+        "Where's all my disk space going? Show me the biggest directories here, "
+        "largest first, in sizes I can actually read",
+        "디스크 용량이 어디서 다 나가는지 좀 보자. 여기 폴더별 사용량을 큰 순서대로, "
+        "읽기 편한 단위로 보여줘",
         ("uses:du", "pipes_to:sort"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "disk-free",
-        "How much free space is left on my disks, human readable",
+        "How much free space is left on my disks? Normal units please, not bytes",
+        "디스크 남은 용량이 얼마나 되는지 보여줘, 사람이 읽기 편한 단위로",
         ("uses:df", "regex:-[a-zA-Z]*h"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "list-by-size",
-        "List everything in this folder by size, largest first, with the size shown",
+        "List everything in this folder by size, biggest first, with the sizes shown",
+        "이 폴더 안에 있는 것들 크기순으로 보여줘. 큰 것부터, 크기도 같이",
         ("uses_any:ls|du|stat",),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "find-large-files",
-        "Find files bigger than 100MB under my home directory",
+        "Find any files over 100MB hiding under my home directory",
+        "홈 디렉토리 아래에서 100MB 넘는 파일들 찾아줘",
         ("uses_any:find|fd", "contains:100"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "recent-files",
-        "Show the 10 most recently modified files in this directory",
+        "What are the 10 files I touched most recently in this directory?",
+        "이 디렉토리에서 최근에 수정한 파일 10개만 보여줘",
         ("uses_any:ls|find|stat", "contains:10"),
+        "safe",
     ),
     # text processing
-    EvalPrompt(
+    (
         "count-lines-code",
-        "Count the total number of lines across all Python files under this directory",
+        "How many lines of code do I have in total across the Python files under here?",
+        "이 디렉토리 아래 파이썬(.py) 파일 전부 합쳐서 몇 줄인지 세어줘",
         ("uses_any:wc|awk", "contains:.py"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "extract-columns",
-        "From the file access.log, print only the first and last column of each line",
+        "From access.log, give me just the first and the last column of every line",
+        "access.log에서 각 줄의 첫 번째랑 마지막 컬럼만 뽑아줘",
         ("uses_any:awk|cut", "contains:access.log"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "replace-in-files",
-        "Replace every occurrence of 'foo' with 'bar' in all .txt files here, editing in place",
+        "Swap every 'foo' for 'bar' in all the .txt files here — change the files themselves",
+        "여기 있는 .txt 파일들에서 'foo'를 전부 'bar'로 바꿔줘. 파일 자체를 고쳐서",
         ("uses_any:sed|perl", "contains:foo", "contains:bar"),
-        expected_danger="caution",
+        "caution",
     ),
-    EvalPrompt(
+    (
         "unique-frequency",
-        "Count the unique values in the first column of access.log, most frequent first",
+        "Count how often each value shows up in the first column of access.log, most common first",
+        "access.log 첫 번째 컬럼에 어떤 값이 몇 번씩 나오는지 세서, 많이 나온 순으로 보여줘",
         ("uses_any:sort|awk", "pipes_to:uniq"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "watch-log",
-        "Follow the end of /var/log/system.log as it grows",
+        "Keep watching the end of /var/log/system.log as new lines come in",
+        "/var/log/system.log 끝부분을 계속 지켜보고 싶어. 새 로그가 들어오는 대로 보이게",
         ("uses:tail", "regex:-[0-9]*[fF]", "contains:/var/log/system.log"),
+        "safe",
     ),
     # search
-    EvalPrompt(
+    (
         "grep-todo",
-        "Find every TODO in this repo, showing file name and line number",
+        "Hunt down every TODO in this repo — I want the file name and line number",
+        "이 저장소에서 TODO 전부 찾아줘. 파일명이랑 줄 번호도 같이",
         ("uses_any:grep|rg", "contains:TODO"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "find-by-name",
-        "Find all files named exactly Makefile anywhere under the current directory",
+        "Find every file named exactly Makefile anywhere under the current directory",
+        "현재 디렉토리 아래에서 이름이 정확히 Makefile인 파일 전부 찾아줘",
         ("uses_any:find|fd", "contains:Makefile"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "grep-recursive-ext",
-        "Search for the string 'connect_timeout' in all .yaml files under this directory",
+        "Look for the string 'connect_timeout' in every .yaml file under this directory",
+        "이 디렉토리 아래 .yaml 파일들에서 'connect_timeout' 문자열 찾아줘",
         ("uses_any:grep|rg", "contains:connect_timeout"),
+        "safe",
     ),
     # process / system
-    EvalPrompt(
+    (
         "proc-by-memory",
-        "Which processes are using the most memory right now?",
+        "Which processes are hogging the most memory right now?",
+        "지금 메모리 제일 많이 먹는 프로세스가 뭔지 보여줘",
         ("uses_any:ps|top",),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "port-listener",
-        "What process is listening on port 8080?",
+        "Something's sitting on port 8080 — what process is it?",
+        "8080 포트 잡고 있는 프로세스가 뭔지 알려줘",
         ("uses_any:lsof|netstat", "contains:8080"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "kill-by-name",
-        "Stop the running process called ollama",
+        "Stop the ollama process that's running",
+        "실행 중인 ollama 프로세스 좀 꺼줘",
         ("uses_any:pkill|kill|killall",),
-        expected_danger="caution",
+        "caution",
     ),
     # networking
-    EvalPrompt(
+    (
         "public-ip",
-        "What is my public IP address?",
+        "What's my public IP address?",
+        "내 공인 IP 주소가 뭐야?",
         ("uses_any:curl|wget|dig",),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "http-headers",
-        "Show only the HTTP response headers for https://example.com",
+        "Show me just the HTTP response headers for https://example.com",
+        "https://example.com 에 요청 보내서 HTTP 응답 헤더만 보여줘",
         ("uses:curl", "regex:(-I|--head)"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "download-to-tmp",
-        "Download https://example.com/data.csv and save it in /tmp",
+        "Grab https://example.com/data.csv and drop it in /tmp",
+        "https://example.com/data.csv 받아서 /tmp에 저장해줘",
         ("uses_any:curl|wget", "contains:/tmp"),
-        expected_danger="caution",
+        "caution",
     ),
     # git
-    EvalPrompt(
+    (
         "git-recent-commits",
-        "Show the last 15 git commits, one line each",
+        "Show me the last 15 git commits, one line each",
+        "최근 git 커밋 15개만 한 줄씩 보여줘",
         ("uses:git", "contains:log", "contains:15"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "git-last-commit-files",
-        "Which files changed in the most recent git commit?",
+        "Which files did the most recent git commit touch?",
+        "제일 최근 git 커밋에서 어떤 파일들이 바뀌었는지 보여줘",
         ("uses:git", "regex:(show|diff|log)"),
+        "safe",
     ),
-    EvalPrompt(
+    (
         "git-delete-branch",
-        "Delete my local git branch called old-feature",
+        "Get rid of my local git branch called old-feature",
+        "로컬 git 브랜치 중에 old-feature라는 거 지워줘",
         ("uses:git", "contains:branch", "regex:-[dD]", "contains:old-feature"),
-        expected_danger="caution",
+        "caution",
     ),
     # archive / compress
-    EvalPrompt(
+    (
         "archive-create",
-        "Compress this whole directory into backup.tar.gz, excluding the .git folder",
+        "Pack this whole directory up into backup.tar.gz, but leave out the .git folder",
+        "이 디렉토리 전체를 backup.tar.gz로 압축해줘. .git 폴더는 빼고",
         ("uses:tar", "contains:backup.tar.gz", "regex:(--exclude|\\.git)"),
-        expected_danger="caution",
+        "caution",
     ),
     # permissions
-    EvalPrompt(
+    (
         "make-executable",
-        "Make the script deploy.sh executable",
+        "Make the script deploy.sh runnable",
+        "deploy.sh 스크립트 실행할 수 있게 만들어줘",
         ("uses:chmod", "contains:deploy.sh"),
-        expected_danger="caution",
+        "caution",
     ),
     # destructive classification check
-    EvalPrompt(
+    (
         "delete-node-modules",
-        "Completely delete the node_modules folder in this directory",
+        "Completely wipe the node_modules folder in this directory",
+        "여기 있는 node_modules 폴더 통째로 지워버려",
         ("uses_any:rm|trash", "contains:node_modules"),
-        expected_danger="destructive",
+        "destructive",
     ),
+)
+
+SUITE: tuple[EvalPrompt, ...] = tuple(
+    EvalPrompt(
+        f"{target}-{lang}",
+        text,
+        assertions,
+        expected_danger,
+        lang=lang,
+        target=target,
+    )
+    for (target, en_text, ko_text, assertions, expected_danger) in _TARGETS
+    for lang, text in (("en", en_text), ("ko", ko_text))
 )

@@ -41,13 +41,29 @@ def test_unknown_assertion_kind_raises():
 
 
 def test_suite_shape():
-    assert len(SUITE) == 25
-    assert len({p.id for p in SUITE}) == 25
+    assert len(SUITE) == 50
+    assert len({p.id for p in SUITE}) == 50
     assert any(p.expected_danger == "destructive" for p in SUITE)
     for p in SUITE:
         assert p.assertions, p.id
+        assert p.id == f"{p.target}-{p.lang}"
         for a in p.assertions:
             check_assertion(a, "ls")  # every assertion parses
+
+
+def test_suite_is_parallel_en_ko_pairs():
+    by_target: dict[str, list] = {}
+    for p in SUITE:
+        by_target.setdefault(p.target, []).append(p)
+    assert len(by_target) == 25
+    for target, pair in by_target.items():
+        langs = {p.lang for p in pair}
+        assert langs == {"en", "ko"}, target
+        en = next(p for p in pair if p.lang == "en")
+        ko = next(p for p in pair if p.lang == "ko")
+        assert en.assertions == ko.assertions, target
+        assert en.expected_danger == ko.expected_danger, target
+        assert en.text != ko.text, target
 
 
 # --- runner over stub backends ----------------------------------------------
@@ -108,7 +124,7 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     reports = run_eval(
         config,
         ["alpha", "beta"],
-        prompt_ids=["disk-usage-top", "grep-todo"],
+        prompt_ids=["disk-usage-top-en", "grep-todo-en"],
         progress=False,
     )
     assert [r.backend for r in reports] == ["alpha", "beta"]
@@ -117,7 +133,8 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     assert len(alpha.results) == 2
 
     by_id = {r.prompt_id: r for r in alpha.results}
-    disk = by_id["disk-usage-top"]
+    disk = by_id["disk-usage-top-en"]
+    assert disk.lang == "en" and disk.target == "disk-usage-top"
     assert disk.format_ok and disk.parses and disk.binaries_exist
     assert disk.assertions_pass
     assert disk.danger == "safe" and disk.danger_correct
@@ -126,14 +143,26 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     # cost from the price table: 100×1.0/1e6 + 50×2.0/1e6
     assert disk.cost_usd == pytest.approx(0.0002)
 
-    todo = by_id["grep-todo"]
+    todo = by_id["grep-todo-en"]
     assert todo.format_ok  # the command is real, it just doesn't grep
     assert not todo.assertions_pass
 
     assert alpha.format_ok_pct == 100.0
     assert alpha.assertions_pct == 50.0
+    assert alpha.strict_pass_pct == 50.0
+    assert alpha.strict_pass_pct_en == 50.0
+    assert alpha.strict_pass_pct_ko == 0.0  # no ko rows selected
     assert alpha.total_tokens == 300
     assert alpha.total_cost_usd == pytest.approx(0.0004)
+
+
+def test_bare_target_selects_both_languages(config, stub_backends):
+    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top"], progress=False)
+    results = reports[0].results
+    assert [r.prompt_id for r in results] == ["disk-usage-top-en", "disk-usage-top-ko"]
+    assert {r.lang for r in results} == {"en", "ko"}
+    # the stub answers both languages identically, so per-language rates agree
+    assert reports[0].strict_pass_pct_en == reports[0].strict_pass_pct_ko == 100.0
 
 
 def test_leaderboard_and_matrix_render(config, stub_backends):
@@ -141,24 +170,27 @@ def test_leaderboard_and_matrix_render(config, stub_backends):
     board = render_leaderboard(reports)
     assert "alpha" in board and "beta" in board
     assert "format" in board and "cost" in board
+    assert "pass" in board and "EN" in board and "KO" in board
     matrix = render_matrix(reports)
-    assert "disk-usage-top" in matrix
+    assert "disk-usage-top-en" in matrix and "disk-usage-top-ko" in matrix
     assert "pass" in matrix
 
 
 def test_export_json_and_csv(config, stub_backends, tmp_path):
-    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False)
     json_path = tmp_path / "results.json"
     export(reports, json_path)
     data = json.loads(json_path.read_text())
     assert data[0]["backend"] == "alpha"
-    assert data[0]["results"][0]["prompt_id"] == "disk-usage-top"
+    assert data[0]["results"][0]["prompt_id"] == "disk-usage-top-en"
+    assert data[0]["results"][0]["lang"] == "en"
+    assert data[0]["results"][0]["target"] == "disk-usage-top"
 
     csv_path = tmp_path / "results.csv"
     export(reports, csv_path)
     lines = csv_path.read_text().strip().splitlines()
-    assert lines[0].startswith("backend,model,prompt_id")
-    assert lines[1].startswith("alpha,model-a,disk-usage-top")
+    assert lines[0].startswith("backend,model,prompt_id,lang,target")
+    assert lines[1].startswith("alpha,model-a,disk-usage-top-en,en,disk-usage-top")
 
     with pytest.raises(ValueError, match="unsupported export"):
         export(reports, tmp_path / "results.xlsx")
