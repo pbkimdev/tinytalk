@@ -322,3 +322,16 @@ api_key_env = "BEDROCK_CREDS"
     assert isinstance(provider, BedrockProvider)
     assert provider._access_key_id == "AKIA123"
     assert provider._secret_access_key == "shh"
+
+
+def test_prices_cache_rates(tmp_path):
+    text = GOOD.replace(
+        'output_per_mtok = 0.4\n',
+        'output_per_mtok = 0.4\ncached_input_per_mtok = 0.01\ncache_write_per_mtok = 0.125\n',
+    )
+    cfg = load_config(write(tmp_path, text))
+    price = cfg.price("qwen3:8b")
+    assert price.cached_input_per_mtok == 0.01
+    assert price.cache_write_per_mtok == 0.125
+    # unset cache rates default to 0 (billed at the input rate downstream)
+    assert Price(input_per_mtok=1.0).cached_input_per_mtok == 0.0

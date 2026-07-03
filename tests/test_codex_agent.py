@@ -163,3 +163,33 @@ def test_login_api_key_persists_via_sdk():
     capture = {}
     login_api_key("sk-test-key", codex_factory=factory(capture))
     assert capture["login_key"] == "sk-test-key"
+
+
+def test_usage_cached_tokens_parsed():
+    capture = {}
+    provider = CodexAgentProvider(
+        "gpt-5.4",
+        codex_factory=factory(
+            capture,
+            FakeResult(
+                final_response="{}",
+                usage={"input_tokens": 100, "output_tokens": 5, "cached_input_tokens": 60},
+            ),
+        ),
+    )
+    completion = asyncio.run(provider.complete(request()))
+    assert completion.usage.prompt_tokens == 100  # already inclusive of cached
+    assert completion.usage.cached_prompt_tokens == 60
+
+
+def test_default_effort_applied_and_request_wins():
+    capture = {}
+    provider = CodexAgentProvider(
+        "gpt-5.4",
+        codex_factory=factory(capture, FakeResult(final_response="{}")),
+        default_effort="low",
+    )
+    asyncio.run(provider.complete(request()))
+    assert capture["turn_kwargs"]["effort"] == "low"
+    asyncio.run(provider.complete(request(reasoning_effort="high")))
+    assert capture["turn_kwargs"]["effort"] == "high"

@@ -32,6 +32,7 @@ class AzureOpenAIProvider(OpenAICompatProvider):
         capabilities: Capabilities | None = None,
         timeout: float = 60.0,
         client: httpx.AsyncClient | None = None,
+        default_effort: str | None = None,
     ):
         super().__init__(
             endpoint,
@@ -40,6 +41,7 @@ class AzureOpenAIProvider(OpenAICompatProvider):
             capabilities=capabilities,
             timeout=timeout,
             client=client,
+            default_effort=default_effort,
         )
         self.name = f"azure-openai:{deployment}"
         self._api_version = api_version

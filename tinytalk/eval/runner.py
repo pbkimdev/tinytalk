@@ -26,6 +26,27 @@ from tinytalk.tiers import NoValidCommand, TierController, TierRequest
 from tinytalk.validate import CommandValidator
 
 
+# Deliberately not from the suite: warmup work must never overlap a scored prompt.
+_WARMUP_PROMPT = "print the current working directory"
+
+
+def _cost(usage: Usage, price) -> float:
+    """Cache-aware cost; cached/cache-write rates fall back to the input rate when unset."""
+    cached_rate = price.cached_input_per_mtok or price.input_per_mtok
+    write_rate = price.cache_write_per_mtok or price.input_per_mtok
+    fresh = max(usage.prompt_tokens - usage.cached_prompt_tokens - usage.cache_write_tokens, 0)
+    return round(
+        (
+            fresh * price.input_per_mtok
+            + usage.cached_prompt_tokens * cached_rate
+            + usage.cache_write_tokens * write_rate
+            + usage.completion_tokens * price.output_per_mtok
+        )
+        / 1e6,
+        6,
+    )
+
+
 @dataclass(frozen=True)
 class PromptResult:
     prompt_id: str
@@ -44,6 +65,8 @@ class PromptResult:
     tier: int | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    cached_prompt_tokens: int = 0
+    cache_write_tokens: int = 0
     latency_s: float = 0.0
     cost_usd: float = 0.0
 
@@ -123,6 +146,7 @@ def run_eval(
     prompt_ids: list[str] | None = None,
     cwd: str = ".",
     progress: bool = True,
+    warmup: bool = True,
 ) -> list[BackendReport]:
     if prompt_ids:
         # A bare target (e.g. "disk-usage-top") selects the prompt in every language.
@@ -134,7 +158,9 @@ def run_eval(
     validator = CommandValidator(grounding, cwd=cwd, run_dry_run=False)  # never execute (PRD §11)
     return [
         asyncio.run(
-            _run_backend(config, name, suite, grounding, validator, cwd=cwd, progress=progress)
+            _run_backend(
+                config, name, suite, grounding, validator, cwd=cwd, progress=progress, warmup=warmup
+            )
         )
         for name in backend_names
     ]
@@ -149,12 +175,25 @@ async def _run_backend(
     *,
     cwd: str,
     progress: bool,
+    warmup: bool,
 ) -> BackendReport:
     backend_cfg = config.backend(name)
     provider = make_provider(backend_cfg)
-    controller = TierController(provider, grounding=grounding, validator=validator)
+    # temperature=0: greedy decoding so scores are reproducible (bench protocol, #90).
+    controller = TierController(
+        provider, grounding=grounding, validator=validator, request_opts={"temperature": 0.0}
+    )
     price = config.price(backend_cfg.model)
     report = BackendReport(backend=name, model=backend_cfg.model)
+
+    if warmup:
+        # One discarded request eats model load / cold start so it never pollutes the
+        # first scored latency. Errors are non-fatal: the scored loop reports its own.
+        try:
+            await controller.suggest(TierRequest(prompt=_WARMUP_PROMPT, cwd=cwd))
+        except Exception as exc:
+            if progress:
+                print(f"  [{name}] warmup failed (ignored): {exc}", file=sys.stderr)
 
     for prompt in suite:
         result = await _run_prompt(controller, validator, prompt, price, cwd)
@@ -196,11 +235,9 @@ async def _run_prompt(
         latency_s=round(latency, 3),
         prompt_tokens=usage.prompt_tokens,
         completion_tokens=usage.completion_tokens,
-        cost_usd=round(
-            usage.prompt_tokens * price.input_per_mtok / 1e6
-            + usage.completion_tokens * price.output_per_mtok / 1e6,
-            6,
-        ),
+        cached_prompt_tokens=usage.cached_prompt_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
+        cost_usd=_cost(usage, price),
     )
     if suggestion is None:
         return base

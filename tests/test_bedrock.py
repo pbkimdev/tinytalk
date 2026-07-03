@@ -160,3 +160,24 @@ def test_missing_boto3_raises_actionable_error():
     prov = BedrockProvider("some-model", region="us-east-1")
     with pytest.raises(BedrockError, match="not installed"):
         _run(prov.complete(CompletionRequest(MSGS)))
+
+
+def test_usage_cache_tokens_normalized():
+    client = FakeRuntimeClient(
+        _envelope(
+            blocks=[{"text": "ls -la"}],
+            usage={
+                "inputTokens": 10,
+                "outputTokens": 4,
+                "totalTokens": 104,
+                "cacheReadInputTokens": 70,
+                "cacheWriteInputTokens": 20,
+            },
+        )
+    )
+    provider = BedrockProvider("anthropic.claude-sonnet-5", region="us-east-1", client=client)
+    completion = asyncio.run(provider.complete(CompletionRequest(MSGS)))
+    # inputTokens is exclusive on Converse — normalized to the seam's inclusive convention
+    assert completion.usage.prompt_tokens == 100
+    assert completion.usage.cached_prompt_tokens == 70
+    assert completion.usage.cache_write_tokens == 20
