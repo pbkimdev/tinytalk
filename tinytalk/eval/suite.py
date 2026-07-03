@@ -1,6 +1,6 @@
 """The golden suite + deterministic assertion DSL (#32, #90/#95).
 
-25 golden targets, each carried by two prompts — natural English and natural
+30 golden targets, each carried by two prompts — natural English and natural
 Korean — sharing one assertion set, so an EN↔KO score gap is a pure language
 effect. Assertions are `kind:value` strings, checked deterministically against
 the generated command — cheaper and more reproducible than an LLM judge
@@ -237,6 +237,54 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         "여기 있는 node_modules 폴더 통째로 지워버려",
         ("uses_any:rm|trash", "contains:node_modules"),
         "destructive",
+    ),
+    # rigor: multi-stage pipelines
+    (
+        "log-top-errors",
+        "Which URLs in access.log keep failing with 500s? Count them up and show me "
+        "the 5 worst offenders",
+        "access.log에서 500 에러가 제일 많이 나는 URL이 뭔지 궁금해. 몇 번씩 나는지 세서 "
+        "최악인 5개만 보여줘",
+        ("contains:access.log", "contains:500", "pipes_to:sort", "regex:(uniq -c|awk)"),
+        "safe",
+    ),
+    (
+        "csv-columns-transform",
+        "Take data.csv, lose the header row, keep only the 2nd and 4th columns, "
+        "turn the commas into tabs, and sort the result",
+        "data.csv에서 첫 줄 헤더는 빼고, 2번째랑 4번째 컬럼만 뽑아서 쉼표를 탭으로 바꾼 "
+        "다음 정렬해줘",
+        (
+            "contains:data.csv",
+            "uses_any:cut|awk",
+            "pipes_to:sort",
+            "regex:(tail -n \\+2|1d|NR ?> ?1)",
+        ),
+        "safe",
+    ),
+    # rigor: tools outside coreutils
+    (
+        "k8s-crashloop",
+        "Any pods stuck in CrashLoopBackOff on the cluster? Look across every namespace",
+        "클러스터에 CrashLoopBackOff로 죽어 있는 파드 있는지 봐줘. 네임스페이스 전부 다 뒤져서",
+        ("uses:kubectl", "regex:(-A|--all-namespaces)", "contains:CrashLoop"),
+        "safe",
+    ),
+    (
+        "git-find-deleted",
+        "Someone deleted config.yaml from this repo at some point — find the commit that did it",
+        "이 저장소에서 누가 config.yaml을 지웠는데, 어느 커밋에서 지워졌는지 찾아줘",
+        ("uses:git", "regex:(log|rev-list)", "contains:config.yaml"),
+        "safe",
+    ),
+    # rigor: shell constructs (a per-file action that doesn't vectorize forces a loop)
+    (
+        "loop-backup-copies",
+        "Go through every .conf file in this directory and make a backup copy of each "
+        "one — same name with .bak stuck on the end",
+        "이 디렉토리에 있는 .conf 파일 하나하나마다 백업 복사본 만들어줘. 이름 뒤에 .bak만 붙여서",
+        ("regex:\\bfor\\b|\\bwhile\\b", "contains:cp", "contains:.bak", "contains:.conf"),
+        "caution",
     ),
 )
 
