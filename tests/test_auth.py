@@ -202,6 +202,145 @@ keyring_account = "primary"
     assert "keyring_account" not in _read(config_path)["backends"]["primary"]
 
 
+_SHARED_ACCOUNT_CONFIG = """\
+[defaults]
+backend = "primary"
+
+[backends.primary]
+kind = "openai-compat"
+base_url = "https://api.cerebras.ai/v1"
+model = "gemma-4-31b"
+keyring_account = "shared-key"
+
+[backends.legacy]
+kind = "openai-compat"
+base_url = "https://api.cerebras.ai/v1"
+model = "other-model"
+keyring_account = "shared-key"
+"""
+
+
+def test_replace_keeps_keyring_secret_shared_with_another_table(tmp_path, monkeypatch):
+    """#86: an account another backend still references must survive a slot replace."""
+    deleted = []
+    monkeypatch.setattr("keyring.delete_password", lambda service, account: deleted.append(account))
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(_SHARED_ACCOUNT_CONFIG)
+    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    assert deleted == []
+    assert _read(config_path)["backends"]["legacy"]["keyring_account"] == "shared-key"
+
+
+def test_stale_secret_survives_failed_save(tmp_path, monkeypatch):
+    """#86: cleanup must not run before the config write has succeeded."""
+    import pytest
+
+    deleted = []
+    monkeypatch.setattr("keyring.delete_password", lambda service, account: deleted.append(account))
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
+
+    def failing_save(path, doc):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(auth, "_save", failing_save)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[defaults]\nbackend = "primary"\n\n'
+        '[backends.primary]\nkind = "openai-compat"\nbase_url = "https://x/v1"\n'
+        'model = "m"\nkeyring_account = "primary"\n'
+    )
+    before = config_path.read_text()
+    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    with pytest.raises(OSError):
+        auth.run_auth_wizard(config_path, io)
+    assert deleted == []
+    assert config_path.read_text() == before
+
+
+_FALLBACK_CONFIG = """\
+[defaults]
+backend = "primary"
+escalation_backend = "fallback"
+
+[backends.primary]
+kind = "claude-agent-sdk"
+model = "claude-sonnet-5"
+
+[backends.fallback]
+kind = "openai-compat"
+base_url = "https://api.cerebras.ai/v1"
+model = "gemma-4-31b"
+keyring_account = "fallback"
+"""
+
+
+def test_remove_fallback_removes_key_table_and_secret(tmp_path, monkeypatch):
+    deleted = []
+    monkeypatch.setattr("keyring.delete_password", lambda service, account: deleted.append(account))
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(_FALLBACK_CONFIG)
+    io = ScriptedIO(["remove-fallback", True])
+    assert auth.run_auth_wizard(config_path, io) == "fallback"
+
+    doc = _read(config_path)
+    assert "escalation_backend" not in doc["defaults"]
+    assert "fallback" not in doc["backends"]
+    assert doc["backends"]["primary"]["model"] == "claude-sonnet-5"  # untouched
+    assert deleted == ["fallback"]
+    assert load_config(config_path).escalation_backend is None  # valid per load_config
+
+
+def test_remove_fallback_keeps_shared_secret(tmp_path, monkeypatch):
+    deleted = []
+    monkeypatch.setattr("keyring.delete_password", lambda service, account: deleted.append(account))
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        _FALLBACK_CONFIG.replace('keyring_account = "fallback"', 'keyring_account = "shared-key"')
+        + '\n[backends.legacy]\nkind = "openai-compat"\nbase_url = "https://x/v1"\n'
+        'model = "m"\nkeyring_account = "shared-key"\n'
+    )
+    io = ScriptedIO(["remove-fallback", True])
+    assert auth.run_auth_wizard(config_path, io) == "fallback"
+    assert deleted == []  # legacy still references shared-key
+
+
+def test_remove_fallback_declined_writes_nothing(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(_FALLBACK_CONFIG)
+    before = config_path.read_text()
+    io = ScriptedIO(["remove-fallback", False])
+    assert auth.run_auth_wizard(config_path, io) is None
+    assert config_path.read_text() == before
+
+
+def test_remove_fallback_only_offered_when_fallback_exists(tmp_path):
+    class RecordingIO(ScriptedIO):
+        def __init__(self, answers):
+            super().__init__(answers)
+            self.slot_choices = None
+
+        def select(self, message, choices):
+            if self.slot_choices is None:
+                self.slot_choices = [value for value, _ in choices]
+            return super().select(message, choices)
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[defaults]\nbackend = "primary"\n\n'
+        '[backends.primary]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
+    )
+    io = RecordingIO([None])
+    auth.run_auth_wizard(config_path, io)
+    assert io.slot_choices == ["primary", "fallback"]  # nothing to remove
+
+    config_path.write_text(_FALLBACK_CONFIG)
+    io = RecordingIO([None])
+    auth.run_auth_wizard(config_path, io)
+    assert io.slot_choices == ["primary", "fallback", "remove-fallback"]
+
+
 def test_added_backend_separated_from_next_section(tmp_path, monkeypatch):
     """#75: the inserted table must not glue the following section header onto itself."""
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)

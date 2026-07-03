@@ -110,15 +110,17 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     # otherwise the written file would fail load_config's defaults.backend check.
     default_name = defaults.get("backend")
     if default_name and default_name in backends:
-        slot = io.select(
-            "Which backend do you want to set up?",
-            [
-                ("primary", _slot_label("primary", backends)),
-                ("fallback", _slot_label("fallback", backends)),
-            ],
-        )
+        choices = [
+            ("primary", _slot_label("primary", backends)),
+            ("fallback", _slot_label("fallback", backends)),
+        ]
+        if "fallback" in backends or defaults.get("escalation_backend"):
+            choices.append(("remove-fallback", "remove fallback"))
+        slot = io.select("Which backend do you want to set up?", choices)
         if slot is None:
             return None
+        if slot == "remove-fallback":
+            return _remove_fallback(doc, config_path, io)
     else:
         slot = "primary"
 
@@ -151,16 +153,39 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if draft.secret:
         _store_secret(slot, draft.secret)
         draft.fields["keyring_account"] = slot
-        if stale_account == slot:
-            stale_account = None  # overwritten in place
-    if stale_account:
-        _delete_secret(stale_account)
 
     _write_backend(
         doc, slot, draft.fields, set_default=(slot == "primary"), set_fallback=(slot == "fallback")
     )
     _save(config_path, doc)
+    # Cleanup only after the write succeeded, and never while any table still
+    # references the account — hand-written backends may share one (#86).
+    if stale_account and not _account_referenced(doc, stale_account):
+        _delete_secret(stale_account)
     return slot
+
+
+def _remove_fallback(doc, config_path: Path, io: WizardIO) -> str | None:
+    """Retire the fallback: defaults key, slot table, and its (unshared) secret (#86)."""
+    backends = doc["backends"] if "backends" in doc else {}
+    current = backends["fallback"] if "fallback" in backends else None
+    what = _describe(current) if current is not None else "config entry only"
+    if not io.confirm(f"Remove the fallback ({what})?", default=False):
+        return None
+    stale_account = current.get("keyring_account") if current is not None else None
+    if current is not None:
+        del doc["backends"]["fallback"]
+    if "defaults" in doc and "escalation_backend" in doc["defaults"]:
+        del doc["defaults"]["escalation_backend"]
+    _save(config_path, doc)
+    if stale_account and not _account_referenced(doc, stale_account):
+        _delete_secret(stale_account)
+    return "fallback"
+
+
+def _account_referenced(doc, account: str) -> bool:
+    backends = doc["backends"] if "backends" in doc else {}
+    return any(table.get("keyring_account") == account for table in backends.values())
 
 
 def _slot_label(slot: str, backends) -> str:
