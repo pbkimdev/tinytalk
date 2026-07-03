@@ -141,3 +141,37 @@ def test_end_to_end_through_engine():
     assert gen.response_format is ResponseFormat.JSON_OBJECT
     assert gen.suggestion.danger is Danger.SAFE
     assert gen.suggestion.command.startswith("du -h")
+
+
+def test_usage_cache_tokens_normalized():
+    provider = ClaudeAgentProvider(
+        "claude-sonnet-5",
+        query_fn=fake_query(
+            ResultMessage(
+                structured_output=PAYLOAD,
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_read_input_tokens": 70,
+                    "cache_creation_input_tokens": 20,
+                },
+            )
+        ),
+    )
+    completion = asyncio.run(provider.complete(request()))
+    assert completion.usage.prompt_tokens == 100  # inclusive, normalized
+    assert completion.usage.cached_prompt_tokens == 70
+    assert completion.usage.cache_write_tokens == 20
+
+
+def test_default_effort_applied_and_request_wins():
+    capture = {}
+    provider = ClaudeAgentProvider(
+        "claude-sonnet-5",
+        query_fn=fake_query(ResultMessage(structured_output=PAYLOAD), capture=capture),
+        default_effort="low",
+    )
+    asyncio.run(provider.complete(request()))
+    assert capture["options"].effort == "low"
+    asyncio.run(provider.complete(request(reasoning_effort="high")))
+    assert capture["options"].effort == "high"

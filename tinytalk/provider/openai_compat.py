@@ -67,6 +67,7 @@ class OpenAICompatProvider:
         capabilities: Capabilities | None = None,
         timeout: float = 60.0,
         client: httpx.AsyncClient | None = None,
+        default_effort: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -78,6 +79,7 @@ class OpenAICompatProvider:
         self._api_key = api_key
         self._timeout = timeout
         self._client = client
+        self._default_effort = default_effort
 
     async def complete(self, request: CompletionRequest) -> Completion:
         payload = self._build_payload(request)
@@ -147,8 +149,9 @@ class OpenAICompatProvider:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
-        if request.reasoning_effort is not None:
-            payload["reasoning_effort"] = request.reasoning_effort
+        effort = request.reasoning_effort or self._default_effort
+        if effort is not None:
+            payload["reasoning_effort"] = effort
         return payload
 
     def _parse_response(self, data: object) -> Completion:
@@ -199,16 +202,20 @@ class OpenAICompatProvider:
         if not isinstance(raw, dict):
             return Usage()
 
-        def _field(key: str) -> int:
+        def _field(source: dict, key: str) -> int:
             try:
-                return int(raw.get(key) or 0)
+                return int(source.get(key) or 0)
             except (TypeError, ValueError):
                 return 0
 
+        # prompt_tokens already includes cached tokens on this API; no normalization.
+        details = raw.get("prompt_tokens_details")
+        cached = _field(details, "cached_tokens") if isinstance(details, dict) else 0
         return Usage(
-            prompt_tokens=_field("prompt_tokens"),
-            completion_tokens=_field("completion_tokens"),
-            total_tokens=_field("total_tokens"),
+            prompt_tokens=_field(raw, "prompt_tokens"),
+            completion_tokens=_field(raw, "completion_tokens"),
+            total_tokens=_field(raw, "total_tokens"),
+            cached_prompt_tokens=cached,
         )
 
 

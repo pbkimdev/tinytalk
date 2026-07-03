@@ -125,6 +125,7 @@ class TierController:
         grounding: Grounding | None = None,
         validator: Validator = permissive_validator,
         escalation_name: str = "",
+        request_opts: dict[str, object] | None = None,
     ):
         self._provider = provider
         self._escalation = escalation
@@ -132,6 +133,8 @@ class TierController:
         self._cache = cache or NullCache()
         self._grounding = grounding or StaticGrounding()
         self._validate = validator
+        # Forwarded into every CompletionRequest (e.g. the eval runner pins temperature=0).
+        self._request_opts = dict(request_opts or {})
 
     async def suggest(self, request: TierRequest) -> TierResult:
         # T0 — cache; re-validate hits (the environment may have changed).
@@ -151,7 +154,7 @@ class TierController:
         # T1 — grounded ask against the default backend.
         messages = self._messages(request, extra="")
         try:
-            gen = await generate(self._provider, messages)
+            gen = await generate(self._provider, messages, **self._request_opts)
             usage, attempts = _accumulate(usage, attempts, gen)
             validation = self._validate(gen.suggestion)
             if validation.ok:
@@ -181,7 +184,7 @@ class TierController:
             ) from exc
         messages = self._messages(request, extra=extra, problems=problems)
         try:
-            gen = await generate(provider, messages)
+            gen = await generate(provider, messages, **self._request_opts)
         except ProviderError as exc:
             kind = "transport" if last is None else "no_command"
             raise NoValidCommand(
@@ -237,6 +240,8 @@ def _accumulate(usage: Usage, attempts: int, gen: Generation) -> tuple[Usage, in
             prompt_tokens=usage.prompt_tokens + gen.usage.prompt_tokens,
             completion_tokens=usage.completion_tokens + gen.usage.completion_tokens,
             total_tokens=usage.total_tokens + gen.usage.total_tokens,
+            cached_prompt_tokens=usage.cached_prompt_tokens + gen.usage.cached_prompt_tokens,
+            cache_write_tokens=usage.cache_write_tokens + gen.usage.cache_write_tokens,
         ),
         attempts + gen.attempts,
     )

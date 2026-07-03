@@ -70,6 +70,8 @@ class BackendConfig:
 class Price:
     input_per_mtok: float = 0.0
     output_per_mtok: float = 0.0
+    cached_input_per_mtok: float = 0.0  # 0 ⇒ cached tokens billed at the input rate
+    cache_write_per_mtok: float = 0.0  # 0 ⇒ cache-write tokens billed at the input rate
 
 
 @dataclass(frozen=True)
@@ -248,6 +250,8 @@ def _validate_prices(raw: object, path: Path) -> dict[str, Price]:
             prices[model] = Price(
                 input_per_mtok=float(entry.get("input_per_mtok", 0.0)),
                 output_per_mtok=float(entry.get("output_per_mtok", 0.0)),
+                cached_input_per_mtok=float(entry.get("cached_input_per_mtok", 0.0)),
+                cache_write_per_mtok=float(entry.get("cache_write_per_mtok", 0.0)),
             )
         except (TypeError, ValueError):
             raise ConfigError(f"{where} prices must be numbers") from None

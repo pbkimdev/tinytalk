@@ -62,7 +62,7 @@ def _envelope(*, content=None, tool_arguments=None, usage=None, model="local-mod
     return env
 
 
-def _provider(handler, *, capabilities=None, api_key=None, model="local-model"):
+def _provider(handler, *, capabilities=None, api_key=None, model="local-model", default_effort=None):
     """Provider wired to a MockTransport. `handler(request, call_index) -> httpx.Response`.
 
     Returns `(provider, captured_requests)`.
@@ -81,6 +81,7 @@ def _provider(handler, *, capabilities=None, api_key=None, model="local-model"):
         api_key=api_key,
         capabilities=capabilities,
         client=client,
+        default_effort=default_effort,
     )
     return prov, captured
 
@@ -277,3 +278,30 @@ def test_e2e_degradation_json_rung_fails_then_text_rung():
     # The first two requests took the JSON rung, the third dropped to TEXT.
     assert "response_format" in _body(reqs[0]) and "response_format" in _body(reqs[1])
     assert "response_format" not in _body(reqs[2])
+
+
+def test_usage_cached_tokens_parsed():
+    usage = {
+        "prompt_tokens": 100,
+        "completion_tokens": 4,
+        "total_tokens": 104,
+        "prompt_tokens_details": {"cached_tokens": 60},
+    }
+    prov, _ = _provider(
+        lambda req, i: httpx.Response(200, json=_envelope(content="{}", usage=usage))
+    )
+    completion = _run(prov.complete(CompletionRequest(MSGS)))
+    # prompt_tokens already includes cached on this API — no normalization
+    assert completion.usage.prompt_tokens == 100
+    assert completion.usage.cached_prompt_tokens == 60
+    assert completion.usage.cache_write_tokens == 0
+
+
+def test_default_effort_applied_and_request_wins():
+    prov, reqs = _provider(
+        lambda req, i: httpx.Response(200, json=_envelope(content="{}")), default_effort="low"
+    )
+    _run(prov.complete(CompletionRequest(MSGS)))
+    assert _body(reqs[0])["reasoning_effort"] == "low"
+    _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="high")))
+    assert _body(reqs[1])["reasoning_effort"] == "high"

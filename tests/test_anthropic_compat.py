@@ -192,3 +192,34 @@ def test_list_models_http_error():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(403, text="forbidden")))
     with pytest.raises(ProviderHTTPError):
         _run(list_models("https://api.anthropic.com", "bad-key", client=client))
+
+
+def test_usage_cache_tokens_normalized():
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 4,
+        "cache_read_input_tokens": 70,
+        "cache_creation_input_tokens": 20,
+    }
+    prov, _ = _provider(lambda req, i: httpx.Response(200, json=_envelope(blocks=[], usage=usage)))
+    completion = _run(prov.complete(CompletionRequest(MSGS)))
+    # input_tokens is exclusive on this API — normalized to the seam's inclusive convention
+    assert completion.usage.prompt_tokens == 100
+    assert completion.usage.cached_prompt_tokens == 70
+    assert completion.usage.cache_write_tokens == 20
+    assert completion.usage.total_tokens == 104
+
+
+def test_default_effort_applied_and_request_wins():
+    captured: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json=_envelope(blocks=[]))
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(record))
+    prov = AnthropicCompatProvider("claude-sonnet-5", client=client, default_effort="low")
+    _run(prov.complete(CompletionRequest(MSGS)))
+    assert _body(captured[0])["output_config"] == {"effort": "low"}
+    _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="high")))
+    assert _body(captured[1])["output_config"] == {"effort": "high"}

@@ -69,6 +69,7 @@ class AnthropicCompatProvider:
         capabilities: Capabilities | None = None,
         timeout: float = 60.0,
         client: httpx.AsyncClient | None = None,
+        default_effort: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -79,6 +80,7 @@ class AnthropicCompatProvider:
         self._api_key = api_key
         self._timeout = timeout
         self._client = client
+        self._default_effort = default_effort if default_effort in EFFORT_LEVELS else None
 
     async def complete(self, request: CompletionRequest) -> Completion:
         payload = self._build_payload(request)
@@ -137,8 +139,13 @@ class AnthropicCompatProvider:
 
         if request.temperature is not None:
             payload["temperature"] = request.temperature
-        if request.reasoning_effort in EFFORT_LEVELS:
-            payload["output_config"] = {"effort": request.reasoning_effort}
+        effort = (
+            request.reasoning_effort
+            if request.reasoning_effort in EFFORT_LEVELS
+            else self._default_effort
+        )
+        if effort is not None:
+            payload["output_config"] = {"effort": effort}
         return payload
 
     def _parse_response(self, data: object) -> Completion:
@@ -185,10 +192,18 @@ class AnthropicCompatProvider:
             except (TypeError, ValueError):
                 return 0
 
-        prompt = _field("input_tokens")
+        # This API reports input_tokens EXCLUSIVE of cache reads/writes — normalize to
+        # the seam's inclusive prompt_tokens convention (see `Usage`).
+        cached = _field("cache_read_input_tokens")
+        cache_write = _field("cache_creation_input_tokens")
+        prompt = _field("input_tokens") + cached + cache_write
         completion = _field("output_tokens")
         return Usage(
-            prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=prompt + completion,
+            cached_prompt_tokens=cached,
+            cache_write_tokens=cache_write,
         )
 
 

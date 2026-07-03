@@ -62,6 +62,7 @@ class BedrockProvider:
         aws_secret_access_key: str | None = None,
         capabilities: Capabilities | None = None,
         client: object | None = None,
+        default_effort: str | None = None,
     ):
         self.model = model
         self.name = f"bedrock:{model}"
@@ -73,6 +74,7 @@ class BedrockProvider:
         self._access_key_id = aws_access_key_id
         self._secret_access_key = aws_secret_access_key
         self._client = client
+        self._default_effort = default_effort
 
     async def complete(self, request: CompletionRequest) -> Completion:
         client = self._client or _build_client(
@@ -123,7 +125,7 @@ class BedrockProvider:
         if inference_config:
             payload["inferenceConfig"] = inference_config
 
-        budget = EFFORT_BUDGET_TOKENS.get(request.reasoning_effort or "")
+        budget = EFFORT_BUDGET_TOKENS.get(request.reasoning_effort or self._default_effort or "")
         if budget is not None and is_claude_model(self.model):
             payload["additionalModelRequestFields"] = {
                 "thinking": {"type": "enabled", "budget_tokens": budget}
@@ -168,10 +170,18 @@ class BedrockProvider:
             except (TypeError, ValueError):
                 return 0
 
+        # Converse reports inputTokens EXCLUSIVE of cache reads/writes — normalize to
+        # the seam's inclusive prompt_tokens convention (see `Usage`).
+        cached = _field("cacheReadInputTokens")
+        cache_write = _field("cacheWriteInputTokens")
+        prompt = _field("inputTokens") + cached + cache_write
+        completion = _field("outputTokens")
         return Usage(
-            prompt_tokens=_field("inputTokens"),
-            completion_tokens=_field("outputTokens"),
-            total_tokens=_field("totalTokens"),
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=prompt + completion,
+            cached_prompt_tokens=cached,
+            cache_write_tokens=cache_write,
         )
 
 
