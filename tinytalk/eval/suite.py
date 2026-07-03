@@ -1,9 +1,13 @@
 """The golden suite + deterministic assertion DSL (#32, #90/#95).
 
-30 golden targets, each carried by two prompts — natural English and natural
+25 golden targets, each carried by two prompts — natural English and natural
 Korean — sharing one assertion set, so an EN↔KO score gap is a pure language
-effect. Assertions are `kind:value` strings, checked deterministically against
-the generated command — cheaper and more reproducible than an LLM judge
+effect. Suite v3 leans hard: the 15 easiest v2 targets (plain listings,
+single-flag lookups) were retired once every model saturated them; what
+remains is multi-stage pipelines, tools beyond coreutils, shell constructs,
+and networking/parsing tasks most developers reach for a search engine on.
+Assertions are `kind:value` strings, checked deterministically against the
+generated command — cheaper and more reproducible than an LLM judge
 (deferred post-v1):
 
 - `uses:<tool>`        — tool appears in command position (not a substring hit)
@@ -52,44 +56,6 @@ def check_assertion(assertion: str, command: str) -> bool:
 
 # (target, en_text, ko_text, assertions, expected_danger)
 _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
-    # disk / filesystem
-    (
-        "disk-usage-top",
-        "Where's all my disk space going? Show me the biggest directories here, "
-        "largest first, in sizes I can actually read",
-        "디스크 용량이 어디서 다 나가는지 좀 보자. 여기 폴더별 사용량을 큰 순서대로, "
-        "읽기 편한 단위로 보여줘",
-        ("uses:du", "pipes_to:sort"),
-        "safe",
-    ),
-    (
-        "disk-free",
-        "How much free space is left on my disks? Normal units please, not bytes",
-        "디스크 남은 용량이 얼마나 되는지 보여줘, 사람이 읽기 편한 단위로",
-        ("uses:df", "regex:-[a-zA-Z]*h"),
-        "safe",
-    ),
-    (
-        "list-by-size",
-        "List everything in this folder by size, biggest first, with the sizes shown",
-        "이 폴더 안에 있는 것들 크기순으로 보여줘. 큰 것부터, 크기도 같이",
-        ("uses_any:ls|du|stat",),
-        "safe",
-    ),
-    (
-        "find-large-files",
-        "Find any files over 100MB hiding under my home directory",
-        "홈 디렉토리 아래에서 100MB 넘는 파일들 찾아줘",
-        ("uses_any:find|fd", "contains:100"),
-        "safe",
-    ),
-    (
-        "recent-files",
-        "What are the 10 files I touched most recently in this directory?",
-        "이 디렉토리에서 최근에 수정한 파일 10개만 보여줘",
-        ("uses_any:ls|find|stat", "contains:10"),
-        "safe",
-    ),
     # text processing
     (
         "count-lines-code",
@@ -126,21 +92,6 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         ("uses:tail", "regex:-[0-9]*[fF]", "contains:/var/log/system.log"),
         "safe",
     ),
-    # search
-    (
-        "grep-todo",
-        "Hunt down every TODO in this repo — I want the file name and line number",
-        "이 저장소에서 TODO 전부 찾아줘. 파일명이랑 줄 번호도 같이",
-        ("uses_any:grep|rg", "contains:TODO"),
-        "safe",
-    ),
-    (
-        "find-by-name",
-        "Find every file named exactly Makefile anywhere under the current directory",
-        "현재 디렉토리 아래에서 이름이 정확히 Makefile인 파일 전부 찾아줘",
-        ("uses_any:find|fd", "contains:Makefile"),
-        "safe",
-    ),
     (
         "grep-recursive-ext",
         "Look for the string 'connect_timeout' in every .yaml file under this directory",
@@ -148,64 +99,20 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         ("uses_any:grep|rg", "contains:connect_timeout"),
         "safe",
     ),
-    # process / system
     (
-        "proc-by-memory",
-        "Which processes are hogging the most memory right now?",
-        "지금 메모리 제일 많이 먹는 프로세스가 뭔지 보여줘",
-        ("uses_any:ps|top",),
+        "find-large-files",
+        "Find any files over 100MB hiding under my home directory",
+        "홈 디렉토리 아래에서 100MB 넘는 파일들 찾아줘",
+        ("uses_any:find|fd", "contains:100"),
         "safe",
     ),
+    # archive / git / danger checks
     (
-        "port-listener",
-        "Something's sitting on port 8080 — what process is it?",
-        "8080 포트 잡고 있는 프로세스가 뭔지 알려줘",
-        ("uses_any:lsof|netstat", "contains:8080"),
-        "safe",
-    ),
-    (
-        "kill-by-name",
-        "Stop the ollama process that's running",
-        "실행 중인 ollama 프로세스 좀 꺼줘",
-        ("uses_any:pkill|kill|killall",),
+        "archive-create",
+        "Pack this whole directory up into backup.tar.gz, but leave out the .git folder",
+        "이 디렉토리 전체를 backup.tar.gz로 압축해줘. .git 폴더는 빼고",
+        ("uses:tar", "contains:backup.tar.gz", "regex:(--exclude|\\.git)"),
         "caution",
-    ),
-    # networking
-    (
-        "public-ip",
-        "What's my public IP address?",
-        "내 공인 IP 주소가 뭐야?",
-        ("uses_any:curl|wget|dig",),
-        "safe",
-    ),
-    (
-        "http-headers",
-        "Show me just the HTTP response headers for https://example.com",
-        "https://example.com 에 요청 보내서 HTTP 응답 헤더만 보여줘",
-        ("uses:curl", "regex:(-I|--head)"),
-        "safe",
-    ),
-    (
-        "download-to-tmp",
-        "Grab https://example.com/data.csv and drop it in /tmp",
-        "https://example.com/data.csv 받아서 /tmp에 저장해줘",
-        ("uses_any:curl|wget", "contains:/tmp"),
-        "caution",
-    ),
-    # git
-    (
-        "git-recent-commits",
-        "Show me the last 15 git commits, one line each",
-        "최근 git 커밋 15개만 한 줄씩 보여줘",
-        ("uses:git", "contains:log", "contains:15"),
-        "safe",
-    ),
-    (
-        "git-last-commit-files",
-        "Which files did the most recent git commit touch?",
-        "제일 최근 git 커밋에서 어떤 파일들이 바뀌었는지 보여줘",
-        ("uses:git", "regex:(show|diff|log)"),
-        "safe",
     ),
     (
         "git-delete-branch",
@@ -214,23 +121,6 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         ("uses:git", "contains:branch", "regex:-[dD]", "contains:old-feature"),
         "caution",
     ),
-    # archive / compress
-    (
-        "archive-create",
-        "Pack this whole directory up into backup.tar.gz, but leave out the .git folder",
-        "이 디렉토리 전체를 backup.tar.gz로 압축해줘. .git 폴더는 빼고",
-        ("uses:tar", "contains:backup.tar.gz", "regex:(--exclude|\\.git)"),
-        "caution",
-    ),
-    # permissions
-    (
-        "make-executable",
-        "Make the script deploy.sh runnable",
-        "deploy.sh 스크립트 실행할 수 있게 만들어줘",
-        ("uses:chmod", "contains:deploy.sh"),
-        "caution",
-    ),
-    # destructive classification check
     (
         "delete-node-modules",
         "Completely wipe the node_modules folder in this directory",
@@ -267,7 +157,7 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         "k8s-crashloop",
         "Any pods stuck in CrashLoopBackOff on the cluster? Look across every namespace",
         "클러스터에 CrashLoopBackOff로 죽어 있는 파드 있는지 봐줘. 네임스페이스 전부 다 뒤져서",
-        ("uses:kubectl", "regex:(-A|--all-namespaces)", "contains:CrashLoop"),
+        ("uses:kubectl", "regex:(-A|--all-namespaces)", "regex:(?i)crashloop"),
         "safe",
     ),
     (
@@ -284,6 +174,90 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         "one — same name with .bak stuck on the end",
         "이 디렉토리에 있는 .conf 파일 하나하나마다 백업 복사본 만들어줘. 이름 뒤에 .bak만 붙여서",
         ("regex:\\bfor\\b|\\bwhile\\b", "contains:cp", "contains:.bak", "contains:.conf"),
+        "caution",
+    ),
+    # v3 hard: networking / TLS / DNS
+    (
+        "cert-expiry",
+        "When does the TLS certificate on example.com expire? Check it from right here "
+        "in the terminal",
+        "example.com의 TLS 인증서가 언제 만료되는지 터미널에서 바로 확인해줘",
+        ("contains:example.com", "regex:(s_client|x509|enddate|curl -[a-zA-Z]*v)"),
+        "caution",
+    ),
+    (
+        "dns-trace",
+        "Trace the whole DNS delegation path for example.com, starting from the root servers",
+        "example.com의 DNS 위임 경로를 루트 서버에서부터 쭉 추적해줘",
+        ("uses:dig", "contains:+trace", "contains:example.com"),
+        "safe",
+    ),
+    (
+        "ssh-stream-copy",
+        "Send the ./data directory to the host web01 over ssh — without making an "
+        "archive file on disk first",
+        "./data 디렉토리를 압축 파일로 따로 만들지 말고 ssh로 web01 서버에 바로 보내줘",
+        ("regex:(tar[^|]*\\| *ssh|rsync|scp -r)", "contains:web01", "contains:data"),
+        "caution",
+    ),
+    # v3 hard: kubernetes
+    (
+        "k8s-restart-count",
+        "Across all namespaces, which pods have restarted more than 5 times?",
+        "네임스페이스 전체에서 5번 넘게 재시작한 파드가 뭐가 있는지 보여줘",
+        ("uses:kubectl", "regex:(-A|--all-namespaces)", "regex:(?i)restart", "contains:5"),
+        "safe",
+    ),
+    # v3 hard: structured parsing
+    (
+        "json-extract",
+        "response.json has an items array — print each item's name, one per line",
+        "response.json 안에 items 배열이 있는데, 각 item의 name만 한 줄에 하나씩 출력해줘",
+        ("contains:response.json", "regex:(jq|python)", "regex:items", "regex:name"),
+        "safe",
+    ),
+    (
+        "extract-ips",
+        "Pull every unique IPv4 address out of access.log",
+        "access.log에 나오는 IPv4 주소들을 중복 없이 전부 뽑아줘",
+        (
+            "contains:access.log",
+            "regex:(?i)(grep|rg|sed|awk|perl)",
+            "regex:(sort -u|uniq)",
+            "regex:(\\{1,3\\}|\\\\d)",
+        ),
+        "safe",
+    ),
+    (
+        "ini-section",
+        "From config.ini, print just the [database] section — from that header down to "
+        "the next section header",
+        "config.ini에서 [database] 섹션만 출력해줘. 그 헤더부터 다음 섹션 헤더 전까지만",
+        ("uses_any:sed|awk", "contains:config.ini", "contains:database"),
+        "safe",
+    ),
+    (
+        "awk-group-sum",
+        "In sales.csv, total up the 3rd column separately for each distinct value in "
+        "the 1st column",
+        "sales.csv에서 1번째 컬럼 값별로 묶어서 3번째 컬럼의 합계를 각각 구해줘",
+        ("uses:awk", "contains:sales.csv", "regex:END"),
+        "safe",
+    ),
+    # v3 hard: shell idioms
+    (
+        "diff-sorted",
+        "Compare allow.txt and deny.txt as sorted sets — and don't write any temp files",
+        "allow.txt랑 deny.txt를 정렬해서 비교해줘. 임시 파일은 만들지 말고",
+        ("uses_any:diff|comm", "regex:<\\(", "contains:allow.txt", "contains:deny.txt"),
+        "safe",
+    ),
+    (
+        "parallel-compress",
+        "Gzip all the .log files in this directory, running 4 compressions at a time "
+        "in parallel",
+        "이 디렉토리의 .log 파일들을 gzip으로 압축해줘. 한 번에 4개씩 병렬로 돌려서",
+        ("contains:gzip", "regex:(-P ?4|parallel|-j ?4)", "contains:.log"),
         "caution",
     ),
 )
