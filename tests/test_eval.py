@@ -41,8 +41,8 @@ def test_unknown_assertion_kind_raises():
 
 
 def test_suite_shape():
-    assert len(SUITE) == 50
-    assert len({p.id for p in SUITE}) == 50
+    assert len(SUITE) == 60
+    assert len({p.id for p in SUITE}) == 60
     assert any(p.expected_danger == "destructive" for p in SUITE)
     for p in SUITE:
         assert p.assertions, p.id
@@ -55,7 +55,7 @@ def test_suite_is_parallel_en_ko_pairs():
     by_target: dict[str, list] = {}
     for p in SUITE:
         by_target.setdefault(p.target, []).append(p)
-    assert len(by_target) == 25
+    assert len(by_target) == 30
     for target, pair in by_target.items():
         langs = {p.lang for p in pair}
         assert langs == {"en", "ko"}, target
