@@ -1,0 +1,46 @@
+name: install
+# End-to-end proof that ./install.sh works on a fresh machine: Linux + macOS,
+# real uv, isolated HOME. Asserts install, PATH + widget wiring, idempotency,
+# and that the CLI answers from a fresh interactive zsh.
+
+on:
+  push:
+    branches: [main]
+    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+  pull_request:
+    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+  workflow_dispatch:
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install zsh (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Run installer into a fresh HOME
+        run: |
+          FAKEHOME="$RUNNER_TEMP/tt-home"
+          mkdir -p "$FAKEHOME"
+          echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
+          HOME="$FAKEHOME" ./install.sh --yes
+      - name: Assert config scaffold and rc wiring (each block exactly once)
+        run: |
+          cat "$FAKEHOME/.zshrc"
+          test -f "$FAKEHOME/.config/tinytalk/config.toml"
+          [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
+          [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
+      - name: Re-run installer — must change nothing
+        run: |
+          cp "$FAKEHOME/.zshrc" "$RUNNER_TEMP/zshrc.before"
+          HOME="$FAKEHOME" ./install.sh --yes
+          diff "$RUNNER_TEMP/zshrc.before" "$FAKEHOME/.zshrc"
+      - name: CLI works from a fresh interactive zsh
+        run: |
+          HOME="$FAKEHOME" zsh -ic 'tt --version && tt --help >/dev/null && tt init zsh >/dev/null && echo SHELL_OK'
