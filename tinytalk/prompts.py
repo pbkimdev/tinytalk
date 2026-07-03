@@ -12,7 +12,8 @@ Prompt flow (tiers.py drives it; grounding.py supplies host data):
         4. tool-preference block — one "- rule" line per PREFERENCE_RULES
            entry whose gate tool is installed; whole block omitted when none
         5. trailer — only-these-tools / never-invent-flags / commit-to-one,
-           ending in CONTRACT_SHAPE
+           then EXPLANATION_LANGUAGE when the configured language is not
+           English, ending in CONTRACT_SHAPE
   T2  system prompt = T1 system + "\\n\\n" + enrichment (grounding.enrich),
       where enrichment is "\\n\\n"-joined sections:
         - ENRICH_MISSING_TOOLS       when the failed attempt named tools not
@@ -133,6 +134,24 @@ CONTRACT_SHAPE = (
     '"needs": ["binaries", "used"]}'
 )
 
+# English is the identity: no clause is added, so default prompts stay byte-identical.
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ko": "Korean",
+    "ja": "Japanese",
+    "zh": "Chinese",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "pt": "Portuguese",
+    "it": "Italian",
+    "ru": "Russian",
+}
+EXPLANATION_LANGUAGE = (
+    'Write the "explanation" value in {language}. Everything else — the command '
+    "itself, JSON keys, and danger values — stays exactly as specified."
+)
+
 STATIC_SYSTEM = (
     IDENTITY + " Commit to exactly one command — never a list of options or alternatives. "
     "Respond with only a JSON object matching this shape, no prose around it:\n" + CONTRACT_SHAPE
@@ -145,7 +164,10 @@ ENRICH_TOOL_DOC = "Real documentation for `{tool}` on this system:\n{help}"
 
 
 def t1_system(
-    host_facts: str, tools: Sequence[tuple[str, str, str | None]], preferences: Sequence[str]
+    host_facts: str,
+    tools: Sequence[tuple[str, str, str | None]],
+    preferences: Sequence[str],
+    language: str = "en",
 ) -> str:
     """The grounded T1 system prompt. `tools` is (name, description, version-or-None)
     already filtered to installed; `preferences` already gated on the preferred tool."""
@@ -159,6 +181,12 @@ def t1_system(
         if preferences
         else ""
     )
+    normalized = language.strip().lower()
+    language_clause = (
+        ""
+        if normalized in ("", "en", "english")
+        else EXPLANATION_LANGUAGE.format(language=LANGUAGE_NAMES.get(normalized, language)) + " "
+    )
     return (
         f"{IDENTITY}\n"
         f"{host_facts}\n\n"
@@ -168,7 +196,8 @@ def t1_system(
         + "\n\nOnly use tools from this list, shell builtins, or tools you are certain "
         "are installed; never invent flags. Commit to exactly one command — never a "
         "list of options or alternatives; if you are unsure, pick your best answer. "
-        "Respond with only a JSON object matching this shape, no prose around it:\n"
+        + language_clause
+        + "Respond with only a JSON object matching this shape, no prose around it:\n"
         + CONTRACT_SHAPE
     )
 

@@ -45,6 +45,9 @@ Switch back to a cloud backend (Claude, GPT, etc.) any time by editing `defaults
 `~/.config/tinytalk/config.toml` — both a local and a cloud backend can live in the same config,
 so you can fall back to one when the other is unavailable.
 
+The one-line explanation follows `defaults.language` in the same file (auto-detected from your
+locale when unset); the command itself and TinyTalk's own messages stay English.
+
 ## Latest benchmark
 
 TinyTalk ships with its own eval suite (`tt eval`) — 25 natural-language commands, run in both

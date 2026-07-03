@@ -33,6 +33,28 @@ def test_t1_system_omits_preference_block_when_none_gate():
     assert "- ls: list\n\nOnly use tools" in out
 
 
+def test_t1_system_language_clause_for_non_english():
+    out = prompts.t1_system("OS: X.", [("ls", "list", None)], [], language="ko")
+    assert (
+        "pick your best answer. "
+        'Write the "explanation" value in Korean. Everything else — the command '
+        "itself, JSON keys, and danger values — stays exactly as specified. "
+        "Respond with only a JSON object matching this shape"
+    ) in out
+
+
+def test_t1_system_english_and_default_are_identical():
+    default = prompts.t1_system("OS: X.", [("ls", "list", None)], [])
+    for value in ("en", "EN", "english", "English", ""):
+        assert prompts.t1_system("OS: X.", [("ls", "list", None)], [], language=value) == default
+    assert 'explanation" value in' not in default
+
+
+def test_t1_system_unknown_language_passes_through():
+    out = prompts.t1_system("OS: X.", [("ls", "list", None)], [], language="tlh")
+    assert 'Write the "explanation" value in tlh.' in out
+
+
 def test_user_message_each_condition():
     assert prompts.user_message("do it") == "do it"
     assert prompts.user_message("do it", cwd=".") == "do it"

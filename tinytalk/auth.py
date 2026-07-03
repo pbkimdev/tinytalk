@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from tinytalk.config import env_language
+
 KIND_CHOICES = [
     ("openai-compat", "OpenAI-compatible HTTP API (OpenAI itself, Ollama, llama.cpp, ...)"),
     ("anthropic-compat", "Anthropic Messages API (raw HTTP, not the Agent SDK)"),
@@ -140,12 +142,21 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if draft is None:
         return None
 
+    language = None
+    if slot == "primary":
+        current = str(defaults.get("language") or env_language())
+        language = io.text('Explanation language (code or name, e.g. "en", "ko"):', default=current)
+        if language is None:
+            return None
+
     print(f"[backends.{slot}]")
     for key, value in draft.fields.items():
         if value:
             print(f"  {key} = {value!r}")
     if draft.secret:
         print("  (API key/credentials → OS keychain, not the file)")
+    if language:
+        print(f"  [defaults] language = {language!r}")
     if not io.confirm(f"Write this to {config_path}?", default=True):
         return None
 
@@ -157,6 +168,8 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     _write_backend(
         doc, slot, draft.fields, set_default=(slot == "primary"), set_fallback=(slot == "fallback")
     )
+    if language:
+        doc["defaults"]["language"] = language
     _save(config_path, doc)
     # Cleanup only after the write succeeded, and never while any table still
     # references the account — hand-written backends may share one (#86).

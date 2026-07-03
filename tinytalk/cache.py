@@ -1,6 +1,7 @@
 """T0 exact cache (#36, PRD §9) — don't pay twice for the same question.
 
-Key = sha256(normalized prompt + cwd + OS fingerprint + backend). Values are
+Key = sha256(normalized prompt + cwd + OS fingerprint + backend [+ language
+when not "en"], #107 — keeps English keys unchanged). Values are
 `Suggestion` dicts as JSON files; reads go back through the strict parser, so a
 corrupt or stale file is a miss (and removed), never a bad suggestion. The tier
 controller re-validates hits, so cache never bypasses the safety ladder.
@@ -33,7 +34,10 @@ def _os_fingerprint() -> str:
 
 def cache_key(request: TierRequest, backend: str) -> str:
     normalized = _WS.sub(" ", request.prompt.strip().lower())
-    material = "\x1f".join((normalized, request.cwd, _os_fingerprint(), backend))
+    parts = (normalized, request.cwd, _os_fingerprint(), backend)
+    if request.language != "en":
+        parts += (request.language,)
+    material = "\x1f".join(parts)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 

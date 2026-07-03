@@ -292,7 +292,10 @@ def _prompt(args: argparse.Namespace) -> int:
 
         session_context = redact(session_context)
     request = TierRequest(
-        prompt=" ".join(args.request).strip(), cwd=os.getcwd(), session_context=session_context
+        prompt=" ".join(args.request).strip(),
+        cwd=os.getcwd(),
+        session_context=session_context,
+        language=config.language,
     )
     print("=== system ===")
     print(grounding.system_prompt(request))
@@ -345,7 +348,12 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             from tinytalk.redact import redact
 
             session_context = redact(session_context)
-        request = TierRequest(prompt=request_text, cwd=os.getcwd(), session_context=session_context)
+        request = TierRequest(
+            prompt=request_text,
+            cwd=os.getcwd(),
+            session_context=session_context,
+            language=config.language,
+        )
         result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
         print(f"tt: {exc}", file=sys.stderr)

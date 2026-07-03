@@ -37,6 +37,13 @@ def test_key_varies_by_prompt_cwd_backend(tmp_path):
     assert cache.get(REQ, "other-backend") is None
 
 
+def test_key_varies_by_language():
+    ko = TierRequest(prompt=REQ.prompt, cwd=REQ.cwd, language="ko")
+    en = TierRequest(prompt=REQ.prompt, cwd=REQ.cwd, language="en")
+    assert cache_key(ko, "stub") != cache_key(REQ, "stub")
+    assert cache_key(en, "stub") == cache_key(REQ, "stub")  # English keys unchanged (#107)
+
+
 def test_prompt_normalization_hits():
     a = TierRequest(prompt="  List   Files  BY size ", cwd="/home/me")
     assert cache_key(a, "stub") == cache_key(REQ, "stub")

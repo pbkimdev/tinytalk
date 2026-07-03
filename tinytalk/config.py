@@ -8,6 +8,7 @@ where the file was expected.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,6 +81,7 @@ class Config:
     backends: dict[str, BackendConfig]
     posture: str = "local"
     escalation_backend: str | None = None
+    language: str = "en"  # explanation language (#107); resolved at load time, never empty
     cache_enabled: bool = True
     cache_dir: Path | None = None
     prices: dict[str, Price] = field(default_factory=dict)
@@ -93,6 +95,16 @@ class Config:
 
     def price(self, model: str) -> Price:
         return self.prices.get(model, Price())
+
+
+def env_language() -> str:
+    """Language code from the locale env: `LC_ALL` > `LC_MESSAGES` > `LANG` (POSIX
+    override order — first non-empty wins); `C`/`POSIX` locales mean English."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        if value := os.environ.get(var):
+            code = re.split(r"[._@-]", value)[0].lower()
+            return "en" if not code or code in ("c", "posix") else code
+    return "en"
 
 
 def default_config_path() -> Path:
@@ -131,6 +143,12 @@ def _validate(data: dict, path: Path) -> Config:
             f"got {posture!r}"
         )
 
+    language = defaults.get("language", "")
+    if not isinstance(language, str):
+        raise ConfigError(
+            f'{path}: [defaults] language must be a string (e.g. "ko"); got {language!r}'
+        )
+
     raw_backends = data.get("backends")
     if not isinstance(raw_backends, dict) or not raw_backends:
         raise ConfigError(f"{path}: define at least one [backends.<name>] table")
@@ -161,6 +179,7 @@ def _validate(data: dict, path: Path) -> Config:
         backends=backends,
         posture=posture,
         escalation_backend=escalation,
+        language=language or env_language(),
         cache_enabled=bool(cache.get("enabled", True)),
         cache_dir=cache_dir,
         prices=_validate_prices(data.get("prices", {}), path),
