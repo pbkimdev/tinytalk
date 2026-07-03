@@ -1,0 +1,58 @@
+# TinyTalk bench config (#90/#101) — use via TT_CONFIG; the personal config is never touched.
+# No secrets live here: the OpenAI key resolves from the environment, Claude rides the local
+# Claude Code login (agent SDK), local servers need no auth.
+
+[defaults]
+backend = "local-gemma4-26b"
+
+[cache]
+enabled = false
+
+[backends.local-gemma4-26b]
+kind = "openai-compat"
+base_url = "http://localhost:3333/v1"
+model = "gemma-4-26B-A4B-it-MLX-8bit"
+
+[backends.local-gemma4-e4b]
+kind = "openai-compat"
+base_url = "http://localhost:3334/v1"
+model = "lmstudio-community--gemma-4-E4B-it-MLX-4bit"
+
+[backends.local-qwen36-35b]
+kind = "openai-compat"
+base_url = "http://localhost:18080/v1"
+model = "mtplx-qwen36-35b-a3b-optimized-balance"
+
+[backends.sonnet5-low]
+kind = "claude-agent-sdk"
+model = "claude-sonnet-5"
+effort = "low"
+
+[backends.gpt55-low]
+kind = "codex-agent-sdk"
+model = "gpt-5.5"
+effort = "low"
+
+# Quotes captured 2026-07-03 — sources and the local-proxy rationale live in RUNBOOK.md.
+[prices."claude-sonnet-5"]
+input_per_mtok = 2.0
+output_per_mtok = 10.0
+cached_input_per_mtok = 0.2
+cache_write_per_mtok = 2.5
+
+[prices."gpt-5.5"]
+input_per_mtok = 5.0
+output_per_mtok = 30.0
+cached_input_per_mtok = 0.5
+
+[prices."gemma-4-26B-A4B-it-MLX-8bit"]
+input_per_mtok = 0.06
+output_per_mtok = 0.33
+
+[prices."lmstudio-community--gemma-4-E4B-it-MLX-4bit"]
+input_per_mtok = 0.2
+output_per_mtok = 0.2
+
+[prices."mtplx-qwen36-35b-a3b-optimized-balance"]
+input_per_mtok = 0.14
+output_per_mtok = 1.0
