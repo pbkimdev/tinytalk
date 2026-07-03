@@ -69,6 +69,14 @@ def build_eval_parser() -> argparse.ArgumentParser:
         help="run a subset of the suite (full ids, or bare targets to get every language)",
     )
     parser.add_argument("--export", metavar="PATH", help="write results to a .json or .csv file")
+    parser.add_argument(
+        "--report", metavar="PATH", help="write a self-contained HTML report of the results"
+    )
+    parser.add_argument(
+        "--report-from",
+        metavar="JSON",
+        help="re-render --report from a previous --export .json instead of running",
+    )
     return parser
 
 
@@ -119,21 +127,45 @@ def _eval(args: argparse.Namespace) -> int:
     from tinytalk.config import ConfigError, load_config
     from tinytalk.eval.runner import export, render_leaderboard, render_matrix, run_eval
 
+    if args.report_from and not args.report:
+        print("tt: --report-from requires --report PATH", file=sys.stderr)
+        return 2
     try:
-        config = load_config(Path(args.config) if args.config else None)
-        backends = args.backends.split(",") if args.backends else sorted(config.backends)
-        prompt_ids = args.prompts.split(",") if args.prompts else None
-        reports = run_eval(config, backends, prompt_ids=prompt_ids, cwd=os.getcwd())
-    except (ConfigError, ValueError) as exc:
+        if args.report_from:
+            from tinytalk.eval.report import load_reports
+
+            reports = load_reports(Path(args.report_from))
+        else:
+            config = load_config(Path(args.config) if args.config else None)
+            backends = args.backends.split(",") if args.backends else sorted(config.backends)
+            prompt_ids = args.prompts.split(",") if args.prompts else None
+            reports = run_eval(config, backends, prompt_ids=prompt_ids, cwd=os.getcwd())
+    except (OSError, ConfigError, ValueError) as exc:
         print(f"tt: {exc}", file=sys.stderr)
         return 1
     print(render_leaderboard(reports))
     print()
     print(render_matrix(reports))
-    if args.export:
+    if args.export and not args.report_from:
         export(reports, Path(args.export))
         print(f"\nresults written to {args.export}", file=sys.stderr)
+    if args.report:
+        Path(args.report).write_text(_render_report(reports), "utf-8")
+        print(f"report written to {args.report}", file=sys.stderr)
     return 0
+
+
+def _render_report(reports) -> str:
+    import datetime
+    import platform
+
+    from tinytalk.eval.report import RunMeta, render_report
+
+    meta = RunMeta(
+        run_date=datetime.date.today().isoformat(),
+        machine=f"{platform.system()} {platform.machine()}",
+    )
+    return render_report(reports, meta)
 
 
 def _auth(args: argparse.Namespace) -> int:
