@@ -37,10 +37,13 @@ v1 works end-to-end: `tt "what you want"` (or `?` in zsh) runs config → provid
 (Claude Agent SDK, or any OpenAI-compatible endpoint — Ollama, llama.cpp, MLX servers) → tier
 controller (T0 exact cache → T1 → T2) → capability grounding → validation & safety → a command
 in your editing buffer, never auto-run. `tt eval` benchmarks your configured backends on your
-own machine — format, assertions, danger calls, tokens, latency, cost over a 25-prompt suite
-(see the [v1 epic's closing evidence](https://github.com/pbkimdev/tinytalk/issues/25)).
+own machine — strict pass rate, danger calls, tokens (cached included), latency, cost over 25
+English/Korean golden pairs — and `tt eval --report` renders it as a single self-contained HTML
+page (see the [v1 epic's closing evidence](https://github.com/pbkimdev/tinytalk/issues/25)).
 
 - **[VISION.md](./VISION.md)** — what we're building and why.
+- **[Benchmarks](./docs/bench/2026-07/index.html)** — 3 local + 2 frontier models on an M5 Max,
+  July 2026 ([how it was run](./docs/bench/RUNBOOK.md)).
 - **[The issues](https://github.com/pbkimdev/tinytalk/issues)** — what's landed and what's next.
 
 ## How it'll work

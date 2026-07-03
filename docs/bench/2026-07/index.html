@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinyTalk Bench</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+body { background: #FAF9F5; color: #141413;
+  font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+main { max-width: 880px; margin: 0 auto; padding: 48px 20px 72px; }
+h1 { font-family: ui-serif, Georgia, serif; font-size: 40px; font-weight: 600;
+  letter-spacing: -0.5px; }
+h2 { font-family: ui-serif, Georgia, serif; font-size: 24px; font-weight: 600;
+  margin: 56px 0 4px; }
+p.caption { color: #6B6960; font-size: 14px; margin: 2px 0 18px; max-width: 640px; }
+p.meta { color: #6B6960; font-size: 14px; margin-top: 8px; }
+svg { display: block; width: 100%; height: auto; }
+.tablewrap { overflow-x: auto; margin-top: 12px; }
+table { border-collapse: collapse; font-size: 13px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid #E8E6DC; }
+th { color: #6B6960; font-weight: 500; }
+th:first-child, td:first-child { text-align: left; }
+td.best { color: #D97757; font-weight: 600; }
+.fineprint { margin-top: 56px; padding-top: 16px; border-top: 1px solid #E8E6DC;
+  color: #6B6960; font-size: 13px; }
+.fineprint li { margin: 3px 0 3px 18px; }
+</style>
+</head>
+<body>
+<main>
+<h1>TinyTalk Bench</h1>
+<p class="meta">2026-07-03 · Apple M5 Max, 128 GB · single backend, no cross-backend escalation · temperature 0 · 1 run per prompt · warmup excluded</p>
+<p class="meta">25 golden targets × EN/KO parallel pairs (50 prompts)</p>
+<h2>Pass rate</h2>
+<p class="caption">Strict pass over the full suite — a prompt counts only when the output is valid, the command parses, every binary exists, and all assertions hold.</p>
+<svg viewBox="0 0 800 360" role="img" font-family="system-ui, sans-serif">
+<text x="0.0" y="24.0" font-size="15" fill="#141413" text-anchor="start" font-weight="600">sonnet5-low</text>
+<text x="224.0" y="24.0" font-size="15" fill="#46627F" text-anchor="end" font-weight="600">98%</text>
+<text x="262.0" y="24.0" font-size="11" fill="#6B6960" text-anchor="end">EN</text>
+<rect x="270" y="12" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="12" width="504.0" height="14" rx="3" fill="#46627F" fill-opacity="1.0"><title>sonnet5-low EN: 100%</title></rect>
+<text x="780.0" y="23.5" font-size="11" fill="#6B6960" text-anchor="start">100%</text>
+<text x="262.0" y="46.0" font-size="11" fill="#6B6960" text-anchor="end">KO</text>
+<rect x="270" y="34" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="34" width="483.8" height="14" rx="3" fill="#46627F" fill-opacity="0.62"><title>sonnet5-low KO: 96%</title></rect>
+<text x="759.8" y="45.5" font-size="11" fill="#6B6960" text-anchor="start">96%</text>
+<text x="0.0" y="96.0" font-size="15" fill="#141413" text-anchor="start" font-weight="600">gpt55-low</text>
+<text x="224.0" y="96.0" font-size="15" fill="#6E8898" text-anchor="end" font-weight="600">98%</text>
+<text x="262.0" y="96.0" font-size="11" fill="#6B6960" text-anchor="end">EN</text>
+<rect x="270" y="84" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="84" width="483.8" height="14" rx="3" fill="#6E8898" fill-opacity="1.0"><title>gpt55-low EN: 96%</title></rect>
+<text x="759.8" y="95.5" font-size="11" fill="#6B6960" text-anchor="start">96%</text>
+<text x="262.0" y="118.0" font-size="11" fill="#6B6960" text-anchor="end">KO</text>
+<rect x="270" y="106" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="106" width="504.0" height="14" rx="3" fill="#6E8898" fill-opacity="0.62"><title>gpt55-low KO: 100%</title></rect>
+<text x="780.0" y="117.5" font-size="11" fill="#6B6960" text-anchor="start">100%</text>
+<text x="0.0" y="168.0" font-size="15" fill="#141413" text-anchor="start" font-weight="600">local-qwen36-35b†</text>
+<text x="224.0" y="168.0" font-size="15" fill="#C08552" text-anchor="end" font-weight="600">96%</text>
+<text x="262.0" y="168.0" font-size="11" fill="#6B6960" text-anchor="end">EN</text>
+<rect x="270" y="156" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="156" width="483.8" height="14" rx="3" fill="#C08552" fill-opacity="1.0"><title>local-qwen36-35b EN: 96%</title></rect>
+<text x="759.8" y="167.5" font-size="11" fill="#6B6960" text-anchor="start">96%</text>
+<text x="262.0" y="190.0" font-size="11" fill="#6B6960" text-anchor="end">KO</text>
+<rect x="270" y="178" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="178" width="483.8" height="14" rx="3" fill="#C08552" fill-opacity="0.62"><title>local-qwen36-35b KO: 96%</title></rect>
+<text x="759.8" y="189.5" font-size="11" fill="#6B6960" text-anchor="start">96%</text>
+<text x="0.0" y="240.0" font-size="15" fill="#141413" text-anchor="start" font-weight="600">local-gemma4-26b†</text>
+<text x="224.0" y="240.0" font-size="15" fill="#A98467" text-anchor="end" font-weight="600">94%</text>
+<text x="262.0" y="240.0" font-size="11" fill="#6B6960" text-anchor="end">EN</text>
+<rect x="270" y="228" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="228" width="483.8" height="14" rx="3" fill="#A98467" fill-opacity="1.0"><title>local-gemma4-26b EN: 96%</title></rect>
+<text x="759.8" y="239.5" font-size="11" fill="#6B6960" text-anchor="start">96%</text>
+<text x="262.0" y="262.0" font-size="11" fill="#6B6960" text-anchor="end">KO</text>
+<rect x="270" y="250" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="250" width="463.7" height="14" rx="3" fill="#A98467" fill-opacity="0.62"><title>local-gemma4-26b KO: 92%</title></rect>
+<text x="739.7" y="261.5" font-size="11" fill="#6B6960" text-anchor="start">92%</text>
+<text x="0.0" y="312.0" font-size="15" fill="#141413" text-anchor="start" font-weight="600">local-gemma4-e4b†</text>
+<text x="224.0" y="312.0" font-size="15" fill="#8A7250" text-anchor="end" font-weight="600">80%</text>
+<text x="262.0" y="312.0" font-size="11" fill="#6B6960" text-anchor="end">EN</text>
+<rect x="270" y="300" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="300" width="403.2" height="14" rx="3" fill="#8A7250" fill-opacity="1.0"><title>local-gemma4-e4b EN: 80%</title></rect>
+<text x="679.2" y="311.5" font-size="11" fill="#6B6960" text-anchor="start">80%</text>
+<text x="262.0" y="334.0" font-size="11" fill="#6B6960" text-anchor="end">KO</text>
+<rect x="270" y="322" width="504.0" height="14" rx="3" fill="#E8E6DC"/>
+<rect x="270" y="322" width="403.2" height="14" rx="3" fill="#8A7250" fill-opacity="0.62"><title>local-gemma4-e4b KO: 80%</title></rect>
+<text x="679.2" y="333.5" font-size="11" fill="#6B6960" text-anchor="start">80%</text>
+</svg>
+<h2>Score vs. cost</h2>
+<p class="caption">Up and left is better. The accent line is the Pareto frontier: no model above it is cheaper without being worse.</p>
+<svg viewBox="0 0 800 420" role="img" font-family="system-ui, sans-serif">
+<line x1="56" y1="16" x2="56" y2="374" stroke="#6B6960"/><line x1="56" y1="374" x2="770" y2="374" stroke="#6B6960"/>
+<line x1="56" y1="374.0" x2="770" y2="374.0" stroke="#E8E6DC"/>
+<text x="48.0" y="378.0" font-size="11" fill="#6B6960" text-anchor="end">0%</text>
+<line x1="56" y1="302.4" x2="770" y2="302.4" stroke="#E8E6DC"/>
+<text x="48.0" y="306.4" font-size="11" fill="#6B6960" text-anchor="end">20%</text>
+<line x1="56" y1="230.8" x2="770" y2="230.8" stroke="#E8E6DC"/>
+<text x="48.0" y="234.8" font-size="11" fill="#6B6960" text-anchor="end">40%</text>
+<line x1="56" y1="159.2" x2="770" y2="159.2" stroke="#E8E6DC"/>
+<text x="48.0" y="163.2" font-size="11" fill="#6B6960" text-anchor="end">60%</text>
+<line x1="56" y1="87.6" x2="770" y2="87.6" stroke="#E8E6DC"/>
+<text x="48.0" y="91.6" font-size="11" fill="#6B6960" text-anchor="end">80%</text>
+<line x1="56" y1="16.0" x2="770" y2="16.0" stroke="#E8E6DC"/>
+<text x="48.0" y="20.0" font-size="11" fill="#6B6960" text-anchor="end">100%</text>
+<text x="116.0" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.01</text>
+<text x="184.4" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.02</text>
+<text x="274.7" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.05</text>
+<text x="343.1" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.1</text>
+<text x="411.5" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.2</text>
+<text x="501.9" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.5</text>
+<text x="570.3" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$1</text>
+<text x="638.6" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$2</text>
+<text x="729.0" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$5</text>
+<text x="413.0" y="412.0" font-size="12" fill="#6B6960" text-anchor="middle">cost per full sweep (USD, log scale)</text>
+<path d="M 114.0 37.5 H 294.2 V 30.3 H 586.0 V 23.2" fill="none" stroke="#D97757" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.85"/>
+<circle cx="586.0" cy="23.2" r="7" fill="#46627F"><title>sonnet5-low: 98% at $1.17275</title></circle>
+<text x="597.0" y="27.2" font-size="12" fill="#141413" text-anchor="start">sonnet5-low</text>
+<circle cx="712.0" cy="23.2" r="7" fill="#6E8898"><title>gpt55-low: 98% at $4.20815</title></circle>
+<text x="723.0" y="27.2" font-size="12" fill="#141413" text-anchor="start">gpt55-low</text>
+<circle cx="294.2" cy="30.3" r="7" fill="#C08552"><title>local-qwen36-35b: 96% at $0.060918</title></circle>
+<text x="305.2" y="34.3" font-size="12" fill="#141413" text-anchor="start">local-qwen36-35b†</text>
+<circle cx="114.0" cy="37.5" r="7" fill="#A98467"><title>local-gemma4-26b: 94% at $0.0098</title></circle>
+<text x="125.0" y="41.5" font-size="12" fill="#141413" text-anchor="start">local-gemma4-26b†</text>
+<circle cx="183.5" cy="87.6" r="7" fill="#8A7250"><title>local-gemma4-e4b: 80% at $0.019818</title></circle>
+<text x="194.5" y="91.6" font-size="12" fill="#141413" text-anchor="start">local-gemma4-e4b†</text>
+</svg>
+<h2>Speed vs. cost</h2>
+<p class="caption">Down and left is better; bubble area is the pass rate — big low bubbles are fast, cheap, and actually right.</p>
+<svg viewBox="0 0 800 420" role="img" font-family="system-ui, sans-serif">
+<line x1="56" y1="16" x2="56" y2="374" stroke="#6B6960"/><line x1="56" y1="374" x2="770" y2="374" stroke="#6B6960"/>
+<line x1="56" y1="374.0" x2="770" y2="374.0" stroke="#E8E6DC"/>
+<text x="48.0" y="378.0" font-size="11" fill="#6B6960" text-anchor="end">0s</text>
+<line x1="56" y1="302.4" x2="770" y2="302.4" stroke="#E8E6DC"/>
+<text x="48.0" y="306.4" font-size="11" fill="#6B6960" text-anchor="end">4s</text>
+<line x1="56" y1="230.8" x2="770" y2="230.8" stroke="#E8E6DC"/>
+<text x="48.0" y="234.8" font-size="11" fill="#6B6960" text-anchor="end">8s</text>
+<line x1="56" y1="159.2" x2="770" y2="159.2" stroke="#E8E6DC"/>
+<text x="48.0" y="163.2" font-size="11" fill="#6B6960" text-anchor="end">12s</text>
+<line x1="56" y1="87.6" x2="770" y2="87.6" stroke="#E8E6DC"/>
+<text x="48.0" y="91.6" font-size="11" fill="#6B6960" text-anchor="end">16s</text>
+<line x1="56" y1="16.0" x2="770" y2="16.0" stroke="#E8E6DC"/>
+<text x="48.0" y="20.0" font-size="11" fill="#6B6960" text-anchor="end">20s</text>
+<text x="116.0" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.01</text>
+<text x="184.4" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.02</text>
+<text x="274.7" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.05</text>
+<text x="343.1" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.1</text>
+<text x="411.5" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.2</text>
+<text x="501.9" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$0.5</text>
+<text x="570.3" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$1</text>
+<text x="638.6" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$2</text>
+<text x="729.0" y="392.0" font-size="11" fill="#6B6960" text-anchor="middle">$5</text>
+<text x="413.0" y="412.0" font-size="12" fill="#6B6960" text-anchor="middle">cost per full sweep (USD, log scale)</text>
+<text x="14.0" y="28.0" font-size="12" fill="#6B6960" text-anchor="start">p50 latency</text>
+<circle cx="586.0" cy="278.8" r="21.8" fill="#46627F" fill-opacity="0.75"><title>sonnet5-low: 5.32s median, 98% pass</title></circle>
+<text x="612.8" y="282.8" font-size="12" fill="#141413" text-anchor="start">sonnet5-low</text>
+<circle cx="712.0" cy="172.1" r="21.8" fill="#6E8898" fill-opacity="0.75"><title>gpt55-low: 11.28s median, 98% pass</title></circle>
+<text x="738.9" y="176.1" font-size="12" fill="#141413" text-anchor="start">gpt55-low</text>
+<circle cx="294.2" cy="217.2" r="21.7" fill="#C08552" fill-opacity="0.75"><title>local-qwen36-35b: 8.76s median, 96% pass</title></circle>
+<text x="320.9" y="221.2" font-size="12" fill="#141413" text-anchor="start">local-qwen36-35b†</text>
+<circle cx="114.0" cy="345.7" r="21.5" fill="#A98467" fill-opacity="0.75"><title>local-gemma4-26b: 1.58s median, 94% pass</title></circle>
+<text x="140.5" y="349.7" font-size="12" fill="#141413" text-anchor="start">local-gemma4-26b†</text>
+<circle cx="183.5" cy="231.5" r="20.3" fill="#8A7250" fill-opacity="0.75"><title>local-gemma4-e4b: 7.96s median, 80% pass</title></circle>
+<text x="208.8" y="235.5" font-size="12" fill="#141413" text-anchor="start">local-gemma4-e4b†</text>
+</svg>
+<h2>All numbers</h2>
+<div class="tablewrap"><table><thead><tr><th>model</th><th>pass</th><th>EN</th><th>KO</th><th>assert</th><th>format</th><th>parses</th><th>danger</th><th>tok in</th><th>tok out</th><th>cached</th><th>p50 lat</th><th>cost</th></tr></thead><tbody><tr><td>sonnet5-low<br><small>claude-sonnet-5</small></td><td class="best">98%</td><td>100%</td><td>96%</td><td>100%</td><td>100%</td><td>100%</td><td>100%</td><td>1,360,404</td><td>10,231</td><td>976,144</td><td>5.32s</td><td>$1.17275</td></tr><tr><td>gpt55-low<br><small>gpt-5.5</small></td><td class="">98%</td><td>96%</td><td>100%</td><td>98%</td><td>100%</td><td>100%</td><td>96%</td><td>1,433,400</td><td>4,994</td><td>690,816</td><td>11.28s</td><td>$4.20815</td></tr><tr><td>local-qwen36-35b†<br><small>mtplx-qwen36-35b-a3b-optimized-balance</small></td><td class="">96%</td><td>96%</td><td>96%</td><td>96%</td><td>100%</td><td>100%</td><td>98%</td><td>68,803</td><td>51,287</td><td>0</td><td>8.76s</td><td>$0.060918</td></tr><tr><td>local-gemma4-26b†<br><small>gemma-4-26B-A4B-it-MLX-8bit</small></td><td class="">94%</td><td>96%</td><td>92%</td><td>96%</td><td>100%</td><td>100%</td><td>100%</td><td>139,076</td><td>4,406</td><td>97,280</td><td>1.58s</td><td>$0.0098</td></tr><tr><td>local-gemma4-e4b†<br><small>lmstudio-community--gemma-4-E4B-it-MLX-4bit</small></td><td class="">80%</td><td>80%</td><td>80%</td><td>80%</td><td>90%</td><td>90%</td><td>86%</td><td>68,020</td><td>31,084</td><td>49,152</td><td>7.96s</td><td>$0.019818</td></tr></tbody></table></div>
+<div class="fineprint"><ul><li>Protocol: single backend, no cross-backend escalation · temperature 0 · 1 run per prompt · warmup excluded</li><li>Suite: 25 golden targets × EN/KO parallel pairs (50 prompts)</li><li>† Local models run on-device at $0 marginal cost; they are plotted at their public hosted per-token quote so every model shares one cost axis.</li><li>Suite v3: the 15 v2 targets every model saturated were retired; the 15 kept targets are re-scored from their recorded 2026-07-03 commands under the fixed command extractor; the 10 new hard targets ran fresh the same day.</li><li>Sonnet 5 and GPT-5.5 run through their agent SDKs (Claude Code / Codex CLI logins): each request carries the CLI&#x27;s own system context (~20-28k input tokens) and latency includes SDK startup — that overhead is part of TinyTalk-as-shipped on those backends.</li><li>Sonnet 5 priced at Anthropic intro rates ($2/$10 per MTok, cache-read $0.20) in effect through 2026-08-31; its tokenizer counts ~30% more tokens for the same text.</li><li>Cloud costs are list-rate equivalents; actual billing rode subscription logins.</li><li>Local quotes: Gemma 4 26B A4B $0.06/$0.33 and Qwen 3.6 35B A3B $0.14/$1.00 (OpenRouter), Gemma 4 E4B $0.20/$0.20 (Fireworks) — captured 2026-07-03.</li><li>Strict pass = contract-valid JSON + command parses (zsh -n) + binaries exist + all assertions pass. Danger accuracy is scored separately. Commands are never executed.</li></ul></div>
+</main>
+</body>
+</html>
