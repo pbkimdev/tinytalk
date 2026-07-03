@@ -85,6 +85,7 @@ model = "model-b"
 [prices."model-a"]
 input_per_mtok = 1.0
 output_per_mtok = 2.0
+cached_input_per_mtok = 0.1
 """
 
 
@@ -211,3 +212,49 @@ def test_format_failure_is_scored_not_fatal(config, monkeypatch):
     assert not result.format_ok
     assert result.error is not None
     assert reports[0].format_ok_pct == 0.0
+
+
+def test_cached_tokens_flow_and_cache_aware_cost(config, monkeypatch):
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: Completion(
+                text=payload("du -h -d1 . | sort -hr"),
+                usage=Usage(100, 50, 150, cached_prompt_tokens=40),
+            ),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    reports = run_eval(
+        config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False, warmup=False
+    )
+    result = reports[0].results[0]
+    assert result.cached_prompt_tokens == 40
+    assert result.cache_write_tokens == 0
+    # 60 fresh × $1 + 40 cached × $0.1 + 50 out × $2, per MTok
+    assert result.cost_usd == pytest.approx((60 * 1.0 + 40 * 0.1 + 50 * 2.0) / 1e6)
+
+
+def test_warmup_and_temperature_pinning(config, monkeypatch):
+    providers = []
+
+    def fake_make_provider(cfg):
+        provider = StubProvider(
+            Capabilities(),
+            lambda request, i: Completion(
+                text=payload("du -h -d1 . | sort -hr"), usage=Usage(10, 5, 15)
+            ),
+        )
+        providers.append(provider)
+        return provider
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False)
+    assert len(providers[0].requests) == 2  # warmup + one scored prompt
+    assert all(req.temperature == 0.0 for req in providers[0].requests)
+    assert len(reports[0].results) == 1
+    assert reports[0].total_tokens == 15  # warmup usage never scored
+
+    providers.clear()
+    run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False, warmup=False)
+    assert len(providers[0].requests) == 1

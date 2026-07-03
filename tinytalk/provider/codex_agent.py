@@ -46,17 +46,28 @@ class CodexAgentProvider:
     name: str
     capabilities: Capabilities
 
-    def __init__(self, model: str, *, codex_factory: CodexFactory | None = None):
+    def __init__(
+        self,
+        model: str,
+        *,
+        codex_factory: CodexFactory | None = None,
+        default_effort: str | None = None,
+    ):
         self.model = model
         self.name = f"codex-agent:{model}"
         self.capabilities = Capabilities(supports_native_json=True)
         self._codex_factory = codex_factory
+        self._default_effort = default_effort if default_effort in EFFORT_LEVELS else None
 
     async def complete(self, request: CompletionRequest) -> Completion:
         prompt, system_prompt = _split_messages(request.messages)
         if system_prompt:
             prompt = f"{system_prompt}\n\n{prompt}"
-        effort = request.reasoning_effort if request.reasoning_effort in EFFORT_LEVELS else None
+        effort = (
+            request.reasoning_effort
+            if request.reasoning_effort in EFFORT_LEVELS
+            else self._default_effort
+        )
 
         try:
             with _open_codex(self._codex_factory) as codex:
@@ -129,6 +140,15 @@ def _split_messages(messages: list[Message]) -> tuple[str, str | None]:
 
 
 def _map_usage(raw: object) -> Usage:
+    # SDK 0.1.0b3 returns a TurnResult.usage object whose `.total` is a
+    # TokenUsageBreakdown; earlier builds passed a plain dict. Handle both.
+    total = getattr(raw, "total", None)
+    if total is not None:
+        raw = {
+            "input_tokens": getattr(total, "input_tokens", 0),
+            "output_tokens": getattr(total, "output_tokens", 0),
+            "cached_input_tokens": getattr(total, "cached_input_tokens", 0),
+        }
     if not isinstance(raw, dict):
         return Usage()
 
@@ -138,8 +158,12 @@ def _map_usage(raw: object) -> Usage:
         except (TypeError, ValueError):
             return 0
 
+    # Codex reports cached_input_tokens as a subset of input_tokens; no normalization.
     prompt = _field("input_tokens")
     completion = _field("output_tokens")
     return Usage(
-        prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=prompt + completion,
+        cached_prompt_tokens=_field("cached_input_tokens"),
     )
