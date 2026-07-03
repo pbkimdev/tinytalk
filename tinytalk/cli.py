@@ -27,14 +27,16 @@ def build_parser() -> argparse.ArgumentParser:
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
             "  eval        benchmark configured backends over the built-in prompt suite\n"
-            "  init zsh    print the zsh integration script (eval \"$(tt init zsh)\")\n"
+            '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "\n"
             "run `tt <command> --help` for command options"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"tt {__version__}")
-    parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)")
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
     parser.add_argument(
         "--backend", metavar="NAME", help="backend from config (default: defaults.backend)"
     )
@@ -57,7 +59,9 @@ def build_eval_parser() -> argparse.ArgumentParser:
         prog="tt eval",
         description="Benchmark configured backends over the built-in prompt suite.",
     )
-    parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)")
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
     parser.add_argument("--backends", metavar="A,B", help="backends to score (default: all)")
     parser.add_argument("--prompts", metavar="ID,ID", help="run a subset of the suite")
     parser.add_argument("--export", metavar="PATH", help="write results to a .json or .csv file")
@@ -69,7 +73,9 @@ def build_auth_parser() -> argparse.ArgumentParser:
         prog="tt auth",
         description="Interactively set up a provider backend (PRD-provider-setup.md).",
     )
-    parser.add_argument("--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)")
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
     return parser
 
 
@@ -137,12 +143,14 @@ def _auth(args: argparse.Namespace) -> int:
     if result is None:
         print("tt auth: cancelled", file=sys.stderr)
         return 1
-    print(f"tt: backend {result!r} saved to {config_path}")
     try:
         config = load_config(config_path)
     except ConfigError as exc:  # should never happen — surface loudly if it does
         print(f"tt: the written config failed validation: {exc}", file=sys.stderr)
         return 1
+    # A returned slot that is absent from the loaded config was removed, not set up.
+    action = "saved to" if result in config.backends else "removed from"
+    print(f"tt: backend {result!r} {action} {config_path}")
     line = f"default backend: {config.default_backend}"
     if config.escalation_backend:
         line += f"; fallback: {config.escalation_backend}"
@@ -217,7 +225,9 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         message = f"{subject} failed: {type(exc).__name__}: {exc}"
         print(f"tt: {message}", file=sys.stderr)
         if args.widget:
-            _emit_widget(tt_error_kind="transport", tt_error_message=message, tt_backend=backend_name)
+            _emit_widget(
+                tt_error_kind="transport", tt_error_message=message, tt_backend=backend_name
+            )
         return 1
 
     if args.widget:
