@@ -13,12 +13,23 @@ import hashlib
 import json
 import os
 import platform
+import re
+import shutil
+import subprocess
 import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 _SCHEMA_VERSION = 1
 _SNAPSHOT_TTL_S = 7 * 24 * 3600
+_VERSION_TIMEOUT = 1.0
+_VERSION_MAX_CHARS = 24
+_VERSION_RE = re.compile(r"\d+(?:\.\d+)+[A-Za-z0-9.+-]*")  # emits filename-safe tokens only
+_PROBE_WORKERS = 8
+# Same gate as grounding's help fetch: never exec a name that isn't a plain tool name.
+_TOOL_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
 
 
 @dataclass(frozen=True)
@@ -82,14 +93,48 @@ def load_snapshot(cache_dir: Path, *, path: str, tt_version: str) -> Snapshot | 
         return None
 
 
-def build_snapshot(path: str, binaries: frozenset[str]) -> Snapshot:
+def build_snapshot(
+    path: str, binaries: frozenset[str], version_candidates: frozenset[str] = frozenset()
+) -> Snapshot:
     return Snapshot(
         binaries=binaries,
-        versions={},
+        versions=probe_versions(version_candidates, binaries, path),
         path=path,
         dir_mtimes=_dir_mtimes(path),
         created_at=time.time(),
     )
+
+
+def probe_versions(tools: Iterable[str], binaries: frozenset[str], path: str) -> dict[str, str]:
+    """First `--version` line, regex-parsed, for name-validated installed tools."""
+    candidates = sorted(t for t in set(tools) if _TOOL_NAME.match(t) and t in binaries)
+    if not candidates:
+        return {}
+    versions: dict[str, str] = {}
+    with ThreadPoolExecutor(max_workers=min(_PROBE_WORKERS, len(candidates))) as pool:
+        for tool, version in pool.map(lambda t: (t, _probe_version(t, path)), candidates):
+            if version:
+                versions[tool] = version
+    return versions
+
+
+def _probe_version(tool: str, path: str) -> str | None:
+    executable = shutil.which(tool, path=path)
+    if executable is None:
+        return None
+    try:
+        proc = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_TIMEOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = (proc.stdout or proc.stderr).strip().splitlines()
+    match = _VERSION_RE.search(lines[0]) if lines else None
+    return match.group(0)[:_VERSION_MAX_CHARS] if match else None
 
 
 def save_snapshot(cache_dir: Path, snap: Snapshot, *, tt_version: str) -> None:

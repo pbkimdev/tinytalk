@@ -138,16 +138,23 @@ class SystemGrounding:
         else:
             snap = groundcache.load_snapshot(cache_dir, path=self._path, tt_version=__version__)
             if snap is None:
-                snap = groundcache.build_snapshot(self._path, installed_binaries(self._path))
+                snap = groundcache.build_snapshot(
+                    self._path,
+                    installed_binaries(self._path),
+                    version_candidates=frozenset(CURATED_TOOLS),
+                )
                 groundcache.save_snapshot(cache_dir, snap, tt_version=__version__)
             self.binaries = snap.binaries
             self.versions = snap.versions
         self._help_cache: dict[str, str | None] = {}
 
     def system_prompt(self, request: TierRequest) -> str:
-        tools = [
-            f"- {name}: {desc}" for name, desc in CURATED_TOOLS.items() if name in self.binaries
-        ]
+        tools = []
+        for name, desc in CURATED_TOOLS.items():
+            if name not in self.binaries:
+                continue
+            version = self.versions.get(name)
+            tools.append(f"- {name}: {desc} (v{version})" if version else f"- {name}: {desc}")
         return (
             "You are TinyTalk. Turn the user's plain-English request into exactly one "
             "runnable shell command (a pipeline counts as one command) for their system.\n"

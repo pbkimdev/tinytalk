@@ -10,6 +10,7 @@ import pytest
 
 from tinytalk import groundcache
 from tinytalk.grounding import SystemGrounding, installed_binaries
+from tinytalk.tiers import TierRequest
 from tests.test_grounding import make_exe
 
 TT = "0.0.1-test"
@@ -132,3 +133,45 @@ def test_unwritable_cache_dir_degrades_to_live_scan(bin_dir, tmp_path):
     blocker.write_text("a file where the cache dir should be")
     g = SystemGrounding(path=str(bin_dir), cache_dir=blocker)
     assert "ls" in g.binaries
+
+
+def test_probe_versions_parses_first_line_and_stderr(bin_dir):
+    make_exe(bin_dir, "chatty", '#!/bin/sh\necho "chatty 2.3.1 (build abc)"\necho "junk 9.9"\n')
+    make_exe(bin_dir, "gruff", '#!/bin/sh\necho "gruff v1.2 here" >&2\n')
+    make_exe(bin_dir, "digitless", '#!/bin/sh\necho "usage: digitless [-x]"\n')
+    path = str(bin_dir)
+    versions = groundcache.probe_versions(
+        ["chatty", "gruff", "digitless"], installed_binaries(path), path
+    )
+    assert versions == {"chatty": "2.3.1", "gruff": "1.2"}
+
+
+def test_probe_versions_never_execs_invalid_or_missing_names(bin_dir, tmp_path):
+    counter = tmp_path / "count"
+    make_exe(bin_dir, "counting", f'#!/bin/sh\necho x >> "{counter}"\necho "counting 1.0"\n')
+    path = str(bin_dir)
+    versions = groundcache.probe_versions(
+        ["counting", "not-installed", "evil; rm -rf /", "../../bin/sh"],
+        installed_binaries(path),
+        path,
+    )
+    assert versions == {"counting": "1.0"}
+    assert counter.read_text().count("x") == 1
+
+
+def test_probe_version_timeout_yields_no_entry(bin_dir, monkeypatch):
+    make_exe(bin_dir, "hang", "#!/bin/sh\nsleep 5\n")
+    monkeypatch.setattr(groundcache, "_VERSION_TIMEOUT", 0.1)
+    path = str(bin_dir)
+    assert groundcache.probe_versions(["hang"], installed_binaries(path), path) == {}
+
+
+def test_probed_versions_render_as_prompt_suffix(bin_dir, cache_dir):
+    make_exe(bin_dir, "rg", '#!/bin/sh\necho "ripgrep 14.1.0"\n')  # rg is curated
+    g = SystemGrounding(path=str(bin_dir), cache_dir=cache_dir)
+    assert g.versions.get("rg") == "14.1.0"
+    prompt = g.system_prompt(TierRequest(prompt="x"))
+    rg_line = next(line for line in prompt.splitlines() if line.startswith("- rg:"))
+    assert rg_line.endswith("(v14.1.0)")
+    ls_line = next(line for line in prompt.splitlines() if line.startswith("- ls:"))
+    assert "(v" not in ls_line  # the stub ls prints no version — line stays exactly as before
