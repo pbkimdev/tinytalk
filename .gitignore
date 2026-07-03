@@ -25,3 +25,5 @@ venv/
 *.swp
 .idea/
 .vscode/
+.claude/
+impeccable/
