@@ -17,3 +17,7 @@ Shared vocabulary for TinyTalk. Issues, code comments, and docs use these terms 
   wizard is the provider (e.g. `cerebras`), derived or set via the optional `alias` key (#80).
 - **widget** — the zsh ZLE integration (`tt init zsh` / `tinytalk/shell/tt.zsh`); "widget mode"
   output is the `tt --widget` eval-able contract it consumes.
+- **prompt surface** — every string the model ever sees: the T1/T2 system prompts, user-message
+  templates, enrichment fragments, and the `suggest_command` tool description. Lives exclusively
+  in `tinytalk/prompts.py` (#102); inspect it live with `tt prompt "<request>"`. Eval suite texts
+  are fixtures under test, not prompt surface.
