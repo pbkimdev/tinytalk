@@ -166,6 +166,62 @@ def test_probe_version_timeout_yields_no_entry(bin_dir, monkeypatch):
     assert groundcache.probe_versions(["hang"], installed_binaries(path), path) == {}
 
 
+def test_help_is_fetched_once_across_processes(bin_dir, cache_dir, tmp_path):
+    counter = tmp_path / "count"
+    make_exe(
+        bin_dir,
+        "counting",
+        f'#!/bin/sh\necho x >> "{counter}"\necho "usage: counting things and words"\n',
+    )
+    path = str(bin_dir)
+    first = SystemGrounding(path=path, cache_dir=cache_dir)
+    assert "usage: counting" in first.help_text("counting")
+    second = SystemGrounding(path=path, cache_dir=cache_dir)  # simulates a fresh process
+    assert "usage: counting" in second.help_text("counting")
+    assert counter.read_text().count("x") == 1
+
+
+def test_negative_help_is_persisted_too(bin_dir, cache_dir, tmp_path):
+    counter = tmp_path / "count"
+    make_exe(bin_dir, "mute", f'#!/bin/sh\necho x >> "{counter}"\n')  # no usable output
+    path = str(bin_dir)
+    assert SystemGrounding(path=path, cache_dir=cache_dir).help_text("mute") is None
+    assert SystemGrounding(path=path, cache_dir=cache_dir).help_text("mute") is None
+    assert counter.read_text().count("x") == 1
+
+
+def test_replacing_the_binary_invalidates_its_help(bin_dir, cache_dir, tmp_path):
+    counter = tmp_path / "count"
+    exe = make_exe(
+        bin_dir, "counting", f'#!/bin/sh\necho x >> "{counter}"\necho "usage: counting v1"\n'
+    )
+    path = str(bin_dir)
+    SystemGrounding(path=path, cache_dir=cache_dir).help_text("counting")
+    now = time.time()
+    os.utime(exe, (now + 10, now + 10))  # an upgraded binary has a new mtime → new key
+    SystemGrounding(path=path, cache_dir=cache_dir).help_text("counting")
+    assert counter.read_text().count("x") == 2
+
+
+def test_versioned_tools_key_help_by_version(bin_dir, cache_dir):
+    make_exe(
+        bin_dir,
+        "rg",
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "ripgrep 14.1.0"; '
+        'else echo "usage: rg PATTERN"; fi\n',
+    )
+    g = SystemGrounding(path=str(bin_dir), cache_dir=cache_dir)
+    assert "usage: rg" in g.help_text("rg")
+    assert (cache_dir / "help" / "rg@14.1.0.json").exists()
+
+
+def test_invalid_names_never_touch_the_help_store(bin_dir, cache_dir):
+    g = SystemGrounding(path=str(bin_dir), cache_dir=cache_dir)
+    assert g.help_text("../../bin/sh") is None
+    assert g.help_text("evil; rm -rf /") is None
+    assert not (cache_dir / "help").exists()
+
+
 def test_probed_versions_render_as_prompt_suffix(bin_dir, cache_dir):
     make_exe(bin_dir, "rg", '#!/bin/sh\necho "ripgrep 14.1.0"\n')  # rg is curated
     g = SystemGrounding(path=str(bin_dir), cache_dir=cache_dir)

@@ -137,6 +137,40 @@ def _probe_version(tool: str, path: str) -> str | None:
     return match.group(0)[:_VERSION_MAX_CHARS] if match else None
 
 
+def _help_path(cache_dir: Path, tool: str, key: str) -> Path:
+    return cache_dir / "help" / f"{tool}@{key}.json"
+
+
+def load_help(cache_dir: Path, tool: str, key: str) -> tuple[bool, str | None]:
+    """(found, text) for a persisted help entry; any unreadable or invalid entry is a miss."""
+    if not _TOOL_NAME.match(tool) or not _TOOL_NAME.match(key):
+        return False, None
+    try:
+        data = json.loads(_help_path(cache_dir, tool, key).read_text("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None
+    if isinstance(data, dict) and data.get("schema_version") == _SCHEMA_VERSION and "help" in data:
+        text = data["help"]
+        if text is None or isinstance(text, str):
+            return True, text
+    return False, None  # invalid shape — the save after the re-fetch overwrites it
+
+
+def save_help(cache_dir: Path, tool: str, key: str, text: str | None) -> None:
+    """Atomic, best-effort persist of fetched help. None means 'no usable help' — cached too,
+    because re-discovering it costs up to two subprocess timeouts."""
+    if not _TOOL_NAME.match(tool) or not _TOOL_NAME.match(key):
+        return
+    target = _help_path(cache_dir, tool, key)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"schema_version": _SCHEMA_VERSION, "help": text}), "utf-8")
+        tmp.replace(target)
+    except OSError:
+        return
+
+
 def save_snapshot(cache_dir: Path, snap: Snapshot, *, tt_version: str) -> None:
     """Atomic, best-effort write — caching must never break a request."""
     payload = {

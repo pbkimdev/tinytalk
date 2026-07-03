@@ -5,8 +5,8 @@ BSD-vs-GNU userland), a curated catalog of common tools filtered to what is
 actually installed, and serves T2 enrichment by fetching real `--help`/`man`
 text for the tools a failed attempt named. Help is fetched only for
 name-validated binaries that exist on `$PATH`, with a timeout, and memoized.
-With a cache dir, the PATH snapshot persists across processes and is reused
-until stale (#88).
+With a cache dir, the PATH snapshot and fetched help (keyed per tool version)
+persist across processes and are reused until stale (#88).
 """
 
 from __future__ import annotations
@@ -189,9 +189,33 @@ class SystemGrounding:
         """Fetched-and-cached `--help`/`man` text; None if unavailable. Used by #34."""
         if tool in self._help_cache:
             return self._help_cache[tool]
+        key = self._help_key(tool)
+        if key is not None:
+            found, text = groundcache.load_help(self._cache_dir, tool, key)
+            if found:
+                self._help_cache[tool] = text
+                return text
         text = self._fetch_help(tool)
+        if key is not None:
+            groundcache.save_help(self._cache_dir, tool, key, text)
         self._help_cache[tool] = text
         return text
+
+    def _help_key(self, tool: str) -> str | None:
+        """Disk key for persisted help — probed version, else the binary's mtime — or None
+        when persistence is off or the name is ineligible (same gate as `_fetch_help`)."""
+        if self._cache_dir is None or not _TOOL_NAME.match(tool) or tool not in self.binaries:
+            return None
+        version = self.versions.get(tool)
+        if version:
+            return version
+        executable = shutil.which(tool, path=self._path)
+        if executable is None:
+            return "unknown"
+        try:
+            return f"m{int(os.stat(executable).st_mtime)}"
+        except OSError:
+            return "unknown"
 
     def _fetch_help(self, tool: str) -> str | None:
         if not _TOOL_NAME.match(tool) or tool not in self.binaries:
