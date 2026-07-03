@@ -41,8 +41,8 @@ def test_unknown_assertion_kind_raises():
 
 
 def test_suite_shape():
-    assert len(SUITE) == 60
-    assert len({p.id for p in SUITE}) == 60
+    assert len(SUITE) == 50
+    assert len({p.id for p in SUITE}) == 50
     assert any(p.expected_danger == "destructive" for p in SUITE)
     for p in SUITE:
         assert p.assertions, p.id
@@ -55,7 +55,7 @@ def test_suite_is_parallel_en_ko_pairs():
     by_target: dict[str, list] = {}
     for p in SUITE:
         by_target.setdefault(p.target, []).append(p)
-    assert len(by_target) == 30
+    assert len(by_target) == 25
     for target, pair in by_target.items():
         langs = {p.lang for p in pair}
         assert langs == {"en", "ko"}, target
@@ -114,7 +114,8 @@ def stub_backends(monkeypatch):
         return StubProvider(
             Capabilities(),
             lambda request, i: Completion(
-                text=payload("du -h -d1 . | sort -hr | head -20"), usage=Usage(100, 50, 150)
+                text=payload("awk '{print $1}' access.log | sort | uniq -c | sort -rn"),
+                usage=Usage(100, 50, 150),
             ),
         )
 
@@ -125,7 +126,7 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     reports = run_eval(
         config,
         ["alpha", "beta"],
-        prompt_ids=["disk-usage-top-en", "grep-todo-en"],
+        prompt_ids=["unique-frequency-en", "find-large-files-en"],
         progress=False,
     )
     assert [r.backend for r in reports] == ["alpha", "beta"]
@@ -134,8 +135,8 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     assert len(alpha.results) == 2
 
     by_id = {r.prompt_id: r for r in alpha.results}
-    disk = by_id["disk-usage-top-en"]
-    assert disk.lang == "en" and disk.target == "disk-usage-top"
+    disk = by_id["unique-frequency-en"]
+    assert disk.lang == "en" and disk.target == "unique-frequency"
     assert disk.format_ok and disk.parses and disk.binaries_exist
     assert disk.assertions_pass
     assert disk.danger == "safe" and disk.danger_correct
@@ -144,8 +145,8 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     # cost from the price table: 100×1.0/1e6 + 50×2.0/1e6
     assert disk.cost_usd == pytest.approx(0.0002)
 
-    todo = by_id["grep-todo-en"]
-    assert todo.format_ok  # the command is real, it just doesn't grep
+    todo = by_id["find-large-files-en"]
+    assert todo.format_ok  # the command is real, it just doesn't find
     assert not todo.assertions_pass
 
     assert alpha.format_ok_pct == 100.0
@@ -158,40 +159,40 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
 
 
 def test_bare_target_selects_both_languages(config, stub_backends):
-    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency"], progress=False)
     results = reports[0].results
-    assert [r.prompt_id for r in results] == ["disk-usage-top-en", "disk-usage-top-ko"]
+    assert [r.prompt_id for r in results] == ["unique-frequency-en", "unique-frequency-ko"]
     assert {r.lang for r in results} == {"en", "ko"}
     # the stub answers both languages identically, so per-language rates agree
     assert reports[0].strict_pass_pct_en == reports[0].strict_pass_pct_ko == 100.0
 
 
 def test_leaderboard_and_matrix_render(config, stub_backends):
-    reports = run_eval(config, ["alpha", "beta"], prompt_ids=["disk-usage-top"], progress=False)
+    reports = run_eval(config, ["alpha", "beta"], prompt_ids=["unique-frequency"], progress=False)
     board = render_leaderboard(reports)
     assert "alpha" in board and "beta" in board
     assert "format" in board and "cost" in board
     assert "pass" in board and "EN" in board and "KO" in board
     matrix = render_matrix(reports)
-    assert "disk-usage-top-en" in matrix and "disk-usage-top-ko" in matrix
+    assert "unique-frequency-en" in matrix and "unique-frequency-ko" in matrix
     assert "pass" in matrix
 
 
 def test_export_json_and_csv(config, stub_backends, tmp_path):
-    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False)
     json_path = tmp_path / "results.json"
     export(reports, json_path)
     data = json.loads(json_path.read_text())
     assert data[0]["backend"] == "alpha"
-    assert data[0]["results"][0]["prompt_id"] == "disk-usage-top-en"
+    assert data[0]["results"][0]["prompt_id"] == "unique-frequency-en"
     assert data[0]["results"][0]["lang"] == "en"
-    assert data[0]["results"][0]["target"] == "disk-usage-top"
+    assert data[0]["results"][0]["target"] == "unique-frequency"
 
     csv_path = tmp_path / "results.csv"
     export(reports, csv_path)
     lines = csv_path.read_text().strip().splitlines()
     assert lines[0].startswith("backend,model,prompt_id,lang,target")
-    assert lines[1].startswith("alpha,model-a,disk-usage-top-en,en,disk-usage-top")
+    assert lines[1].startswith("alpha,model-a,unique-frequency-en,en,unique-frequency")
 
     with pytest.raises(ValueError, match="unsupported export"):
         export(reports, tmp_path / "results.xlsx")
@@ -207,7 +208,7 @@ def test_format_failure_is_scored_not_fatal(config, monkeypatch):
         return StubProvider(Capabilities(), lambda request, i: Completion(text="no json at all"))
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
-    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency"], progress=False)
     result = reports[0].results[0]
     assert not result.format_ok
     assert result.error is not None
@@ -219,14 +220,14 @@ def test_cached_tokens_flow_and_cache_aware_cost(config, monkeypatch):
         return StubProvider(
             Capabilities(),
             lambda request, i: Completion(
-                text=payload("du -h -d1 . | sort -hr"),
+                text=payload("awk '{print $1}' access.log | sort | uniq -c | sort -rn"),
                 usage=Usage(100, 50, 150, cached_prompt_tokens=40),
             ),
         )
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
     reports = run_eval(
-        config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False, warmup=False
+        config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False, warmup=False
     )
     result = reports[0].results[0]
     assert result.cached_prompt_tokens == 40
@@ -242,19 +243,19 @@ def test_warmup_and_temperature_pinning(config, monkeypatch):
         provider = StubProvider(
             Capabilities(),
             lambda request, i: Completion(
-                text=payload("du -h -d1 . | sort -hr"), usage=Usage(10, 5, 15)
+                text=payload("awk '{print $1}' access.log | sort | uniq -c | sort -rn"), usage=Usage(10, 5, 15)
             ),
         )
         providers.append(provider)
         return provider
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
-    reports = run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False)
     assert len(providers[0].requests) == 2  # warmup + one scored prompt
     assert all(req.temperature == 0.0 for req in providers[0].requests)
     assert len(reports[0].results) == 1
     assert reports[0].total_tokens == 15  # warmup usage never scored
 
     providers.clear()
-    run_eval(config, ["alpha"], prompt_ids=["disk-usage-top-en"], progress=False, warmup=False)
+    run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False, warmup=False)
     assert len(providers[0].requests) == 1
