@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
             "  eval        benchmark configured backends over the built-in prompt suite\n"
+            "  ground      inspect or rebuild the system grounding cache\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "\n"
             "run `tt <command> --help` for command options"
@@ -79,6 +80,18 @@ def build_auth_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_ground_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt ground",
+        description="Inspect or rebuild the persistent system grounding cache (#88).",
+    )
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
+    parser.add_argument("--refresh", action="store_true", help="force a snapshot rebuild")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if argv[:1] == ["eval"]:
@@ -87,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
         return _init(argv[1:])
     if argv[:1] == ["auth"]:
         return _auth(build_auth_parser().parse_args(argv[1:]))
+    if argv[:1] == ["ground"]:
+        return _ground(build_ground_parser().parse_args(argv[1:]))
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
@@ -159,6 +174,49 @@ def _auth(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ground(args: argparse.Namespace) -> int:
+    import time
+    from pathlib import Path
+
+    from tinytalk import groundcache
+    from tinytalk.cache import default_cache_dir
+    from tinytalk.config import ConfigError, load_config
+    from tinytalk.grounding import CURATED_TOOLS, installed_binaries
+
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+    except ConfigError as exc:
+        print(f"tt: {exc}", file=sys.stderr)
+        return 1
+    if not config.cache_enabled:
+        print("grounding cache disabled ([cache] enabled = false)")
+        return 0
+    cache_dir = config.cache_dir or default_cache_dir()
+    path = os.environ.get("PATH", "")
+    snap = None
+    if not args.refresh:
+        snap = groundcache.load_snapshot(cache_dir, path=path, tt_version=__version__)
+    if snap is None:
+        started = time.perf_counter()
+        snap = groundcache.build_snapshot(
+            path, installed_binaries(path), version_candidates=frozenset(CURATED_TOOLS)
+        )
+        groundcache.save_snapshot(cache_dir, snap, tt_version=__version__)
+        status = f"rebuilt in {time.perf_counter() - started:.2f}s"
+    else:
+        age_min = int((time.time() - snap.created_at) // 60)
+        age = f"{age_min}m" if age_min < 120 else f"{age_min // 60}h"
+        status = f"fresh (built {age} ago, tt {__version__})"
+    curated = sum(1 for name in CURATED_TOOLS if name in snap.binaries)
+    print(f"grounding cache: {groundcache.snapshot_path(cache_dir, path)}")
+    print(f"status: {status}")
+    print(
+        f"binaries: {len(snap.binaries)}   curated installed: {curated}   "
+        f"versioned: {len(snap.versions)}"
+    )
+    return 0
+
+
 def _emit_widget(**pairs: object) -> None:
     import shlex
 
@@ -169,7 +227,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     import asyncio
     from pathlib import Path
 
-    from tinytalk.cache import ExactCache
+    from tinytalk.cache import ExactCache, default_cache_dir
     from tinytalk.config import ConfigError, load_config
     from tinytalk.grounding import SystemGrounding
     from tinytalk.provider.factory import make_provider
@@ -188,7 +246,8 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             escalation_cfg = config.backend(config.escalation_backend)
             escalation_name = escalation_cfg.name
             escalation = lambda: make_provider(escalation_cfg)  # noqa: E731 — deferred, lazy import
-        grounding = SystemGrounding()
+        cache_dir = (config.cache_dir or default_cache_dir()) if config.cache_enabled else None
+        grounding = SystemGrounding(cache_dir=cache_dir)
         controller = TierController(
             provider,
             escalation=escalation,

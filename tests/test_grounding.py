@@ -59,6 +59,25 @@ def test_system_prompt_includes_kubernetes_and_bash_tools_only_when_installed(tm
     assert "- rg:" not in prompt
 
 
+def test_preference_rules_gate_on_installed_tools(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "rg")
+    make_exe(bin_dir, "grep")
+    prompt = SystemGrounding(path=str(bin_dir)).system_prompt(TierRequest(prompt="x"))
+    assert "Tool preferences on this system" in prompt
+    assert "prefer `rg` over `grep -r`" in prompt
+    assert "prefer `fd`" not in prompt  # fd not installed — never advertise it
+
+
+def test_preference_block_absent_when_no_rule_gates(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "ls")
+    prompt = SystemGrounding(path=str(bin_dir)).system_prompt(TierRequest(prompt="x"))
+    assert "Tool preferences" not in prompt
+
+
 def test_host_facts_names_userland_flavor():
     facts = host_facts()
     assert "userland" in facts

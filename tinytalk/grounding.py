@@ -1,10 +1,12 @@
-"""Capability grounding (#33, PRD §6) — tell the model what this host really has.
+"""Capability grounding — tell the model what this host really has.
 
 `SystemGrounding` builds the T1 system prompt from host facts (OS, shell,
 BSD-vs-GNU userland), a curated catalog of common tools filtered to what is
 actually installed, and serves T2 enrichment by fetching real `--help`/`man`
 text for the tools a failed attempt named. Help is fetched only for
 name-validated binaries that exist on `$PATH`, with a timeout, and memoized.
+With a cache dir, the PATH snapshot and fetched help (keyed per tool version)
+persist across processes and are reused until stale (#88).
 """
 
 from __future__ import annotations
@@ -14,7 +16,9 @@ import platform
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
+from tinytalk import __version__, groundcache
 from tinytalk.tiers import TierRequest
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
@@ -87,6 +91,16 @@ CURATED_TOOLS: dict[str, str] = {
     "date": "print/format date (BSD: date -v+1d; GNU: date -d tomorrow)",
 }
 
+# (gate_tool, rule) — a rule is injected only when gate_tool is installed, so the
+# prompt never advertises a tool the host lacks.
+_PREFERENCE_RULES: tuple[tuple[str, str], ...] = (
+    ("rg", "prefer `rg` over `grep -r` for recursive text search"),
+    ("fd", "prefer `fd` over `find` for finding files by name"),
+    ("jq", "prefer `jq` over grep/sed/awk for extracting fields from JSON"),
+    ("rsync", "prefer `rsync -a` over `cp -R` for syncing or mirroring directories"),
+    ("printf", "prefer `printf` over `echo -e` for output with escapes or variables"),
+)
+
 
 def installed_binaries(path: str | None = None) -> frozenset[str]:
     """Names of executables on `$PATH` (PRD's PATH cache: existence only, no specs)."""
@@ -125,21 +139,46 @@ def host_facts() -> str:
 class SystemGrounding:
     """The tier controller's `Grounding` hook, backed by the real host."""
 
-    def __init__(self, *, path: str | None = None):
+    def __init__(self, *, path: str | None = None, cache_dir: Path | None = None):
         self._path = path if path is not None else os.environ.get("PATH", "")
-        self.binaries = installed_binaries(self._path)
+        self._cache_dir = cache_dir
+        if cache_dir is None:
+            self.binaries = installed_binaries(self._path)
+            self.versions: dict[str, str] = {}
+        else:
+            snap = groundcache.load_snapshot(cache_dir, path=self._path, tt_version=__version__)
+            if snap is None:
+                snap = groundcache.build_snapshot(
+                    self._path,
+                    installed_binaries(self._path),
+                    version_candidates=frozenset(CURATED_TOOLS),
+                )
+                groundcache.save_snapshot(cache_dir, snap, tt_version=__version__)
+            self.binaries = snap.binaries
+            self.versions = snap.versions
         self._help_cache: dict[str, str | None] = {}
 
     def system_prompt(self, request: TierRequest) -> str:
-        tools = [
-            f"- {name}: {desc}" for name, desc in CURATED_TOOLS.items() if name in self.binaries
-        ]
+        tools = []
+        for name, desc in CURATED_TOOLS.items():
+            if name not in self.binaries:
+                continue
+            version = self.versions.get(name)
+            tools.append(f"- {name}: {desc} (v{version})" if version else f"- {name}: {desc}")
+        preferences = [rule for gate, rule in _PREFERENCE_RULES if gate in self.binaries]
+        preference_block = (
+            "\n\nTool preferences on this system (follow unless the request says otherwise):\n"
+            + "\n".join(f"- {rule}" for rule in preferences)
+            if preferences
+            else ""
+        )
         return (
             "You are TinyTalk. Turn the user's plain-English request into exactly one "
             "runnable shell command (a pipeline counts as one command) for their system.\n"
             f"{host_facts()}\n\n"
             "Installed tools you should prefer (with their key flags):\n"
             + "\n".join(tools)
+            + preference_block
             + "\n\nOnly use tools from this list, shell builtins, or tools you are certain "
             "are installed; never invent flags. Commit to exactly one command — never a "
             "list of options or alternatives; if you are unsure, pick your best answer. "
@@ -168,9 +207,33 @@ class SystemGrounding:
         """Fetched-and-cached `--help`/`man` text; None if unavailable. Used by #34."""
         if tool in self._help_cache:
             return self._help_cache[tool]
+        key = self._help_key(tool)
+        if key is not None:
+            found, text = groundcache.load_help(self._cache_dir, tool, key)
+            if found:
+                self._help_cache[tool] = text
+                return text
         text = self._fetch_help(tool)
+        if key is not None:
+            groundcache.save_help(self._cache_dir, tool, key, text)
         self._help_cache[tool] = text
         return text
+
+    def _help_key(self, tool: str) -> str | None:
+        """Disk key for persisted help — probed version, else the binary's mtime — or None
+        when persistence is off or the name is ineligible (same gate as `_fetch_help`)."""
+        if self._cache_dir is None or not _TOOL_NAME.match(tool) or tool not in self.binaries:
+            return None
+        version = self.versions.get(tool)
+        if version:
+            return version
+        executable = shutil.which(tool, path=self._path)
+        if executable is None:
+            return "unknown"
+        try:
+            return f"m{int(os.stat(executable).st_mtime)}"
+        except OSError:
+            return "unknown"
 
     def _fetch_help(self, tool: str) -> str | None:
         if not _TOOL_NAME.match(tool) or tool not in self.binaries:
