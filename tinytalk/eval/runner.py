@@ -16,6 +16,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 from tinytalk.config import Config
 from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
@@ -75,6 +76,7 @@ class PromptResult:
 class BackendReport:
     backend: str
     model: str
+    local: bool = False  # served from this machine (localhost base_url)
     results: list[PromptResult] = field(default_factory=list)
 
     def _pct(self, predicate) -> float:
@@ -184,7 +186,7 @@ async def _run_backend(
         provider, grounding=grounding, validator=validator, request_opts={"temperature": 0.0}
     )
     price = config.price(backend_cfg.model)
-    report = BackendReport(backend=name, model=backend_cfg.model)
+    report = BackendReport(backend=name, model=backend_cfg.model, local=_is_local(backend_cfg))
 
     if warmup:
         # One discarded request eats model load / cold start so it never pollutes the
@@ -205,6 +207,11 @@ async def _run_backend(
                 file=sys.stderr,
             )
     return report
+
+
+def _is_local(backend_cfg) -> bool:
+    host = urlparse(backend_cfg.base_url or "").hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1")
 
 
 async def _run_prompt(
@@ -295,7 +302,12 @@ def export(reports: list[BackendReport], path: Path) -> None:
     """Write results as .json or .csv, chosen by extension (PRD §11)."""
     if path.suffix == ".json":
         payload = [
-            {"backend": r.backend, "model": r.model, "results": [asdict(x) for x in r.results]}
+            {
+                "backend": r.backend,
+                "model": r.model,
+                "local": r.local,
+                "results": [asdict(x) for x in r.results],
+            }
             for r in reports
         ]
         path.write_text(json.dumps(payload, indent=2), "utf-8")
