@@ -1,10 +1,12 @@
-"""Capability grounding (#33, PRD §6) — tell the model what this host really has.
+"""Capability grounding — tell the model what this host really has.
 
 `SystemGrounding` builds the T1 system prompt from host facts (OS, shell,
 BSD-vs-GNU userland), a curated catalog of common tools filtered to what is
 actually installed, and serves T2 enrichment by fetching real `--help`/`man`
 text for the tools a failed attempt named. Help is fetched only for
 name-validated binaries that exist on `$PATH`, with a timeout, and memoized.
+With a cache dir, the PATH snapshot persists across processes and is reused
+until stale (#88).
 """
 
 from __future__ import annotations
@@ -14,7 +16,9 @@ import platform
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
+from tinytalk import __version__, groundcache
 from tinytalk.tiers import TierRequest
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
@@ -125,9 +129,19 @@ def host_facts() -> str:
 class SystemGrounding:
     """The tier controller's `Grounding` hook, backed by the real host."""
 
-    def __init__(self, *, path: str | None = None):
+    def __init__(self, *, path: str | None = None, cache_dir: Path | None = None):
         self._path = path if path is not None else os.environ.get("PATH", "")
-        self.binaries = installed_binaries(self._path)
+        self._cache_dir = cache_dir
+        if cache_dir is None:
+            self.binaries = installed_binaries(self._path)
+            self.versions: dict[str, str] = {}
+        else:
+            snap = groundcache.load_snapshot(cache_dir, path=self._path, tt_version=__version__)
+            if snap is None:
+                snap = groundcache.build_snapshot(self._path, installed_binaries(self._path))
+                groundcache.save_snapshot(cache_dir, snap, tt_version=__version__)
+            self.binaries = snap.binaries
+            self.versions = snap.versions
         self._help_cache: dict[str, str | None] = {}
 
     def system_prompt(self, request: TierRequest) -> str:

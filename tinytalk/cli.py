@@ -169,7 +169,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     import asyncio
     from pathlib import Path
 
-    from tinytalk.cache import ExactCache
+    from tinytalk.cache import ExactCache, default_cache_dir
     from tinytalk.config import ConfigError, load_config
     from tinytalk.grounding import SystemGrounding
     from tinytalk.provider.factory import make_provider
@@ -188,7 +188,8 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             escalation_cfg = config.backend(config.escalation_backend)
             escalation_name = escalation_cfg.name
             escalation = lambda: make_provider(escalation_cfg)  # noqa: E731 — deferred, lazy import
-        grounding = SystemGrounding()
+        cache_dir = (config.cache_dir or default_cache_dir()) if config.cache_enabled else None
+        grounding = SystemGrounding(cache_dir=cache_dir)
         controller = TierController(
             provider,
             escalation=escalation,
