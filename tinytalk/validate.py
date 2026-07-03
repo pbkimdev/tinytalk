@@ -359,17 +359,33 @@ def _segments(tokens: list[str]) -> list[_Segment]:
             expect_command = True
             discard = False
             continue
+        if tok in ("<(", ">("):
+            # Process substitution: what follows runs as a command of its own.
+            flush()
+            expect_command = True
+            continue
         if _REDIRECT.match(tok):
             skip_next = not tok.endswith("&")  # `2>&1` carries no separate target token
             continue
         if discard:
+            continue
+        if not expect_command and tok in ("-exec", "-execdir", "-ok", "-okdir"):
+            # find(1) hands the next word to the shell as a command — descend into it.
+            flush()
+            expect_command = True
             continue
         if expect_command:
             word = tok.strip("`$\"'")
             if word in ("for", "case", "select"):
                 discard = True
                 continue
-            if not word or _ASSIGNMENT.match(word) or word.startswith("-") or word in _KEYWORDS:
+            if (
+                not word
+                or _ASSIGNMENT.match(word)
+                or word.startswith("-")
+                or word.isdigit()  # a wrapper's numeric flag argument (e.g. `xargs -P 4`)
+                or word in _KEYWORDS
+            ):
                 continue  # still looking for the command word
             if word in _WRAPPERS:
                 if word == "sudo":

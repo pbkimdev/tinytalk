@@ -8,7 +8,7 @@ import pytest
 
 import tinytalk.validate as validate_mod
 from tinytalk.contract import Danger, Suggestion
-from tinytalk.validate import CommandValidator
+from tinytalk.validate import CommandValidator, command_words
 
 # Every binary the test corpus mentions — the validator sees a fixed world.
 BINARIES = frozenset(
@@ -268,3 +268,19 @@ def test_native_dry_run_off_skips_execution_entirely(monkeypatch):
         suggest("git push origin main")
     )
     assert result.ok
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # process substitution: the inner command runs — it must be extracted
+        ("diff <(sort allow.txt) <(sort deny.txt)", ["diff", "sort", "sort"]),
+        # xargs with flag arguments: `4` is -P's argument, not the command
+        ("find . -name '*.log' -print0 | xargs -0 -P 4 -n 1 gzip", ["find", "gzip"]),
+        # find -exec hands its next word to the shell — descend into it
+        (r"find . -name '*.txt' -exec sed -i '' 's/foo/bar/g' {} \;", ["find", "sed"]),
+        ("find . -name '*.yaml' -type f -exec rg -n 'connect_timeout' {} +", ["find", "rg"]),
+    ],
+)
+def test_command_words_sees_through_nesting(command, expected):
+    assert command_words(command) == expected
