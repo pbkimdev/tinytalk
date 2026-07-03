@@ -30,10 +30,12 @@ def sandbox(tmp_path):
     fakebin.mkdir()
     uv_log = tmp_path / "uv.log"
     make_exe(fakebin, "uv", f'#!/bin/sh\necho "$@" >> "{uv_log}"\nexit 0\n')
+    tt_log = tmp_path / "tt.log"
     make_exe(
         fakebin,
         "tt",
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
+        f'#!/bin/sh\necho "$@" >> "{tt_log}"\n'
+        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
     )
     env = {
         "HOME": str(home),
@@ -95,6 +97,27 @@ def test_existing_config_and_zshrc_content_untouched(sandbox):
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.startswith("# my precious zshrc\n")
     assert zshrc.count(MARKER) == 1  # appended once, nothing replaced
+
+
+def test_install_warms_grounding_cache(sandbox, tmp_path):
+    _, env, _ = sandbox
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "ground --refresh" in (tmp_path / "tt.log").read_text()
+    assert "warmed the tool snapshot" in proc.stdout
+
+
+def test_failing_ground_does_not_fail_install(sandbox):
+    home, env, _ = sandbox
+    make_exe(
+        Path(env["PATH"].split(os.pathsep)[0]),
+        "tt",
+        '#!/bin/sh\nif [ "$1" = "ground" ]; then exit 1; fi\n'
+        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
+    )
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert (home / ".zshrc").read_text().count(MARKER) == 1  # later steps still ran
 
 
 def test_no_rc_flag_skips_zshrc(sandbox):

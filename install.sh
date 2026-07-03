@@ -81,7 +81,19 @@ EOF
   say "config: wrote starter $CONFIG (edit backends to taste)"
 fi
 
-# 4. Wire the ? widget into .zshrc — consent-gated, marker-guarded, idempotent.
+# 4. Warm the grounding snapshot (best-effort) so the first request skips the
+# PATH scan. Run under a zsh login shell when possible so PATH matches the
+# widget's; a mismatch is safe — a different PATH just rebuilds on first use.
+if command -v tt >/dev/null 2>&1; then
+  if command -v zsh >/dev/null 2>&1; then
+    zsh -lc 'command -v tt >/dev/null 2>&1 && tt ground --refresh' >/dev/null 2>&1 || true
+  else
+    tt ground --refresh >/dev/null 2>&1 || true
+  fi
+  say "grounding: warmed the tool snapshot (tt ground --refresh)"
+fi
+
+# 5. Wire the ? widget into .zshrc — consent-gated, marker-guarded, idempotent.
 MARKER="# tt zsh integration (added by install.sh)"
 ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 if [ "$NO_RC" = 1 ]; then

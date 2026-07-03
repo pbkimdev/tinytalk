@@ -59,7 +59,7 @@ def test_no_request_prints_help_and_succeeds(capsys):
 def test_help_lists_every_subcommand(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    for command in ("auth", "eval", "init zsh"):
+    for command in ("auth", "eval", "ground", "init zsh"):
         assert command in out
 
 
@@ -111,6 +111,36 @@ def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: None)
     assert main(["auth", "--config", str(tmp_path / "config.toml")]) == 1
     assert "cancelled" in capsys.readouterr().err
+
+
+def test_ground_subcommand_reports_and_refreshes(tmp_path, monkeypatch, capsys):
+    from tests.test_grounding import make_exe
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "rg", '#!/bin/sh\necho "ripgrep 14.1.0"\n')  # curated, versioned
+    monkeypatch.setenv("PATH", str(bin_dir))
+    config = tmp_path / "config.toml"
+    config.write_text(
+        CONFIG.replace("enabled = false", f'enabled = true\ndir = "{tmp_path / "cache"}"')
+    )
+
+    assert main(["ground", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert "grounding-" in out
+    assert "rebuilt in" in out
+    assert "binaries: 1   curated installed: 1   versioned: 1" in out
+
+    assert main(["ground", "--config", str(config)]) == 0
+    assert "fresh (built" in capsys.readouterr().out
+
+    assert main(["ground", "--refresh", "--config", str(config)]) == 0
+    assert "rebuilt in" in capsys.readouterr().out
+
+
+def test_ground_subcommand_notes_disabled_cache(config_path, capsys):
+    assert main(["ground", "--config", config_path]) == 0
+    assert "disabled" in capsys.readouterr().out
 
 
 def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
