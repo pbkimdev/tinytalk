@@ -18,8 +18,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    env:
-      FAKEHOME: ${{ runner.temp }}/tt-home
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -30,7 +28,9 @@ jobs:
         # XDG_CONFIG_HOME pinned inside FAKEHOME — the ubuntu runner exports
         # its own, which would (correctly) pull the config out of the sandbox.
         run: |
+          FAKEHOME="$RUNNER_TEMP/tt-home"
           mkdir -p "$FAKEHOME"
+          echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" ./install.sh --yes
       - name: Assert config scaffold and rc wiring (each block exactly once)
         run: |
