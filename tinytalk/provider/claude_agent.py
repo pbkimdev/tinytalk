@@ -40,11 +40,14 @@ class ClaudeAgentProvider:
     name: str
     capabilities: Capabilities
 
-    def __init__(self, model: str, *, query_fn: QueryFn | None = None):
+    def __init__(
+        self, model: str, *, query_fn: QueryFn | None = None, default_effort: str | None = None
+    ):
         self.model = model
         self.name = f"claude-agent:{model}"
         self.capabilities = Capabilities(supports_native_json=True)
         self._query_fn = query_fn
+        self._default_effort = default_effort if default_effort in _EFFORT_LEVELS else None
 
     async def complete(self, request: CompletionRequest) -> Completion:
         query_fn, options = self._build_call(request)
@@ -100,8 +103,13 @@ class ClaudeAgentProvider:
 
         if request.response_format is ResponseFormat.JSON_OBJECT:
             options.output_format = {"type": "json_schema", "schema": _contract_schema()}
-        if request.reasoning_effort in _EFFORT_LEVELS:
-            options.effort = request.reasoning_effort
+        effort = (
+            request.reasoning_effort
+            if request.reasoning_effort in _EFFORT_LEVELS
+            else self._default_effort
+        )
+        if effort is not None:
+            options.effort = effort
         return query_fn, options
 
 
@@ -132,10 +140,16 @@ def _map_usage(raw: object) -> Usage:
         except (TypeError, ValueError):
             return 0
 
-    prompt = _field("input_tokens")
+    # SDK usage mirrors the Messages API: input_tokens excludes cache reads/writes —
+    # normalize to the seam's inclusive prompt_tokens convention (see `Usage`).
+    cached = _field("cache_read_input_tokens")
+    cache_write = _field("cache_creation_input_tokens")
+    prompt = _field("input_tokens") + cached + cache_write
     completion = _field("output_tokens")
     return Usage(
         prompt_tokens=prompt,
         completion_tokens=completion,
         total_tokens=prompt + completion,
+        cached_prompt_tokens=cached,
+        cache_write_tokens=cache_write,
     )

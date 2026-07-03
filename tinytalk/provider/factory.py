@@ -28,6 +28,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             model=cfg.model,
             api_key=cfg.api_key,
             capabilities=_capabilities(cfg),
+            default_effort=cfg.effort,
         )
     if cfg.kind == "anthropic-compat":
         from tinytalk.provider.anthropic_compat import DEFAULT_BASE_URL, AnthropicCompatProvider
@@ -36,6 +37,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             model=cfg.model,
             base_url=cfg.base_url or DEFAULT_BASE_URL,
             api_key=cfg.api_key,
+            default_effort=cfg.effort,
         )
     if cfg.kind == "azure-openai":
         from tinytalk.provider.azure_openai import AzureOpenAIProvider
@@ -48,15 +50,16 @@ def make_provider(cfg: BackendConfig) -> Provider:
             cfg.azure_api_version,
             api_key=cfg.api_key,
             capabilities=_capabilities(cfg),
+            default_effort=cfg.effort,
         )
     if cfg.kind == "claude-agent-sdk":
         from tinytalk.provider.claude_agent import ClaudeAgentProvider
 
-        return ClaudeAgentProvider(model=cfg.model)
+        return ClaudeAgentProvider(model=cfg.model, default_effort=cfg.effort)
     if cfg.kind == "codex-agent-sdk":
         from tinytalk.provider.codex_agent import CodexAgentProvider
 
-        return CodexAgentProvider(model=cfg.model)
+        return CodexAgentProvider(model=cfg.model, default_effort=cfg.effort)
     if cfg.kind == "bedrock":
         from tinytalk.provider.bedrock import BedrockProvider
 
@@ -69,6 +72,7 @@ def make_provider(cfg: BackendConfig) -> Provider:
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
             capabilities=_capabilities(cfg),
+            default_effort=cfg.effort,
         )
     raise ConfigError(f"backend {cfg.name!r}: unknown kind {cfg.kind!r}")
 

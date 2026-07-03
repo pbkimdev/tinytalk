@@ -54,9 +54,19 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class Usage:
+    """Token accounting for one completion.
+
+    `prompt_tokens` is the TOTAL prompt-side count with cached and cache-written
+    tokens included (OpenAI convention); `cached_prompt_tokens` and
+    `cache_write_tokens` are subsets of it billed at their own rates. Adapters
+    whose provider reports exclusive counts must normalize when mapping.
+    """
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_prompt_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
