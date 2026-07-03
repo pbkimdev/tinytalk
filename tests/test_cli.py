@@ -59,7 +59,7 @@ def test_no_request_prints_help_and_succeeds(capsys):
 def test_help_lists_every_subcommand(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    for command in ("auth", "eval", "ground", "init zsh"):
+    for command in ("auth", "eval", "ground", "init zsh", "prompt"):
         assert command in out
 
 
@@ -141,6 +141,31 @@ def test_ground_subcommand_reports_and_refreshes(tmp_path, monkeypatch, capsys):
 def test_ground_subcommand_notes_disabled_cache(config_path, capsys):
     assert main(["ground", "--config", config_path]) == 0
     assert "disabled" in capsys.readouterr().out
+
+
+def test_prompt_subcommand_prints_assembled_prompt(tmp_path, monkeypatch, capsys):
+    import os
+
+    from tests.test_grounding import make_exe
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "ls")
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.delenv("TT_SESSION_CONTEXT", raising=False)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        CONFIG.replace("enabled = false", f'enabled = true\ndir = "{tmp_path / "cache"}"')
+    )
+
+    assert main(["prompt", "--config", str(config), "list", "files"]) == 0
+    out = capsys.readouterr().out
+    system, user = out.split("=== user ===")
+    assert "=== system ===" in system
+    assert "- ls:" in system
+    assert '"danger"' in system
+    assert "list files" in user
+    assert f"(current directory: {os.getcwd()})" in user  # same assembly a real request sends
 
 
 def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
