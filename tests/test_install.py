@@ -243,6 +243,28 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     assert not (home2 / ".zshrc").exists()
     assert "add it yourself" in proc.stdout
 
+    # a bash user gets .bashrc (and .bash_profile when it exists), not .zshrc
+    home3 = tmp_path / "home3"
+    home3.mkdir()
+    (home3 / ".bash_profile").write_text("# my precious bash_profile\n")
+    env3 = dict(env, HOME=str(home3), SHELL="/bin/bash")
+    proc = run_install(env3, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    bashrc = (home3 / ".bashrc").read_text()
+    assert bashrc.count(PATH_MARKER) == 1
+    assert 'export PATH="$HOME/toolbin:$PATH"' in bashrc
+    profile = (home3 / ".bash_profile").read_text()
+    assert profile.startswith("# my precious bash_profile\n")
+    assert profile.count(PATH_MARKER) == 1
+    zshrc3 = (home3 / ".zshrc").read_text()  # widget still wires zshrc, no PATH block
+    assert PATH_MARKER not in zshrc3
+    assert zshrc3.count(MARKER) == 1
+
+    proc = run_install(env3, "--yes")  # idempotent for bash rc files too
+    assert proc.returncode == 0, proc.stderr
+    assert (home3 / ".bashrc").read_text() == bashrc
+    assert (home3 / ".bash_profile").read_text() == profile
+
 
 def test_unknown_flag_fails(sandbox):
     _, env, _ = sandbox

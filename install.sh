@@ -89,25 +89,43 @@ fi
 say "installed: $("$TT" --version)"
 
 # 4. If the user's shells won't find tt (its dir isn't on the pre-install PATH),
-# offer to wire it into .zshrc — consent-gated, marker-guarded, idempotent.
+# offer to wire it into their rc file — consent-gated, marker-guarded, idempotent.
+# bash gets ~/.bashrc (plus ~/.bash_profile when it exists, since macOS login
+# shells skip .bashrc); anything else gets .zshrc, matching the zsh-first widget.
 PATH_MARKER="# tt PATH (added by install.sh)"
 case "$BIN_DIR" in
   "$HOME"/*) BIN_LINE="export PATH=\"\$HOME${BIN_DIR#"$HOME"}:\$PATH\"" ;;
   *) BIN_LINE="export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
+case "${SHELL:-}" in
+  */bash)
+    PATH_RC="$HOME/.bashrc"
+    if [ -f "$HOME/.bash_profile" ]; then PATH_RC2="$HOME/.bash_profile"; else PATH_RC2=""; fi
+    ;;
+  *) PATH_RC="$ZSHRC"; PATH_RC2="" ;;
+esac
+path_wired() { [ -f "$1" ] && grep -qF "$PATH_MARKER" "$1"; }
+wire_path() {
+  if path_wired "$1"; then
+    say "PATH: $1 already wired — open a new shell to pick it up"
+  else
+    {
+      printf '\n%s\n' "$PATH_MARKER"
+      printf '%s\n' "$BIN_LINE"
+    } >>"$1"
+    RC_CHANGED=1
+    say "PATH: added $BIN_DIR to $1 (takes effect in new shells)"
+  fi
+}
 if ( PATH="$ORIG_PATH"; command -v tt ) >/dev/null 2>&1; then
   : # already resolvable from the user's own PATH
 elif [ "$NO_RC" = 1 ]; then
   say "PATH: skipped (--no-rc); add it yourself:  $BIN_LINE"
-elif [ -f "$ZSHRC" ] && grep -qF "$PATH_MARKER" "$ZSHRC"; then
-  say "PATH: $ZSHRC already wired — open a new shell to pick it up"
-elif ask "tt is in $BIN_DIR but not on your \$PATH — add it to $ZSHRC?"; then
-  {
-    printf '\n%s\n' "$PATH_MARKER"
-    printf '%s\n' "$BIN_LINE"
-  } >>"$ZSHRC"
-  RC_CHANGED=1
-  say "PATH: added $BIN_DIR to $ZSHRC (takes effect in new shells)"
+elif path_wired "$PATH_RC" && { [ -z "$PATH_RC2" ] || path_wired "$PATH_RC2"; }; then
+  say "PATH: already wired — open a new shell to pick it up"
+elif ask "tt is in $BIN_DIR but not on your \$PATH — add it to $PATH_RC${PATH_RC2:+ and $PATH_RC2}?"; then
+  wire_path "$PATH_RC"
+  if [ -n "$PATH_RC2" ]; then wire_path "$PATH_RC2"; fi
 else
   say "PATH: skipped; add it yourself:  $BIN_LINE"
 fi
@@ -182,4 +200,4 @@ if [ "$RC_CHANGED" = 1 ]; then
   say "note: open a new shell (or: source $ZSHRC) to pick up the rc changes"
 fi
 say "benchmark:   tt eval"
-say "uninstall:   uv tool uninstall tinytalk   (and remove the 'added by install.sh' blocks from $ZSHRC)"
+say "uninstall:   uv tool uninstall tinytalk   (and remove the 'added by install.sh' blocks from your rc files)"
