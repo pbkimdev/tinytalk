@@ -31,7 +31,10 @@ _CLOUD_COLORS = ("#46627F", "#6E8898", "#39506B", "#8199AC")
 class RunMeta:
     run_date: str = ""
     machine: str = ""
-    protocol: str = "T1 only · temperature 0 · 1 run per prompt · warmup excluded"
+    protocol: str = (
+        "single backend, no cross-backend escalation · temperature 0 · "
+        "1 run per prompt · warmup excluded"
+    )
     suite: str = "25 golden targets × EN/KO parallel pairs (50 prompts)"
     pricing_notes: tuple[str, ...] = ()
 
