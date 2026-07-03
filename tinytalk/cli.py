@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  eval        benchmark configured backends over the built-in prompt suite\n"
             "  ground      inspect or rebuild the system grounding cache\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
+            "  prompt      print the assembled model prompt for a request (no model call)\n"
             "\n"
             "run `tt <command> --help` for command options"
         ),
@@ -92,6 +93,19 @@ def build_ground_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_prompt_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt prompt",
+        description="Print the assembled system + user prompt for a request — no model call. "
+        "The prompt surface lives in tinytalk/prompts.py (#102).",
+    )
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
+    parser.add_argument("request", nargs="+", help="the request to assemble prompts for")
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if argv[:1] == ["eval"]:
@@ -102,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         return _auth(build_auth_parser().parse_args(argv[1:]))
     if argv[:1] == ["ground"]:
         return _ground(build_ground_parser().parse_args(argv[1:]))
+    if argv[:1] == ["prompt"]:
+        return _prompt(build_prompt_parser().parse_args(argv[1:]))
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
@@ -214,6 +230,38 @@ def _ground(args: argparse.Namespace) -> int:
         f"binaries: {len(snap.binaries)}   curated installed: {curated}   "
         f"versioned: {len(snap.versions)}"
     )
+    return 0
+
+
+def _prompt(args: argparse.Namespace) -> int:
+    """`tt prompt` — show exactly what a real request would send, without sending it."""
+    from pathlib import Path
+
+    from tinytalk.cache import default_cache_dir
+    from tinytalk.config import ConfigError, load_config
+    from tinytalk.grounding import SystemGrounding
+    from tinytalk.prompts import user_message
+    from tinytalk.tiers import TierRequest
+
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+    except ConfigError as exc:
+        print(f"tt: {exc}", file=sys.stderr)
+        return 1
+    cache_dir = (config.cache_dir or default_cache_dir()) if config.cache_enabled else None
+    grounding = SystemGrounding(cache_dir=cache_dir)
+    session_context = os.environ.get("TT_SESSION_CONTEXT", "")
+    if session_context:
+        from tinytalk.redact import redact
+
+        session_context = redact(session_context)
+    request = TierRequest(
+        prompt=" ".join(args.request).strip(), cwd=os.getcwd(), session_context=session_context
+    )
+    print("=== system ===")
+    print(grounding.system_prompt(request))
+    print("=== user ===")
+    print(user_message(request.prompt, cwd=request.cwd, session_context=request.session_context))
     return 0
 
 
