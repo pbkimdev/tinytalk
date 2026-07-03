@@ -63,7 +63,11 @@ def build_eval_parser() -> argparse.ArgumentParser:
         "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
     )
     parser.add_argument("--backends", metavar="A,B", help="backends to score (default: all)")
-    parser.add_argument("--prompts", metavar="ID,ID", help="run a subset of the suite")
+    parser.add_argument(
+        "--prompts",
+        metavar="ID,ID",
+        help="run a subset of the suite (full ids, or bare targets to get every language)",
+    )
     parser.add_argument("--export", metavar="PATH", help="write results to a .json or .csv file")
     return parser
 
