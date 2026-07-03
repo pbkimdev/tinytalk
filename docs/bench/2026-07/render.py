@@ -70,8 +70,10 @@ meta = RunMeta(
         "Sonnet 5 and GPT-5.5 run through their agent SDKs (Claude Code / Codex CLI logins): "
         "each request carries the CLI's own system context (~20-28k input tokens) and latency "
         "includes SDK startup — that overhead is part of TinyTalk-as-shipped on those backends.",
-        "Sonnet 5 priced at Anthropic intro rates ($2/$10 per MTok, cache-read $0.20) in effect "
-        "through 2026-08-31; its tokenizer counts ~30% more tokens for the same text.",
+        "Sonnet 5 charts and the cost column use standard Anthropic rates ($3/$15 per MTok, "
+        "cache-read $0.30) from 2026-09-01; per-prompt exports carry intro rates ($2/$10, "
+        "cache-read $0.20) through 2026-08-31 — shown as a + (N% intro) note beside the "
+        "standard sweep total. Its tokenizer counts ~30% more tokens for the same text.",
         "Cloud costs are list-rate equivalents; actual billing rode subscription logins.",
         "Local quotes: Gemma 4 26B A4B $0.06/$0.33 and Qwen 3.6 35B A3B $0.14/$1.00 (OpenRouter), "
         "Gemma 4 E4B $0.20/$0.20 (Fireworks) — captured 2026-07-03.",
