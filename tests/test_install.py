@@ -12,6 +12,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 INSTALL = REPO / "install.sh"
 MARKER = "# tt zsh integration (added by install.sh)"
+PATH_MARKER = "# tt PATH (added by install.sh)"
 
 
 def make_exe(directory: Path, name: str, body: str) -> Path:
@@ -159,10 +160,110 @@ def test_fails_actionably_without_uv_or_pipx(sandbox, tmp_path):
     emptybin = tmp_path / "emptybin"
     emptybin.mkdir()
     env["PATH"] = f"{emptybin}:/usr/bin:/bin"  # no uv, no pipx, no tt
-    proc = run_install(env, "--yes")
+    proc = subprocess.run(
+        ["sh", str(INSTALL)],
+        env=env,
+        input="n\n",  # decline the uv bootstrap offer
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert proc.returncode == 1
     assert "uv" in proc.stderr
     assert "astral.sh" in proc.stderr
+
+
+def test_yes_bootstraps_uv_when_missing(tmp_path):
+    """No uv/pipx anywhere: --yes fetches the (stubbed) uv installer and proceeds."""
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    uv_log = tmp_path / "uv.log"
+    # what the stubbed `curl` serves: an installer that drops uv + tt into ~/.local/bin
+    installer = tmp_path / "fake-uv-install.sh"
+    installer.write_text(
+        'mkdir -p "$HOME/.local/bin"\n'
+        f'printf \'#!/bin/sh\\necho "$@" >> "{uv_log}"\\nexit 0\\n\' > "$HOME/.local/bin/uv"\n'
+        'printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
+        ' > "$HOME/.local/bin/tt"\n'
+        'chmod +x "$HOME/.local/bin/uv" "$HOME/.local/bin/tt"\n'
+    )
+    make_exe(fakebin, "curl", f'#!/bin/sh\ncat "{installer}"\n')
+    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin"}
+
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert f"tool install --force {REPO}" in uv_log.read_text()
+    # ~/.local/bin wasn't on the user's PATH → the PATH block got wired, once,
+    # with $HOME kept symbolic — and before the widget block so its eval resolves tt
+    zshrc = (home / ".zshrc").read_text()
+    assert zshrc.count(PATH_MARKER) == 1
+    assert 'export PATH="$HOME/.local/bin:$PATH"' in zshrc
+    assert zshrc.index(PATH_MARKER) < zshrc.index(MARKER)
+
+    proc = run_install(env, "--yes")  # second run: nothing duplicated
+    assert proc.returncode == 0, proc.stderr
+    assert (home / ".zshrc").read_text() == zshrc
+
+
+def test_path_wiring_when_tt_lands_off_path(tmp_path):
+    """uv exists but installs to a dir outside PATH → consented marker block."""
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    uv_log = tmp_path / "uv.log"
+    make_exe(
+        fakebin,
+        "uv",
+        f'#!/bin/sh\necho "$@" >> "{uv_log}"\n'
+        'if [ "$1" = tool ] && [ "$2" = dir ]; then echo "$HOME/toolbin"; exit 0; fi\n'
+        'if [ "$1" = tool ] && [ "$2" = install ]; then\n'
+        '  mkdir -p "$HOME/toolbin"\n'
+        '  printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
+        ' > "$HOME/toolbin/tt"\n'
+        '  chmod +x "$HOME/toolbin/tt"\nfi\nexit 0\n',
+    )
+    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin"}  # no tt on PATH
+
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "installed: tt 0.0.1" in proc.stdout
+    zshrc = (home / ".zshrc").read_text()
+    assert zshrc.count(PATH_MARKER) == 1
+    assert 'export PATH="$HOME/toolbin:$PATH"' in zshrc
+
+    # --no-rc never touches the rc file, even when tt is off PATH
+    home2 = tmp_path / "home2"
+    home2.mkdir()
+    env2 = dict(env, HOME=str(home2))
+    proc = run_install(env2, "--yes", "--no-rc")
+    assert proc.returncode == 0, proc.stderr
+    assert not (home2 / ".zshrc").exists()
+    assert "add it yourself" in proc.stdout
+
+    # a bash user gets .bashrc (and .bash_profile when it exists), not .zshrc
+    home3 = tmp_path / "home3"
+    home3.mkdir()
+    (home3 / ".bash_profile").write_text("# my precious bash_profile\n")
+    env3 = dict(env, HOME=str(home3), SHELL="/bin/bash")
+    proc = run_install(env3, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    bashrc = (home3 / ".bashrc").read_text()
+    assert bashrc.count(PATH_MARKER) == 1
+    assert 'export PATH="$HOME/toolbin:$PATH"' in bashrc
+    profile = (home3 / ".bash_profile").read_text()
+    assert profile.startswith("# my precious bash_profile\n")
+    assert profile.count(PATH_MARKER) == 1
+    zshrc3 = (home3 / ".zshrc").read_text()  # widget still wires zshrc, no PATH block
+    assert PATH_MARKER not in zshrc3
+    assert zshrc3.count(MARKER) == 1
+
+    proc = run_install(env3, "--yes")  # idempotent for bash rc files too
+    assert proc.returncode == 0, proc.stderr
+    assert (home3 / ".bashrc").read_text() == bashrc
+    assert (home3 / ".bash_profile").read_text() == profile
 
 
 def test_unknown_flag_fails(sandbox):

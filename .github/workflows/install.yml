@@ -1,0 +1,58 @@
+name: install
+# End-to-end proof that ./install.sh works on a fresh machine: Linux + macOS,
+# zsh and bash users, real uv, isolated HOME. Asserts install, PATH + widget
+# wiring, idempotency, and that the CLI answers from a fresh interactive shell.
+
+on:
+  push:
+    branches: [main]
+    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+  pull_request:
+    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+  workflow_dispatch:
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        shell: [zsh, bash]
+        include:
+          - shell: zsh
+            rcfile: .zshrc
+          - shell: bash
+            rcfile: .bashrc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install zsh (Linux)
+        if: runner.os == 'Linux' && matrix.shell == 'zsh'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Run installer into a fresh HOME
+        # XDG_CONFIG_HOME pinned inside FAKEHOME — the ubuntu runner exports
+        # its own, which would (correctly) pull the config out of the sandbox.
+        # SHELL drives which rc file the PATH block lands in.
+        run: |
+          FAKEHOME="$RUNNER_TEMP/tt-home"
+          mkdir -p "$FAKEHOME"
+          echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
+          HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
+            SHELL="/bin/${{ matrix.shell }}" ./install.sh --yes
+      - name: Assert config scaffold and rc wiring (each block exactly once)
+        run: |
+          cat "$FAKEHOME/${{ matrix.rcfile }}"
+          test -f "$FAKEHOME/.config/tinytalk/config.toml"
+          [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/${{ matrix.rcfile }}")" -eq 1 ]
+          [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
+      - name: Re-run installer — must change nothing
+        run: |
+          cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
+          HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
+            SHELL="/bin/${{ matrix.shell }}" ./install.sh --yes
+          diff "$RUNNER_TEMP/rc.before" "$FAKEHOME/${{ matrix.rcfile }}"
+      - name: CLI works from a fresh interactive shell
+        run: |
+          HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
+            ${{ matrix.shell }} -ic 'tt --version && tt --help >/dev/null && tt init zsh >/dev/null && echo SHELL_OK'
