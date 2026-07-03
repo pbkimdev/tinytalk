@@ -91,6 +91,16 @@ CURATED_TOOLS: dict[str, str] = {
     "date": "print/format date (BSD: date -v+1d; GNU: date -d tomorrow)",
 }
 
+# (gate_tool, rule) — a rule is injected only when gate_tool is installed, so the
+# prompt never advertises a tool the host lacks.
+_PREFERENCE_RULES: tuple[tuple[str, str], ...] = (
+    ("rg", "prefer `rg` over `grep -r` for recursive text search"),
+    ("fd", "prefer `fd` over `find` for finding files by name"),
+    ("jq", "prefer `jq` over grep/sed/awk for extracting fields from JSON"),
+    ("rsync", "prefer `rsync -a` over `cp -R` for syncing or mirroring directories"),
+    ("printf", "prefer `printf` over `echo -e` for output with escapes or variables"),
+)
+
 
 def installed_binaries(path: str | None = None) -> frozenset[str]:
     """Names of executables on `$PATH` (PRD's PATH cache: existence only, no specs)."""
@@ -155,12 +165,20 @@ class SystemGrounding:
                 continue
             version = self.versions.get(name)
             tools.append(f"- {name}: {desc} (v{version})" if version else f"- {name}: {desc}")
+        preferences = [rule for gate, rule in _PREFERENCE_RULES if gate in self.binaries]
+        preference_block = (
+            "\n\nTool preferences on this system (follow unless the request says otherwise):\n"
+            + "\n".join(f"- {rule}" for rule in preferences)
+            if preferences
+            else ""
+        )
         return (
             "You are TinyTalk. Turn the user's plain-English request into exactly one "
             "runnable shell command (a pipeline counts as one command) for their system.\n"
             f"{host_facts()}\n\n"
             "Installed tools you should prefer (with their key flags):\n"
             + "\n".join(tools)
+            + preference_block
             + "\n\nOnly use tools from this list, shell builtins, or tools you are certain "
             "are installed; never invent flags. Commit to exactly one command — never a "
             "list of options or alternatives; if you are unsure, pick your best answer. "
