@@ -8,10 +8,10 @@
 
 **Type what you want. Read the command it hands back. Hit Enter — or don't.**
 
-TinyTalk turns plain English at your shell prompt into a real, runnable command —
-checked against the tools you actually have, explained in one line, and dropped
-straight into your buffer. It never runs anything on its own; you always get the
-last look. Works against a cloud model or one running entirely on your own machine.
+TinyTalk turns plain English at your shell prompt into a real, runnable command. It
+checks that command against the tools you actually have, explains it in one line, and
+drops it into your buffer. It never runs anything on its own — you always get the last
+look. Point it at a cloud model, or one running entirely on your own machine.
 
 </div>
 
@@ -22,18 +22,18 @@ du -h -d1 / 2>/dev/null | sort -hr | head -20
 ↳ top-level disk usage, largest first
 ```
 
-Press `?` on an empty line, describe the thing, and TinyTalk swaps your buffer for a
-command plus a one-line explanation. Edit it, run it, or ignore it. That's the whole
-product — a translator that stops at the edge of your keyboard and lets you decide.
+Press `?` on an empty line, describe what you want, and TinyTalk swaps your buffer for a
+command and a one-line explanation. Edit it, run it, or ignore it. That's the whole
+product: a translator that stops at your keyboard and leaves the decision to you.
 
 - **Grounded, not guessed.** Every request is checked against a snapshot of your box —
   the binaries you have, your OS, your shell — so you don't get `apt` on a Mac or a
   flag your `find` doesn't support.
 - **Hands off the trigger.** TinyTalk prints; you run. Destructive commands come back
-  commented out so an errant Enter can't wipe anything.
+  commented out, so a stray Enter can't wipe anything.
 - **Your model, your call.** A subscription (Claude, Codex), a cloud API (Bedrock,
-  Azure), or a model running fully offline on your laptop — same interface, swap by
-  editing one line.
+  Azure), or a model running fully offline on your laptop. Same interface either way;
+  switch by editing one line.
 
 ---
 
@@ -58,9 +58,9 @@ One command. `tt` ships as a self-contained binary — no Python, no uv, nothing
 curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/install.sh | sh
 ```
 
-The installer downloads the binary for your platform (macOS and Linux, arm64 or x86_64),
-and it installs and configures only — it never runs a generated command, and never edits
-your shell config without asking. In one pass it:
+The installer downloads the binary for your platform (macOS and Linux, arm64 or x86_64).
+It only installs and configures — it never runs a generated command, and never edits your
+shell config without asking. In one pass it:
 
 1. downloads the `tt` binary and drops it in `~/.local/bin`,
 2. adds that to your `PATH` (with your consent),
@@ -435,9 +435,9 @@ into other tools; `tt --widget` emits the shell-evalable form the zsh integratio
 TinyTalk ships its own eval suite. `tt eval` runs a set of natural-language commands
 through every configured backend, in both English and Korean, and grades each result on
 whether the output actually **parses**, references **real binaries**, and passes its
-**assertions** — the metrics that matter for a tool that hands you something to run. Local
-models sit right alongside the hosted ones, so you can see exactly what you trade by going
-fully offline.
+**assertions**. Those are the three things that decide whether a command it hands you is
+worth running. Local models sit right alongside the hosted ones, so you can see exactly
+what you trade by going fully offline.
 
 ![tt eval](docs/assets/eval.png)
 
@@ -451,10 +451,10 @@ run. On the hard 25-target suite, the frontier models (Sonnet 5, GPT-5.5) top ou
 98%, with the local **Gemma 4 26B-A4B at 94%** — and notably the *fastest* of the field at
 ~1.6 s median, for a fraction of a cent per sweep.
 
-### Caveats — read the fine print
+### Caveats
 
-A benchmark is a map, not the territory. A few things to keep in mind before you quote a
-number:
+Treat these numbers as a rough guide, not gospel. A few things to keep in mind before you
+quote one:
 
 - **Local costs are equivalents, not bills.** Local models run at ~$0 marginal cost on
   your own machine; the dollar figures are hosted-proxy list rates, shown only to put all
@@ -470,5 +470,5 @@ number:
   strict-pass, because the pass is re-scored purely on the returned command's parse /
   binaries / assertions — not on a clean run end to end.
 
-In short: the local models are genuinely competitive for this task, the spread is real,
-and the exact decimals are the least interesting part.
+Local models are genuinely competitive for this task, the spread between them is real, and
+the exact decimals are the least interesting part.
