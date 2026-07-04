@@ -39,6 +39,10 @@ API 키를 물어보지도 않고, 아무것도 외부로 나가지 않습니다
 `defaults.backend`만 바꾸면 됩니다. 로컬과 클라우드 백엔드를 같은 설정 파일에 같이 둘 수 있어서,
 하나가 안 될 때 다른 쪽으로 넘어가게 구성해도 됩니다.
 
+한 줄 설명은 같은 파일의 `defaults.language`를 따릅니다(설정하지 않으면 로케일에서 자동 감지 —
+예: `language = "ko"`면 설명이 한국어로 나옵니다). 명령어 자체와 TinyTalk의 자체 메시지는 영어
+그대로입니다.
+
 ## 최신 벤치마크
 
 TinyTalk은 자체 평가 스위트(`tt eval`)를 갖고 있습니다 — 자연어 명령 25개를 영어/한국어 양쪽으로
@@ -46,6 +50,11 @@ TinyTalk은 자체 평가 스위트(`tt eval`)를 갖고 있습니다 — 자연
 채점합니다. 로컬 모델도 클라우드 모델과 나란히 포함되어 있어서, 완전히 오프라인으로 갔을 때 정확히
 뭘 포기하게 되는지 한눈에 볼 수 있습니다.
 
-![TinyTalk CLI Bench — pass rate와 score vs. cost](docs/bench/2026-07/assets/summary.png)
+최신 공개 실행: **2026-07-03** ([`docs/bench/2026-07-03/`](docs/bench/2026-07-03/)).
 
-전체 인터랙티브 리포트: [`docs/bench/2026-07/index.html`](docs/bench/2026-07/index.html).
+![TinyTalk CLI Bench — pass rate와 score vs. cost](docs/bench/2026-07-03/assets/summary.png)
+
+전체 인터랙티브 리포트: [`docs/bench/2026-07-03/index.html`](docs/bench/2026-07-03/index.html).
+
+재현하거나 새 실행을 게시하려면 [`docs/bench/RUNBOOK.md`](docs/bench/RUNBOOK.md)를 보세요. 각 실행은
+`docs/bench/<YYYY-MM-DD>/` 아래에 두고, 마지막에 `tt eval publish --run-date <date>`로 마무리합니다.

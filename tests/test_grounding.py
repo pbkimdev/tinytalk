@@ -43,6 +43,15 @@ def test_system_prompt_reflects_host(tmp_path):
     assert '"danger"' in prompt  # contract shape included
 
 
+def test_system_prompt_carries_request_language(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "ls")
+    g = SystemGrounding(path=str(bin_dir))
+    assert "Korean" in g.system_prompt(TierRequest(prompt="x", language="ko"))
+    assert "Korean" not in g.system_prompt(TierRequest(prompt="x"))
+
+
 def test_system_prompt_includes_kubernetes_and_bash_tools_only_when_installed(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

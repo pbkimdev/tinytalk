@@ -168,6 +168,22 @@ def test_prompt_subcommand_prints_assembled_prompt(tmp_path, monkeypatch, capsys
     assert f"(current directory: {os.getcwd()})" in user  # same assembly a real request sends
 
 
+def test_prompt_subcommand_shows_language_clause(tmp_path, monkeypatch, capsys):
+    """End-to-end threading proof (#107): config → TierRequest → grounding → prompt."""
+    from tests.test_grounding import make_exe
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "ls")
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.delenv("TT_SESSION_CONTEXT", raising=False)
+    config = tmp_path / "config.toml"
+    config.write_text(CONFIG.replace('backend = "local"', 'backend = "local"\nlanguage = "ko"'))
+
+    assert main(["prompt", "--config", str(config), "list", "files"]) == 0
+    assert 'Write the "explanation" value in Korean.' in capsys.readouterr().out
+
+
 def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
     import tinytalk.eval.runner as runner_mod
 

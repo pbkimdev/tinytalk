@@ -199,5 +199,5 @@ say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my d
 if [ "$RC_CHANGED" = 1 ]; then
   say "note: open a new shell (or: source $ZSHRC) to pick up the rc changes"
 fi
-say "benchmark:   tt eval"
+say "benchmark:   tt eval  (docs/bench/RUNBOOK.md)"
 say "uninstall:   uv tool uninstall tinytalk   (and remove the 'added by install.sh' blocks from your rc files)"

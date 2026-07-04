@@ -43,10 +43,13 @@ Quotes are captured (value + URL + date) in the runbook the day of the run.
 2. Per-backend smoke: 1 prompt (`--prompts disk-usage-top`) before committing to the sweep.
 3. The sweep, one backend at a time (local models are memory-heavy — never two MLX models loaded
    at once; order: 26B → swap → E4B → mtplx → cloud):
-   `TT_CONFIG=docs/bench/bench.toml uv run tt eval --backends <name> --export docs/bench/<date>/<name>.json`
-4. Merge + render: `tt eval --report-from docs/bench/<date>/results.json --report docs/bench/<date>/index.html`
-   (merge step = concatenate backend JSONs; add a tiny `--merge` helper only if genuinely needed).
-5. Commit JSON + HTML together; link from README ("Benchmarks" section, one line + screenshot-free).
+   `RUN_DATE=YYYY-MM-DD; TT_CONFIG=docs/bench/bench.toml uv run tt eval --backends <name> --export docs/bench/$RUN_DATE/<name>.json`
+4. Publish: `uv run tt eval publish --run-date $RUN_DATE` (`tinytalk/eval/publish.py` — merge prior
+   exports with any subset sweeps, re-score kept targets, write `results.json`, render `index.html`;
+   optional `run_meta.json` in the run dir supplies report footnotes).
+   Re-render only: `tt eval --report-from docs/bench/$RUN_DATE/results.json --report docs/bench/$RUN_DATE/index.html`
+5. Commit JSON + HTML together; link from README (`docs/bench/<YYYY-MM-DD>/`, screenshot, and
+   `RUNBOOK.md` for reproduction).
 
 ## Published layout
 
@@ -54,7 +57,8 @@ Quotes are captured (value + URL + date) in the runbook the day of the run.
 docs/bench/
   bench.toml          # pinned backends + prices (no secrets — keys stay in env/keyring)
   RUNBOOK.md          # steps above + captured quotes + run log
-  2026-07/            # one dir per run date
+  YYYY-MM-DD/         # one dir per run date
+    run_meta.json     # optional report metadata (machine, pricing footnotes)
     results.json
     index.html
 ```
@@ -65,7 +69,7 @@ docs/bench/
 
 ## Done when
 - **eval**: all 5 backends complete 50/50 prompts with zero harness (non-model) errors; results
-  committed under `docs/bench/2026-07/`.
+  committed under `docs/bench/<YYYY-MM-DD>/`.
 - **manual**: report sanity — every model has 50 rows, latency medians plausible (local ≫ warmup
   effect absent, cloud sub-~5s), cloud backends show cached-token counts if the APIs reported them.
-- README links to the report.
+- README links to the report (`docs/bench/<YYYY-MM-DD>/`) and points readers at `RUNBOOK.md`.

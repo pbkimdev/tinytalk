@@ -60,12 +60,13 @@ def test_fresh_config_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     # Fresh config: no slot picker — the wizard goes straight to primary (#78).
-    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", "high", True])
+    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", "high", "ko", True])
     result = auth.run_auth_wizard(config_path, io)
     assert result == "primary"
 
     doc = _read(config_path)
     assert doc["defaults"]["backend"] == "primary"
+    assert doc["defaults"]["language"] == "ko"  # the language question writes through (#107)
     assert "escalation_backend" not in doc["defaults"]
     assert doc["backends"]["primary"] == {
         "kind": "claude-agent-sdk",
@@ -109,6 +110,7 @@ enabled = false
     assert doc["backends"]["fallback"] == {"kind": "claude-agent-sdk", "model": "claude-haiku-4-5"}
     assert doc["defaults"]["backend"] == "primary"  # untouched by a fallback write
     assert doc["defaults"]["escalation_backend"] == "fallback"  # implied by the slot
+    assert "language" not in doc["defaults"]  # only the primary flow asks (#107)
     cfg = load_config(config_path)  # valid per load_config (DoD)
     assert cfg.escalation_backend == "fallback"
 
@@ -136,6 +138,7 @@ enabled = false
             "claude-agent-sdk",
             "claude-sonnet-5",
             auth._NO_EFFORT,
+            "en",  # explanation language
             True,  # write?
         ]
     )
@@ -156,7 +159,7 @@ def test_legacy_default_offers_slots_and_primary_takes_over(tmp_path, monkeypatc
     config_path.write_text(
         '[defaults]\nbackend = "legacy"\n\n[backends.legacy]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
     )
-    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, "en", True])
     assert auth.run_auth_wizard(config_path, io) == "primary"
 
     doc = _read(config_path)
@@ -170,7 +173,7 @@ def test_no_valid_default_goes_straight_to_primary(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
     config_path.write_text('[backends.orphan]\nkind = "claude-agent-sdk"\nmodel = "x"\n')
     # First scripted answer is the kind — a slot prompt would consume it and fail the sequence.
-    io = ScriptedIO(["claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(["claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, "en", True])
     assert auth.run_auth_wizard(config_path, io) == "primary"
     assert _read(config_path)["defaults"]["backend"] == "primary"
     assert load_config(config_path).default_backend == "primary"
@@ -196,7 +199,9 @@ model = "gpt-5.4"
 keyring_account = "primary"
 """
     )
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(
+        ["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, "en", True]
+    )
     assert auth.run_auth_wizard(config_path, io) == "primary"
     assert deleted == [("tinytalk", "primary")]
     assert "keyring_account" not in _read(config_path)["backends"]["primary"]
@@ -227,7 +232,9 @@ def test_replace_keeps_keyring_secret_shared_with_another_table(tmp_path, monkey
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(_SHARED_ACCOUNT_CONFIG)
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(
+        ["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, "en", True]
+    )
     assert auth.run_auth_wizard(config_path, io) == "primary"
     assert deleted == []
     assert _read(config_path)["backends"]["legacy"]["keyring_account"] == "shared-key"
@@ -252,7 +259,9 @@ def test_stale_secret_survives_failed_save(tmp_path, monkeypatch):
         'model = "m"\nkeyring_account = "primary"\n'
     )
     before = config_path.read_text()
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(
+        ["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, "en", True]
+    )
     with pytest.raises(OSError):
         auth.run_auth_wizard(config_path, io)
     assert deleted == []
@@ -444,7 +453,7 @@ def test_cancel_at_slot_writes_nothing(tmp_path):
 def test_declined_confirm_gate_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
-    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", auth._NO_EFFORT, False])
+    io = ScriptedIO(["claude-agent-sdk", "claude-opus-4-8", auth._NO_EFFORT, "en", False])
     assert auth.run_auth_wizard(config_path, io) is None
     assert not config_path.exists()
 
@@ -839,6 +848,7 @@ def test_secret_stored_via_keyring_and_referenced_by_account(tmp_path, monkeypat
             "sk-real",
             "gpt-5.4",
             auth._NO_EFFORT,
+            "en",  # explanation language
             True,  # write?
         ]
     )
@@ -866,6 +876,7 @@ def test_secret_not_stored_when_confirm_declined(tmp_path, monkeypatch):
             "sk-real",
             "gpt-5.4",
             auth._NO_EFFORT,
+            "en",  # explanation language
             False,  # write? -> abort
         ]
     )

@@ -45,6 +45,9 @@ Switch back to a cloud backend (Claude, GPT, etc.) any time by editing `defaults
 `~/.config/tinytalk/config.toml` — both a local and a cloud backend can live in the same config,
 so you can fall back to one when the other is unavailable.
 
+The one-line explanation follows `defaults.language` in the same file (auto-detected from your
+locale when unset); the command itself and TinyTalk's own messages stay English.
+
 ## Latest benchmark
 
 TinyTalk ships with its own eval suite (`tt eval`) — 25 natural-language commands, run in both
@@ -52,6 +55,11 @@ English and Korean, graded on whether the output actually parses, references rea
 passes its assertions. Local models are included alongside the hosted ones so you can see exactly
 what you're trading off by going fully offline.
 
-![TinyTalk CLI Bench — pass rate and score vs. cost](docs/bench/2026-07/assets/summary.png)
+Latest published run: **2026-07-03** ([`docs/bench/2026-07-03/`](docs/bench/2026-07-03/)).
 
-Full interactive report: [`docs/bench/2026-07/index.html`](docs/bench/2026-07/index.html).
+![TinyTalk CLI Bench — pass rate and score vs. cost](docs/bench/2026-07-03/assets/summary.png)
+
+Full interactive report: [`docs/bench/2026-07-03/index.html`](docs/bench/2026-07-03/index.html).
+
+To reproduce or publish a new run, see [`docs/bench/RUNBOOK.md`](docs/bench/RUNBOOK.md). Each run
+lives under `docs/bench/<YYYY-MM-DD>/`; finish with `tt eval publish --run-date <date>`.

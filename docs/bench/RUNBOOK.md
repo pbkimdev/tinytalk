@@ -1,8 +1,15 @@
 # tt bench — runbook
 
-How the published run under `docs/bench/<date>/` was produced, and how to reproduce it.
+How the published run under `docs/bench/<YYYY-MM-DD>/` was produced, and how to reproduce it.
+Linked from [README.md](../../README.md) and [README.ko.md](../../README.ko.md).
 Config: [`bench.toml`](./bench.toml) (used via `TT_CONFIG`; personal config untouched).
 Parent: #90 · spec: `docs/specs/bench-04-run.md` · sub-issue: #101.
+
+Set the run date once per sweep — folder names are the ISO date (`YYYY-MM-DD`), not year-month:
+
+```sh
+RUN_DATE=2026-07-03
+```
 
 ## Roster
 
@@ -48,10 +55,12 @@ one comparable cost axis. The report's fine print repeats this.
 One backend at a time — local models share the GPU, so never two sweeps concurrently:
 
 ```sh
-cd <repo> && mkdir -p docs/bench/2026-07
+cd <repo>
+RUN_DATE=2026-07-03
+mkdir -p "docs/bench/$RUN_DATE"
 for b in local-gemma4-26b local-gemma4-e4b local-qwen36-35b sonnet5-low gpt55-low; do
   TT_CONFIG=docs/bench/bench.toml uv run tt eval --backends "$b" \
-    --export "docs/bench/2026-07/$b.json"
+    --export "docs/bench/$RUN_DATE/$b.json"
 done
 ```
 
@@ -59,16 +68,30 @@ Smoke first (`--prompts disk-usage-top` = 2 prompts) before committing to a full
 
 ## Merge + render
 
-The published page is built by `2026-07/render.py` (run from the repo root with
-`uv run python docs/bench/2026-07/render.py`). It re-scores the 15 kept targets from their
-recorded commands under the fixed command extractor, merges the fresh v3 sweeps
-(`v3new-*.json`), writes `results.json`, and renders `index.html` with the full `RunMeta`
-(machine string, run date, agent-SDK latency footnotes). All raw inputs are committed
-alongside it.
+The published page is built by `tt eval publish` (from the repo root):
+
+```sh
+RUN_DATE=2026-07-03
+uv run tt eval publish --run-date "$RUN_DATE"
+# equivalent: uv run tt eval publish "docs/bench/$RUN_DATE"
+```
+
+(`python -m tinytalk.eval.publish` is equivalent.) It re-scores the 15 kept targets from their
+recorded commands under the fixed command extractor, merges the fresh v3 sweeps (`v3new-*.json`),
+writes `results.json`, and renders `index.html`. Report metadata (machine string, pricing
+footnotes) comes from `run_meta.json` in the run directory when present.
+
+To re-render HTML from an existing `results.json` without re-merging:
+
+```sh
+RUN_DATE=2026-07-03
+uv run tt eval --report-from "docs/bench/$RUN_DATE/results.json" \
+  --report "docs/bench/$RUN_DATE/index.html"
+```
 
 ## Run log
 
-- 2026-07-03 (published, suite v3, 50 prompts) — 25 targets after retiring the 15 the whole
+- 2026-07-03 (`docs/bench/2026-07-03/`, suite v3, 50 prompts) — 25 targets after retiring the 15 the whole
   field saturated (#95) and adding 10 hard ones (TLS cert expiry, dig +trace, tar|ssh
   streaming, kubectl restart counts, jq, IPv4-regex extraction, INI range addressing, awk
   group-sums, process substitution, xargs -P). The 15 kept targets are re-scored from the
@@ -83,7 +106,7 @@ alongside it.
   Qwen swept all 10 hard targets in both languages; frontier models sit on top, exactly the
   spread v2 failed to show. parallel-compress is the hardest overall (three models dropped a
   language). Earlier same-day runs (50-prompt v2, 60-prompt v2+rigor) are superseded; their
-  raw exports remain committed as render.py inputs. Standing caveats: MTPLX flips a few
+  raw exports remain committed as publish inputs. Standing caveats: MTPLX flips a few
   prompts between temperature-0 runs (± a few points); MTPLX reports no cached tokens; rows
   can carry an `error` yet strict-pass (strict pass re-scores the returned command on
   parse/binaries/assertions only).

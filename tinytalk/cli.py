@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
-            "  eval        benchmark configured backends over the built-in prompt suite\n"
+            "  eval        benchmark configured backends (see `tt eval publish` for the docs page)\n"
             "  ground      inspect or rebuild the system grounding cache\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "  prompt      print the assembled model prompt for a request (no model call)\n"
@@ -120,6 +120,10 @@ def build_prompt_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if len(argv) >= 2 and argv[0] == "eval" and argv[1] == "publish":
+        from tinytalk.eval.publish import main as publish_main
+
+        return publish_main(argv[2:])
     if argv[:1] == ["eval"]:
         return _eval(build_eval_parser().parse_args(argv[1:]))
     if argv[:1] == ["init"]:
@@ -292,7 +296,10 @@ def _prompt(args: argparse.Namespace) -> int:
 
         session_context = redact(session_context)
     request = TierRequest(
-        prompt=" ".join(args.request).strip(), cwd=os.getcwd(), session_context=session_context
+        prompt=" ".join(args.request).strip(),
+        cwd=os.getcwd(),
+        session_context=session_context,
+        language=config.language,
     )
     print("=== system ===")
     print(grounding.system_prompt(request))
@@ -345,7 +352,12 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             from tinytalk.redact import redact
 
             session_context = redact(session_context)
-        request = TierRequest(prompt=request_text, cwd=os.getcwd(), session_context=session_context)
+        request = TierRequest(
+            prompt=request_text,
+            cwd=os.getcwd(),
+            session_context=session_context,
+            language=config.language,
+        )
         result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
         print(f"tt: {exc}", file=sys.stderr)

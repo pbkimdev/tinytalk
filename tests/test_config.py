@@ -199,6 +199,34 @@ def test_unknown_effort(tmp_path):
         load_config(write(tmp_path, text))
 
 
+def _clear_locale(monkeypatch):
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_language_from_defaults(tmp_path, monkeypatch):
+    _clear_locale(monkeypatch)
+    monkeypatch.setenv("LANG", "ja_JP.UTF-8")  # explicit config beats env
+    text = GOOD.replace('backend = "local"', 'backend = "local"\nlanguage = "ko"')
+    assert load_config(write(tmp_path, text)).language == "ko"
+
+
+def test_language_detected_from_env(tmp_path, monkeypatch):
+    path = write(tmp_path, GOOD)  # no language key
+    _clear_locale(monkeypatch)
+    assert load_config(path).language == "en"
+    monkeypatch.setenv("LANG", "ko_KR.UTF-8")
+    assert load_config(path).language == "ko"
+    monkeypatch.setenv("LC_ALL", "C")  # LC_ALL overrides LANG; C means English
+    assert load_config(path).language == "en"
+
+
+def test_language_must_be_string(tmp_path):
+    text = GOOD.replace('backend = "local"', 'backend = "local"\nlanguage = 3')
+    with pytest.raises(ConfigError, match="language must be a string"):
+        load_config(write(tmp_path, text))
+
+
 def test_default_config_path_respects_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TT_CONFIG", str(tmp_path / "custom.toml"))
     assert default_config_path() == tmp_path / "custom.toml"

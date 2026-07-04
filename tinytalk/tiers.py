@@ -30,6 +30,7 @@ class TierRequest:
     prompt: str
     cwd: str = "."
     session_context: str = ""  # redacted recent commands (#35)
+    language: str = "en"  # explanation language (#107); "en" ⇒ no prompt clause, no key material
 
 
 @dataclass(frozen=True)

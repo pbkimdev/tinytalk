@@ -96,7 +96,7 @@ class SystemGrounding:
             if name in self.binaries
         ]
         preferences = [rule for gate, rule in PREFERENCE_RULES if gate in self.binaries]
-        return t1_system(host_facts(), tools, preferences)
+        return t1_system(host_facts(), tools, preferences, language=request.language)
 
     def enrich(self, needs: tuple[str, ...], problems: tuple[str, ...]) -> str:
         """T2 context: real help for the tools a failed attempt named (PRD T2)."""
