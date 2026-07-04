@@ -176,7 +176,9 @@ _tt_backspace() {
   if (( _TT_AI_MODE )) && [[ -z "$BUFFER" ]]; then
     _tt_ai_off
   else
-    zle .backward-delete-char
+    # Use the named widget so shell plugins such as zsh-autosuggestions can
+    # wrap Backspace and keep their displayed suggestion state in sync.
+    zle backward-delete-char
   fi
 }
 zle -N _tt_backspace

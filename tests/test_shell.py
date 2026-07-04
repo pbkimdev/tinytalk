@@ -58,6 +58,8 @@ def test_init_zsh_prints_widget(capsys):
     script = capsys.readouterr().out
     assert "zle -N accept-line _tt_accept_line" in script
     assert "bindkey '?' _tt_question" in script  # `?` on empty line toggles AI mode
+    assert "zle backward-delete-char" in script
+    assert "zle .backward-delete-char" not in script
     assert "tt --widget" in script
     assert "DESTRUCTIVE" in script  # destructive commands inserted commented
     assert "TT_SESSION_CONTEXT" in script
