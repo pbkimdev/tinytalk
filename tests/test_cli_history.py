@@ -9,9 +9,12 @@ feeds the widget deduped recent commands NUL-delimited.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
+import tinytalk.cli as cli
 import tinytalk.provider.factory as factory
 from tinytalk.cli import main
 from tinytalk.history import HistoryRecord, HistoryStore
@@ -360,6 +363,7 @@ def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
 
 
 def test_history_plain_empty_store_prints_nothing(state_dir, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_use_fzf", lambda: False)  # drive the plaintext branch, tty or not
     assert main(["history"]) == 0
     captured = capsys.readouterr()
     assert captured.out == ""  # stdout stays clean — the reusable substrate
@@ -368,6 +372,7 @@ def test_history_plain_empty_store_prints_nothing(state_dir, capsys, monkeypatch
 
 def test_history_plain_numbered_listing_newest_first(state_dir, capsys, monkeypatch):
     # The fzf-less fallback (Scope C1): id, time, prompt→command, cost — one row per command.
+    monkeypatch.setattr(cli, "_use_fzf", lambda: False)
     store = HistoryStore()
     store.append(
         HistoryRecord(
@@ -393,6 +398,7 @@ def test_history_plain_numbered_listing_newest_first(state_dir, capsys, monkeypa
 
 
 def test_history_plain_dedups_the_view_keeping_newest(state_dir, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_use_fzf", lambda: False)
     store = HistoryStore()
     store.append(HistoryRecord(prompt="a", command="pwd", ts="2026-07-04T10:00:00-07:00"))
     store.append(HistoryRecord(prompt="b", command="PWD", ts="2026-07-04T10:01:00-07:00"))
@@ -404,9 +410,152 @@ def test_history_plain_dedups_the_view_keeping_newest(state_dir, capsys, monkeyp
 
 def test_history_plain_skips_failed_runs(state_dir, capsys, monkeypatch):
     # A failed run persists an empty command (nothing reusable) — the viewer omits it.
+    monkeypatch.setattr(cli, "_use_fzf", lambda: False)
     store = HistoryStore()
     store.append(HistoryRecord(prompt="oops", command="", ts="2026-07-04T10:00:00-07:00"))
     store.append(HistoryRecord(prompt="ok", command="ls", ts="2026-07-04T10:01:00-07:00"))
     assert main(["history"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1 and "→ ls" in lines[0] and "oops" not in lines[0]
+
+
+# --- Scope C2: fzf interactive picker + preview -------------------------------------------------
+
+
+class _FakeStdout:
+    def __init__(self, is_tty: bool):
+        self._is_tty = is_tty
+
+    def isatty(self) -> bool:
+        return self._is_tty
+
+
+def test_use_fzf_requires_a_terminal_and_installed_fzf(monkeypatch):
+    # fzf-first only for an interactive terminal WITH fzf installed; both gates matter.
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(True))
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/fzf")
+    assert cli._use_fzf() is True
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    assert cli._use_fzf() is False  # fzf absent → plaintext fallback
+    monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/fzf")
+    assert cli._use_fzf() is False  # piped/redirected output → plaintext fallback
+
+
+def test_history_fzf_picker_prints_selected_command_verbatim(state_dir, monkeypatch, capsys):
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="list", command="ls -la", ts="2026-07-04T10:00:00-07:00"))
+    store.append(
+        HistoryRecord(prompt="echo", command="echo   a   b", ts="2026-07-04T10:05:00-07:00")
+    )
+    monkeypatch.setattr(cli, "_use_fzf", lambda: True)
+
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["input"] = kwargs["input"]
+        selected = kwargs["input"].splitlines()[0]  # fzf echoes the full line back
+        return subprocess.CompletedProcess(cmd, 0, stdout=selected + "\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert main(["history"]) == 0
+    # The visible row collapses whitespace, but selection recovers the command byte-for-byte.
+    assert capsys.readouterr().out.strip() == "echo   a   b"
+    assert seen["cmd"][0] == "fzf"
+    preview = seen["cmd"][seen["cmd"].index("--preview") + 1]
+    assert preview.endswith("history --preview {1}")  # preview pane shells back by id
+    assert seen["input"].splitlines()[0].split("\t", 1)[0].isdigit()  # id \t row
+
+
+def test_history_fzf_selection_survives_duplicate_ids(state_dir, monkeypatch, capsys):
+    # history.py documents ids as NON-unique (lockless read-then-append). Two deduped records can
+    # share an id; selection must key on the unique VIEW INDEX, not id, or a colliding record's
+    # command is emitted instead. Highlight the newest row → get ITS command verbatim.
+    directory = state_dir / "tinytalk" / "history"
+    directory.mkdir(parents=True)
+    directory.joinpath("2026-07-04.jsonl").write_text(
+        json.dumps(HistoryRecord(id=42, command="cmd A", ts="2026-07-04T10:00:00-07:00").to_dict())
+        + "\n"
+        + json.dumps(
+            HistoryRecord(id=42, command="cmd B", ts="2026-07-04T10:01:00-07:00").to_dict()
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "_use_fzf", lambda: True)
+
+    def fake_run(cmd, **kwargs):
+        selected = kwargs["input"].splitlines()[0]  # highlight the newest row (view index 0)
+        return subprocess.CompletedProcess(cmd, 0, stdout=selected + "\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert main(["history"]) == 0
+    assert capsys.readouterr().out.strip() == "cmd B"  # not "cmd A" via an id collision
+
+
+def test_history_fzf_abort_prints_nothing(state_dir, monkeypatch, capsys):
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="list", command="ls -la", ts="2026-07-04T10:00:00-07:00"))
+    monkeypatch.setattr(cli, "_use_fzf", lambda: True)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 130, stdout="", stderr=""),
+    )
+    assert main(["history"]) == 0
+    assert capsys.readouterr().out == ""  # aborting the picker yields no command
+
+
+def test_history_fzf_missing_binary_falls_back_to_plaintext(state_dir, monkeypatch, capsys):
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="list", command="ls -la", ts="2026-07-04T10:00:00-07:00"))
+    monkeypatch.setattr(cli, "_use_fzf", lambda: True)  # picker chosen…
+
+    def boom(cmd, **kw):
+        raise FileNotFoundError("fzf")  # …but fzf vanished between the check and exec
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert main(["history"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "   1  2026-07-04 10:00  list → ls -la  $0.000000"
+    ]
+
+
+def test_history_preview_renders_full_record(state_dir, capsys):
+    store = HistoryStore()
+    store.append(
+        HistoryRecord(
+            prompt="list by size",
+            command="ls -lhS",
+            explanation="list files by size",
+            backend="stub",
+            model="test-model",
+            tier=1,
+            outcome="ok",
+            danger_final="safe",
+            usage={"total_tokens": 15, "prompt_tokens": 10, "completion_tokens": 5},
+            cost_usd=2e-5,
+            latency_ms=123,
+            ts="2026-07-04T10:05:00-07:00",
+        )
+    )
+    assert main(["history", "--preview", "0"]) == 0  # sole record → view index 0
+    out = capsys.readouterr().out
+    assert "list by size" in out  # prompt
+    assert "ls -lhS" in out  # command
+    assert "list files by size" in out  # explanation
+    assert "stub / test-model" in out  # model
+    assert "tier 1" in out and "ok" in out  # tier + outcome
+    assert "safe" in out  # danger
+    assert "15" in out and "prompt 10" in out and "completion 5" in out  # tokens
+    assert "$0.000020" in out  # cost
+    assert "2026-07-04 10:05:00" in out and "123 ms" in out  # time + latency
+
+
+def test_history_preview_unknown_id_prints_nothing(state_dir, capsys):
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="a", command="ls", ts="2026-07-04T10:00:00-07:00"))
+    assert main(["history", "--preview", "9999"]) == 0
+    assert capsys.readouterr().out == ""  # no matching record → empty preview

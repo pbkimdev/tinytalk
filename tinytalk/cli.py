@@ -133,6 +133,12 @@ def build_history_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="emit recent (deduped) commands NUL-delimited for the zsh recall widget",
     )
+    parser.add_argument(
+        "--preview",
+        metavar="N",
+        type=int,
+        help=argparse.SUPPRESS,  # internal: render the record at view index N for the fzf preview
+    )
     return parser
 
 
@@ -330,13 +336,19 @@ def _prompt(args: argparse.Namespace) -> int:
 
 def _history(args: argparse.Namespace) -> int:
     """`tt history` — browse and reuse past commands. `--porcelain` feeds the zsh widget the
-    deduped recent commands NUL-delimited (newest-first). Without it, the human viewer prints a
-    numbered plaintext listing (id, time, prompt→command, cost), newest-first. Dedup collapses the
-    VIEW on the exact-normalized command, keeping the newest; the store keeps everything (store-all,
-    dedup-the-view). The fzf-first interactive picker is spec-C2."""
+    deduped recent commands NUL-delimited (newest-first). The human viewer is **fzf-first**: an
+    interactive picker with a full-record preview pane, whose selection prints the command. When
+    fzf is absent (or output is not a terminal) it falls back to a numbered plaintext listing
+    (id, time, prompt→command, cost). `--preview N` renders the record at view index N for the
+    picker's preview pane. Dedup collapses the VIEW on the exact-normalized command, keeping the
+    newest; the store keeps everything (store-all, dedup-the-view)."""
     from tinytalk.history import HistoryStore, dedup
 
     records = [r for r in dedup(HistoryStore().read_recent(_PORCELAIN_LIMIT)) if r.command.strip()]
+    if args.preview is not None:  # fzf preview-pane callback: render the record at this view index
+        if 0 <= args.preview < len(records):
+            print(_history_preview(records[args.preview]))
+        return 0
     if args.porcelain:
         for record in records:
             sys.stdout.write(record.command + "\0")  # NUL-terminated: `read -r -d ''` safe
@@ -344,9 +356,73 @@ def _history(args: argparse.Namespace) -> int:
     if not records:
         print("tt: no history yet", file=sys.stderr)  # friendly empty state (spec-C1)
         return 0
+    if _use_fzf():
+        try:
+            command = _fzf_pick(records)
+        except OSError:
+            pass  # fzf vanished between the which() check and exec — fall back to plaintext
+        else:
+            if command:  # empty on abort/no-match: print nothing, still a clean exit
+                print(command)
+            return 0
     for record in records:
         print(_history_line(record))
     return 0
+
+
+def _use_fzf() -> bool:
+    """Whether `tt history` should open the fzf picker: only for an interactive terminal with
+    fzf installed. Piped or redirected output (scripts, `| less`) and a missing fzf both fall
+    back to the plaintext listing (spec-C2)."""
+    import shutil
+
+    return sys.stdout.isatty() and shutil.which("fzf") is not None
+
+
+def _fzf_pick(records) -> str | None:
+    """Run the fzf picker over `records`; return the selected command verbatim, or `None` if the
+    user aborted. Raises `OSError` if fzf can't be executed so the caller can fall back.
+
+    Each line is `<index>\\t<row>`: fzf shows/searches the row (`--with-nth 2..`) while the hidden
+    view-index (field 1) drives the preview command and the post-selection lookup — so the printed
+    command is the stored one byte-for-byte, even though the display row collapses whitespace to
+    stay one line. Keying on the view index (not the record `id`, which history.py documents as
+    NON-unique) keeps selection and preview from cross-mapping to another record's command. The
+    preview pane shells back to `tt history --preview <index>`."""
+    import shlex
+    import subprocess
+
+    by_index = {index: record for index, record in enumerate(records)}
+    lines = "".join(
+        f"{index}\t{_history_fzf_row(record)}\n" for index, record in enumerate(records)
+    )
+    prog = shlex.quote(sys.argv[0])
+    proc = subprocess.run(
+        [
+            "fzf",
+            "--delimiter",
+            "\t",
+            "--with-nth",
+            "2..",
+            "--prompt",
+            "history> ",
+            "--preview",
+            f"{prog} history --preview {{1}}",
+            "--preview-window",
+            "down,50%,wrap",
+        ],
+        input=lines,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None  # aborted, interrupted, or no match
+    index_str = proc.stdout.splitlines()[0].split("\t", 1)[0]
+    try:
+        record = by_index.get(int(index_str))
+    except ValueError:
+        return None
+    return record.command if record is not None else None
 
 
 def _history_line(record) -> str:
@@ -359,6 +435,48 @@ def _history_line(record) -> str:
     except ValueError:
         when = record.ts
     return f"{record.id:>4}  {when}  {record.prompt} → {record.command}  ${record.cost_usd:.6f}"
+
+
+def _history_fzf_row(record) -> str:
+    """The visible fzf row (field 2+): time + prompt→command, collapsed to a single line so a
+    tab or newline in the data can't spawn phantom fields. Search matches this; the command is
+    still recovered verbatim by its view index on selection."""
+    import datetime
+
+    try:
+        when = datetime.datetime.fromisoformat(record.ts).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        when = record.ts
+    return " ".join(f"{when}  {record.prompt} → {record.command}".split())
+
+
+def _history_preview(record) -> str:
+    """The fzf preview pane — the full record for one command: prompt, command, explanation,
+    model, danger, tokens, cost, time (spec-C2)."""
+    import datetime
+
+    try:
+        when = datetime.datetime.fromisoformat(record.ts).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        when = record.ts
+    usage = record.usage or {}
+    tokens = (
+        f"{usage.get('total_tokens', 0)}  "
+        f"(prompt {usage.get('prompt_tokens', 0)}, completion {usage.get('completion_tokens', 0)})"
+    )
+    model = f"{record.backend} / {record.model}".strip(" /") or "—"
+    rows = [
+        ("prompt", record.prompt),
+        ("command", record.command),
+        ("explanation", record.explanation),
+        ("model", f"{model}  (tier {record.tier}, {record.outcome})"),
+        ("danger", record.danger_final or "—"),
+        ("tokens", tokens),
+        ("cost", f"${record.cost_usd:.6f}"),
+        ("time", f"{when}  ({record.latency_ms} ms)"),
+    ]
+    width = max(len(label) for label, _ in rows)
+    return "\n".join(f"{label:<{width}}  {value}" for label, value in rows)
 
 
 def _emit_widget(**pairs: object) -> None:
