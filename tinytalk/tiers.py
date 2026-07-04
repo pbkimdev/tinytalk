@@ -137,7 +137,9 @@ class TierController:
         # Forwarded into every CompletionRequest (e.g. the eval runner pins temperature=0).
         self._request_opts = dict(request_opts or {})
 
-    async def suggest(self, request: TierRequest) -> TierResult:
+    async def suggest(
+        self, request: TierRequest, on_partial: Callable[[str], None] | None = None
+    ) -> TierResult:
         # T0 — cache; re-validate hits (the environment may have changed).
         cached = self._cache.get(request, self._provider.name)
         if cached is not None:
@@ -157,7 +159,9 @@ class TierController:
         # T1 — grounded ask against the default backend.
         messages, surface_hash = self._messages(request, extra="")
         try:
-            gen = await generate(self._provider, messages, **self._request_opts)
+            gen = await generate(
+                self._provider, messages, on_partial=on_partial, **self._request_opts
+            )
             usage, attempts, detail = _merge_gen(
                 usage, attempts, detail, gen, tier=1, backend=self._provider.name
             )
@@ -195,28 +199,40 @@ class TierController:
         except Exception as exc:
             backend = self._escalation_name or self._provider.name
             raise NoValidCommand(
-                problems + (str(exc),), last, kind="transport", backend=backend,
-                usage=usage, attempts_detail=tuple(detail),
+                problems + (str(exc),),
+                last,
+                kind="transport",
+                backend=backend,
+                usage=usage,
+                attempts_detail=tuple(detail),
             ) from exc
         messages, surface_hash = self._messages(request, extra=extra, problems=problems)
         try:
-            gen = await generate(provider, messages, **self._request_opts)
+            gen = await generate(provider, messages, on_partial=on_partial, **self._request_opts)
         except ProviderError as exc:
             kind = "transport" if last is None else "no_command"
             usage, attempts, detail = _merge_error(
                 usage, attempts, detail, exc, tier=2, backend=provider.name
             )
             raise NoValidCommand(
-                problems + (str(exc),), last, kind=kind, backend=provider.name,
-                usage=usage, attempts_detail=tuple(detail),
+                problems + (str(exc),),
+                last,
+                kind=kind,
+                backend=provider.name,
+                usage=usage,
+                attempts_detail=tuple(detail),
             ) from exc
         except FormatError as exc:
             usage, attempts, detail = _merge_error(
                 usage, attempts, detail, exc, tier=2, backend=provider.name
             )
             raise NoValidCommand(
-                problems + (str(exc),), last, kind="no_command", backend=provider.name,
-                usage=usage, attempts_detail=tuple(detail),
+                problems + (str(exc),),
+                last,
+                kind="no_command",
+                backend=provider.name,
+                usage=usage,
+                attempts_detail=tuple(detail),
             ) from exc
         usage, attempts, detail = _merge_gen(
             usage, attempts, detail, gen, tier=2, backend=provider.name

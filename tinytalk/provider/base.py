@@ -8,6 +8,7 @@ Codex SDK, OpenAI-compatible/local) implement it in sibling issues.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol, runtime_checkable
@@ -102,3 +103,25 @@ class Provider(Protocol):
     capabilities: Capabilities
 
     async def complete(self, request: CompletionRequest) -> Completion: ...
+
+
+@dataclass
+class StreamChunk:
+    """One increment from a streaming completion.
+
+    `delta` is incremental PAYLOAD text: message-content for TEXT/JSON_OBJECT/GRAMMAR, or the
+    tool-call `arguments` fragment for TOOL_CALL. `completion` is set ONLY on the final chunk and
+    carries the fully-assembled Completion (text/tool_calls + usage + model) so callers keep usage
+    fidelity — a bare-str delta stream would drop the trailing usage.
+    """
+
+    delta: str = ""
+    completion: Completion | None = None
+
+
+@runtime_checkable
+class StreamingProvider(Provider, Protocol):
+    """Optional capability: a `Provider` that can also stream. Detected via
+    `isinstance(provider, StreamingProvider)`; providers without `stream()` keep the blocking path."""
+
+    def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]: ...
