@@ -12,6 +12,8 @@ from tinytalk.provider.base import (
     ProviderError,
     ResponseFormat,
     Role,
+    StreamChunk,
+    StreamingProvider,
     ToolCall,
     Usage,
 )
@@ -44,7 +46,9 @@ def test_native_tool_call_success():
 
 
 def test_native_json_object_success():
-    prov = StubProvider(Capabilities(supports_native_json=True), [Completion(text=json.dumps(VALID))])
+    prov = StubProvider(
+        Capabilities(supports_native_json=True), [Completion(text=json.dumps(VALID))]
+    )
     gen = _run(generate(prov, MSGS))
     assert gen.response_format is ResponseFormat.JSON_OBJECT
     assert gen.suggestion.command == "ls -la"
@@ -86,7 +90,9 @@ def test_carries_usage():
 
 
 def test_generate_sync_wrapper():
-    prov = StubProvider(Capabilities(supports_native_json=True), [Completion(text=json.dumps(VALID))])
+    prov = StubProvider(
+        Capabilities(supports_native_json=True), [Completion(text=json.dumps(VALID))]
+    )
     assert generate_sync(prov, MSGS).suggestion.command == "ls -la"
 
 
@@ -163,3 +169,101 @@ def test_terminal_format_error_carries_usage_and_ledger():
     assert exc.value.usage == Usage(10, 2, 12)  # spend from every failed attempt
     assert len(exc.value.attempts_detail) == 2
     assert all(d.result == "format_error" for d in exc.value.attempts_detail)
+
+
+# --- streaming preview branch (#61) -----------------------------------------
+
+
+class StreamingStub:
+    """A `Provider` that also streams — yields the scripted `StreamChunk`s in order.
+
+    Satisfies `isinstance(_, StreamingProvider)`; records which entry point was used so a
+    test can prove the blocking path is taken when streaming is not requested.
+    """
+
+    name = "streamstub"
+
+    def __init__(self, capabilities: Capabilities, chunks: list[StreamChunk]):
+        self.capabilities = capabilities
+        self._chunks = chunks
+        self.stream_calls = 0
+        self.complete_calls = 0
+
+    async def complete(self, request):
+        self.complete_calls += 1
+        for chunk in self._chunks:
+            if chunk.completion is not None:
+                return chunk.completion
+        raise AssertionError("no terminal completion scripted")
+
+    async def stream(self, request):
+        self.stream_calls += 1
+        for chunk in self._chunks:
+            yield chunk
+
+
+def _streamed(payload: str, *pieces: str) -> list[StreamChunk]:
+    """Deltas for `pieces` then a terminal completion carrying `payload` as its text."""
+    return [StreamChunk(delta=p) for p in pieces] + [
+        StreamChunk(completion=Completion(text=payload))
+    ]
+
+
+def test_streaming_forwards_growing_preview_and_parses():
+    payload = json.dumps(VALID)
+    prov = StreamingStub(
+        Capabilities(supports_native_json=True),
+        _streamed(payload, payload[:6], payload[6:20], payload[20:]),
+    )
+    seen: list[str] = []
+    gen = _run(generate(prov, MSGS, on_partial=seen.append))
+    assert prov.stream_calls == 1 and prov.complete_calls == 0
+    assert seen[0] == ""  # preview reset once at the start of the attempt
+    growing = seen[1:]
+    assert growing[-1] == payload  # accumulates the RAW deltas, not the parsed value
+    assert all(b.startswith(a) for a, b in zip(growing, growing[1:]))  # monotonic
+    assert gen.suggestion.command == "ls -la"  # final parse is from the terminal completion
+
+
+def test_streaming_provider_with_on_partial_none_uses_blocking_path():
+    payload = json.dumps(VALID)
+    prov = StreamingStub(Capabilities(supports_native_json=True), _streamed(payload, payload))
+    gen = _run(generate(prov, MSGS))  # on_partial None → blocking, even though it can stream
+    assert prov.complete_calls == 1 and prov.stream_calls == 0
+    assert gen.suggestion.command == "ls -la"
+
+
+def test_non_streaming_provider_ignores_on_partial():
+    prov = StubProvider(
+        Capabilities(supports_native_json=True), [Completion(text=json.dumps(VALID))]
+    )
+    assert not isinstance(prov, StreamingProvider)
+    seen: list[str] = []
+    gen = _run(generate(prov, MSGS, on_partial=seen.append))
+    assert seen == []  # not a StreamingProvider → the preview never fires
+    assert gen.suggestion.command == "ls -la"
+
+
+def test_stream_without_terminal_raises_provider_error():
+    # A stream that ends with no terminal completion is a transport fault the ladder owns.
+    prov = StreamingStub(
+        Capabilities(supports_native_json=True), [StreamChunk(delta='{"command": "ls"')]
+    )
+    with pytest.raises(ProviderError):
+        _run(generate(prov, MSGS, on_partial=lambda _s: None))
+
+
+def test_streaming_preview_callback_raising_never_breaks_generation():
+    # The best-effort preview must swallow callback errors on EVERY call, including the
+    # initial on_partial("") reset — not just the per-delta forwards.
+    payload = json.dumps(VALID)
+    prov = StreamingStub(
+        Capabilities(supports_native_json=True),
+        _streamed(payload, payload[:6], payload[6:]),
+    )
+
+    def boom(_partial: str) -> None:
+        raise RuntimeError("preview sink exploded")
+
+    gen = _run(generate(prov, MSGS, on_partial=boom))
+    assert gen.suggestion.command == "ls -la"  # reset raising must not crash the ladder

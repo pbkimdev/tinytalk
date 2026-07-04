@@ -4,7 +4,7 @@ import pytest
 
 import tinytalk.provider.factory as factory
 from tinytalk.cli import build_parser, main
-from tinytalk.provider.base import Capabilities, Completion, Usage
+from tinytalk.provider.base import Capabilities, Completion, StreamChunk, Usage
 from tests.stubs import StubProvider
 
 CONFIG = """\
@@ -196,3 +196,69 @@ def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "backend" in out
     assert "find-large-files" in out
+
+
+# --- widget streaming preview via TT_WIDGET_PARTIAL (#61) --------------------
+
+
+class StreamingStub:
+    """A streaming backend for the widget-preview wiring: emits the payload as growing
+    deltas, then a terminal completion equal to what `complete()` returns."""
+
+    name = "stub"
+
+    def __init__(self, payload: dict, usage: Usage):
+        self.capabilities = Capabilities()
+        self._json = json.dumps(payload)
+        self._usage = usage
+        self.stream_calls = 0
+        self.complete_calls = 0
+
+    async def complete(self, request):
+        self.complete_calls += 1
+        return Completion(text=self._json, usage=self._usage)
+
+    async def stream(self, request):
+        self.stream_calls += 1
+        text = self._json
+        step = max(1, len(text) // 3)
+        for start in range(0, len(text), step):
+            yield StreamChunk(delta=text[start : start + step])
+        yield StreamChunk(completion=Completion(text=text, usage=self._usage))
+
+
+def test_widget_partial_preview_is_additive_and_stdout_unchanged(
+    config_path, monkeypatch, tmp_path, capsys
+):
+    provider = StreamingStub(PAYLOAD, Usage(10, 5, 15))
+    monkeypatch.setattr(factory, "make_provider", lambda cfg: provider)
+
+    # With TT_WIDGET_PARTIAL set, the widget run streams the growing command to the file.
+    partial = tmp_path / "widget.partial"
+    monkeypatch.setenv("TT_WIDGET_PARTIAL", str(partial))
+    assert main(["--config", config_path, "--widget", "list", "files", "by", "size"]) == 0
+    streamed_out = capsys.readouterr().out
+    assert provider.stream_calls == 1 and provider.complete_calls == 0
+    assert partial.read_text() == PAYLOAD["command"]  # preview file got the command
+
+    # With the env unset, the same widget run blocks on complete() — and the final
+    # tt_* stdout wire protocol is byte-identical (the preview is a pure add-on).
+    monkeypatch.delenv("TT_WIDGET_PARTIAL")
+    assert main(["--config", config_path, "--widget", "list", "files", "by", "size"]) == 0
+    blocking_out = capsys.readouterr().out
+    assert provider.complete_calls == 1  # second run took the blocking path
+
+    assert streamed_out == blocking_out
+    assert streamed_out.startswith("tt_command=")
+    assert "tt_danger=safe" in streamed_out
+
+
+def test_partial_env_is_widget_gated(config_path, monkeypatch, tmp_path):
+    # TT_WIDGET_PARTIAL only matters in --widget mode; json/plain/eval never stream a preview.
+    provider = StreamingStub(PAYLOAD, Usage(10, 5, 15))
+    monkeypatch.setattr(factory, "make_provider", lambda cfg: provider)
+    partial = tmp_path / "widget.partial"
+    monkeypatch.setenv("TT_WIDGET_PARTIAL", str(partial))
+    assert main(["--config", config_path, "--json", "list", "files"]) == 0
+    assert not partial.exists()  # no preview outside widget mode
+    assert provider.complete_calls == 1 and provider.stream_calls == 0

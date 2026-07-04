@@ -6,6 +6,15 @@
 # containing the history-expansion hazard `.[!.]*` (#62).
 # Env: TT_STUB_STATE (call-counter file), TT_STUB_DELAY (seconds, default 1).
 #
+# When TT_WIDGET_PARTIAL is set (the streaming preview channel, #61), the stub
+# also writes a few growing prefixes of the command to that file — one UTF-8
+# line, replaced atomically — spending the whole delay budget across the pieces
+# BEFORE emitting the final tt_* to stdout, simulating a streaming backend. The
+# widget shows those as a dimmed, marked preview until the validated command lands.
+# The final stdout is emitted by the exact non-streaming path (verbatim fixture
+# `cat` / built-in heredoc, after the delay), so its bytes and the missing-file
+# exit-1 are unchanged whether or not TT_WIDGET_PARTIAL was set.
+#
 # `tt history --porcelain` (the prompt-mode recall widget, #D1) is answered separately:
 # recent commands NUL-delimited, newest-first and already deduped. It is not a --widget
 # call, so it bumps no counter and takes no delay.
@@ -13,32 +22,79 @@ if [ "${1:-}" = "history" ]; then
   printf '%s\0' 'git status --short' 'ls -la /var/log' 'grep -rn TODO tinytalk/'
   exit 0
 fi
-state="${TT_STUB_STATE:-${TMPDIR:-/tmp}/tt-stub-count}"
-n=$(cat "$state" 2>/dev/null || echo 0)
-n=$((n + 1))
-echo "$n" > "$state"
-sleep "${TT_STUB_DELAY:-1}"
-if [ -n "${TT_STUB_RESPONSES:-}" ]; then
-  cat "$TT_STUB_RESPONSES/$n" 2>/dev/null || exit 1
-  exit 0
-fi
-case "$n" in
-  1) cat <<'EOF'
+
+# Built-in responses (used when TT_STUB_RESPONSES is unset). A function so the
+# streaming path can recover the command from the very bytes the final stdout emits.
+builtin_response() {
+  case "$1" in
+    1) cat <<'EOF'
 tt_command='echo "Hello! I'\''m TinyTalk — tell me what you'\''d like to do and I'\''ll turn it into a shell command."'
 tt_danger=safe
 tt_explanation='Prints a greeting message.'
 EOF
-  ;;
-  2) cat <<'EOF'
+    ;;
+    2) cat <<'EOF'
 tt_command='du -h -d 1 . | sort -rh | head -n 3'
 tt_danger=safe
 tt_explanation='Lists disk usage of each item one level deep in the current directory (~), in human-readable sizes, sorted largest first, showing only the top 3.'
 EOF
-  ;;
-  *) cat <<'EOF'
+    ;;
+    *) cat <<'EOF'
 tt_command='print -r ok-histexpand .[!.]*(N)'
 tt_danger=safe
 tt_explanation='Prints a marker plus any hidden entries (nullglob).'
 EOF
-  ;;
-esac
+    ;;
+  esac
+}
+
+state="${TT_STUB_STATE:-${TMPDIR:-/tmp}/tt-stub-count}"
+n=$(cat "$state" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" > "$state"
+
+delay="${TT_STUB_DELAY:-1}"
+if [ -n "${TT_WIDGET_PARTIAL:-}" ]; then
+  # Preview text to stream: an explicit `$n.stream` fixture when present (lets a
+  # scenario prove the final validated buffer differs from a stale preview), else
+  # the command itself, recovered with the same shell-unquoting the widget does.
+  # This only derives the preview — final stdout below still comes from the fixture
+  # bytes / heredoc, so streaming never perturbs the emitted output.
+  cmd=""
+  if [ -n "${TT_STUB_RESPONSES:-}" ]; then
+    if [ -f "$TT_STUB_RESPONSES/$n.stream" ]; then
+      cmd=$(cat "$TT_STUB_RESPONSES/$n.stream")
+    elif [ -f "$TT_STUB_RESPONSES/$n" ]; then
+      eval "$(grep '^tt_command=' "$TT_STUB_RESPONSES/$n")"
+      cmd=${tt_command:-}
+    fi
+  else
+    eval "$(builtin_response "$n" | grep '^tt_command=')"
+    cmd=${tt_command:-}
+  fi
+  set -f            # `.[!.]*`, `*`, etc. are literal command text, not globs
+  # shellcheck disable=SC2086
+  set -- $cmd       # split into tokens on whitespace (globbing disabled)
+  set +f
+  if [ "$#" -gt 0 ]; then
+    step=$(awk "BEGIN { d = $delay + 0; n = $#; print (n > 0 ? d / n : d) }")
+    acc=""
+    for tok in "$@"; do
+      acc="${acc:+$acc }$tok"
+      printf '%s' "$acc" > "$TT_WIDGET_PARTIAL.new" && mv -f "$TT_WIDGET_PARTIAL.new" "$TT_WIDGET_PARTIAL"
+      sleep "$step"
+    done
+  else
+    sleep "$delay"
+  fi
+else
+  sleep "$delay"
+fi
+
+# Final stdout — the exact pre-#61 path: verbatim fixture bytes (a missing file
+# still exits 1), or the built-in heredoc.
+if [ -n "${TT_STUB_RESPONSES:-}" ]; then
+  cat "$TT_STUB_RESPONSES/$n" 2>/dev/null || exit 1
+  exit 0
+fi
+builtin_response "$n"
