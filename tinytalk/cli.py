@@ -18,6 +18,9 @@ import sys
 
 from tinytalk import __version__
 
+# How many recent records `tt history --porcelain` reads before deduping for the widget feed.
+_PORCELAIN_LIMIT = 1000
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -28,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  auth        interactively set up a provider backend\n"
             "  eval        benchmark configured backends (see `tt eval publish` for the docs page)\n"
             "  ground      inspect or rebuild the system grounding cache\n"
+            "  history     browse and reuse past commands\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "  prompt      print the assembled model prompt for a request (no model call)\n"
             "\n"
@@ -118,6 +122,19 @@ def build_prompt_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_history_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt history",
+        description="Browse and reuse past commands (dated-JSONL store under XDG_STATE_HOME).",
+    )
+    parser.add_argument(
+        "--porcelain",
+        action="store_true",
+        help="emit recent (deduped) commands NUL-delimited for the zsh recall widget",
+    )
+    return parser
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if len(argv) >= 2 and argv[0] == "eval" and argv[1] == "publish":
@@ -134,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return _ground(build_ground_parser().parse_args(argv[1:]))
     if argv[:1] == ["prompt"]:
         return _prompt(build_prompt_parser().parse_args(argv[1:]))
+    if argv[:1] == ["history"]:
+        return _history(build_history_parser().parse_args(argv[1:]))
     args = build_parser().parse_args(argv)
     request_text = " ".join(args.request).strip()
     if not request_text:
@@ -308,14 +327,187 @@ def _prompt(args: argparse.Namespace) -> int:
     return 0
 
 
+def _history(args: argparse.Namespace) -> int:
+    """`tt history` — the machine-readable recall feed the zsh widget consumes. `--porcelain`
+    emits the deduped recent commands NUL-delimited (newest-first); dedup collapses the VIEW on the
+    exact-normalized command, keeping the newest, while the store keeps everything (store-all,
+    dedup-the-view). The human viewer (fzf picker + plaintext fallback) is spec-C."""
+    from tinytalk.history import HistoryStore, dedup
+
+    records = [r for r in dedup(HistoryStore().read_recent(_PORCELAIN_LIMIT)) if r.command.strip()]
+    if args.porcelain:
+        for record in records:
+            sys.stdout.write(record.command + "\0")  # NUL-terminated: `read -r -d ''` safe
+        return 0
+    return 0  # the human viewer arrives in spec-C1
+
+
 def _emit_widget(**pairs: object) -> None:
     import shlex
 
     print("\n".join(f"{key}={shlex.quote(str(value))}" for key, value in pairs.items()))
 
 
+def _price_nonzero(price) -> bool:
+    """A model priced at any non-zero rate — the `billable` rule's price predicate."""
+    return bool(
+        price.input_per_mtok
+        or price.output_per_mtok
+        or price.cached_input_per_mtok
+        or price.cache_write_per_mtok
+    )
+
+
+def _usage_dict(usage) -> dict:
+    """`Usage` → the persisted token dict; total falls back to prompt+completion (an
+    openai-compat quirk: `total=0` with the parts set) so `billable` reads a real count."""
+    total = usage.total_tokens or (usage.prompt_tokens + usage.completion_tokens)
+    return {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": total,
+        "cached_prompt_tokens": usage.cached_prompt_tokens,
+        "cache_write_tokens": usage.cache_write_tokens,
+    }
+
+
+def _resolve_model(config, backend: str, backend_cfg) -> str:
+    """Model behind a result — `config.backend(name).model` per the pinned rule. A real
+    provider names itself (`openai-compat:<model>`), not by the config key, so an unknown
+    name falls back to the primary backend's model rather than dropping the whole record."""
+    from tinytalk.config import ConfigError
+
+    try:
+        return config.backend(backend).model
+    except ConfigError:
+        return backend_cfg.model
+
+
+def _enrich_attempts(config, backend_cfg, detail) -> tuple[list[dict], dict[str, float]]:
+    """One dict per format-attempt (spec-A2 ledger), enriched with the per-attempt model and
+    its own cost — "cost computed per-attempt, then summed" (DECISIONS §Usage fidelity) made
+    persistable. Also returns the element-wise sum of the per-attempt cost breakdowns: the
+    record's headline cost split, priced per-attempt so it stays **exact under a mixed-price
+    escalation** (a free local T1 and a priced cloud T2 are each billed at their own rate,
+    not all the accumulated tokens at the winning backend's single rate)."""
+    from tinytalk.cost import cost_breakdown
+
+    entries: list[dict] = []
+    totals = {"fresh": 0.0, "cached": 0.0, "write": 0.0, "output": 0.0}
+    for attempt in detail:
+        model = _resolve_model(config, attempt.backend, backend_cfg)
+        breakdown = cost_breakdown(attempt.usage, config.price(model))
+        for bucket, value in breakdown.items():
+            totals[bucket] += value
+        entries.append(
+            {
+                "tier": attempt.tier,
+                "backend": attempt.backend,
+                "model": model,
+                "format_reached": attempt.format_reached.value,
+                "usage": _usage_dict(attempt.usage),
+                "cost_usd": round(sum(breakdown.values()), 6),
+                "latency_ms": attempt.latency_ms,
+                "result": attempt.result,
+            }
+        )
+    return entries, {bucket: round(value, 6) for bucket, value in totals.items()}
+
+
+def _capture(
+    args, request_text, latency_ms, *, config, backend_cfg, request, result=None, exc=None
+):
+    """Build one history record for this outcome and write it via the A1 sink.
+
+    Best-effort: any capture-side error is swallowed so it never changes stdout/stderr or
+    the exit code (mirrors cache.py). Called at the three `_run` write sites — the success
+    block (`ok`/`cache_hit` by tier), the `NoValidCommand` handler (`no_command`/
+    `transport_error` by `exc.kind`), and the generic fault handler (`transport_error`).
+    """
+    try:
+        import platform
+
+        from tinytalk.history import HistoryRecord, HistoryStore
+        from tinytalk.provider.base import Usage
+        from tinytalk.tiers import NoValidCommand
+
+        if result is not None:
+            outcome = "cache_hit" if result.tier == 0 else "ok"
+            backend = result.backend
+            usage = result.usage
+            detail = result.attempts_detail
+            suggestion = result.suggestion
+        else:
+            if isinstance(exc, NoValidCommand):
+                outcome = "transport_error" if exc.kind == "transport" else "no_command"
+            else:
+                outcome = "transport_error"
+            backend = getattr(exc, "backend", "") or backend_cfg.name
+            usage = getattr(exc, "usage", None) or Usage()
+            detail = getattr(exc, "attempts_detail", ())
+            suggestion = None
+
+        model = _resolve_model(config, backend, backend_cfg)
+        price = config.price(model)
+        usage_dict = _usage_dict(usage)
+        # Headline cost is priced PER-ATTEMPT then summed (DECISIONS §Usage fidelity: cost is
+        # "exact under escalation"), so a mixed-price escalation bills each tier at its own rate
+        # rather than all accumulated tokens at the winning backend's rate; `breakdown` is the
+        # matching per-rate split. For a single backend this equals pricing the accumulated
+        # usage once. The four buckets still sum to cost_usd. (`price`/`model` above stay the
+        # winning backend's, for the record's `model` field and the pinned `billable` rule.)
+        attempts_detail, breakdown = _enrich_attempts(config, backend_cfg, detail)
+        cost_usd = round(sum(breakdown.values()), 6)
+        record = HistoryRecord(
+            latency_ms=latency_ms,
+            cwd=request.cwd if request is not None else os.getcwd(),
+            mode="widget" if args.widget else "json" if args.json else "plain",
+            backend=backend,
+            model=model,
+            provider_kind=backend_cfg.kind,
+            posture=config.posture,
+            os_fingerprint=f"{platform.system()}-{platform.release()}-{platform.machine()}",
+            language=request.language if request is not None else config.language,
+            prompt_surface_hash=result.prompt_surface_hash if result is not None else "",
+            context_chars=len(request.session_context) if request is not None else 0,
+            prompt=request_text,
+            command=suggestion.command if suggestion is not None else "",
+            explanation=suggestion.explanation if suggestion is not None else "",
+            danger_model=suggestion.danger.value if suggestion is not None else "",
+            danger_final=result.validation.danger if result is not None else "",
+            confidence=suggestion.confidence if suggestion is not None else 0.0,
+            needs=suggestion.needs if suggestion is not None else (),
+            tier=result.tier if result is not None else 0,
+            attempts=result.attempts if result is not None else len(detail),
+            escalated=any(entry["tier"] == 2 for entry in attempts_detail),
+            cache_hit=outcome == "cache_hit",
+            outcome=outcome,
+            billable=(
+                outcome != "cache_hit" and usage_dict["total_tokens"] > 0 and _price_nonzero(price)
+            ),
+            usage=usage_dict,
+            cost_usd=cost_usd,
+            cost_breakdown=breakdown,
+            attempts_detail=attempts_detail,
+            error_kind=(
+                None
+                if result is not None
+                else (exc.kind if isinstance(exc, NoValidCommand) else "transport")
+            ),
+            problems=(
+                ()
+                if result is not None
+                else tuple(getattr(exc, "problems", ())) or (f"{type(exc).__name__}: {exc}",)
+            ),
+        )
+        HistoryStore().append(record)
+    except Exception:
+        return  # history is best-effort; a capture fault never disturbs the request
+
+
 def _run(args: argparse.Namespace, request_text: str) -> int:
     import asyncio
+    import time
     from pathlib import Path
 
     from tinytalk.cache import ExactCache, default_cache_dir
@@ -326,6 +518,13 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     from tinytalk.validate import CommandValidator
 
     backend_name = args.backend or ""
+    # Bound for the capture sites even if we fault before assembling them. A non-ConfigError
+    # config-load failure (e.g. `--config <dir>` → IsADirectoryError) hits the generic handler
+    # before `config`/`backend_cfg` are set, so they must exist for its guard to read.
+    config = None
+    backend_cfg = None
+    request = None
+    start = time.perf_counter()
     try:
         config = load_config(Path(args.config) if args.config else None)
         backend_cfg = config.backend(args.backend)
@@ -374,6 +573,15 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             _emit_widget(tt_error_kind=exc.kind, tt_error_message=message, tt_backend=backend)
         elif args.json and exc.last is not None:
             print(json.dumps({"ok": False, "problems": list(exc.problems)}))
+        _capture(
+            args,
+            request_text,
+            round((time.perf_counter() - start) * 1000),
+            config=config,
+            backend_cfg=backend_cfg,
+            request=request,
+            exc=exc,
+        )
         return 1
     except Exception as exc:  # provider/transport faults — keep the shell usable
         subject = f"backend {backend_name!r}" if backend_name else "backend"
@@ -382,6 +590,18 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         if args.widget:
             _emit_widget(
                 tt_error_kind="transport", tt_error_message=message, tt_backend=backend_name
+            )
+        # A config-load failure faults before config/backend_cfg exist; like ConfigError it
+        # writes no record (the backend was never known) instead of crashing on unbound locals.
+        if config is not None and backend_cfg is not None:
+            _capture(
+                args,
+                request_text,
+                round((time.perf_counter() - start) * 1000),
+                config=config,
+                backend_cfg=backend_cfg,
+                request=request,
+                exc=exc,
             )
         return 1
 
@@ -409,6 +629,15 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             f"# {result.suggestion.explanation}  [danger: {result.validation.danger}]",
             file=sys.stderr,
         )
+    _capture(
+        args,
+        request_text,
+        round((time.perf_counter() - start) * 1000),
+        config=config,
+        backend_cfg=backend_cfg,
+        request=request,
+        result=result,
+    )
     return 0
 
 
