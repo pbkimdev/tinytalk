@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
+            "  config      change a setting in config.toml (e.g. `tt config explanation off`)\n"
             "  eval        benchmark configured backends (see `tt eval publish` for the docs page)\n"
             "  ground      inspect or rebuild the system grounding cache\n"
             "  history     browse and reuse past commands\n"
@@ -123,6 +124,20 @@ def build_prompt_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_config_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt config",
+        description="Change a setting in config.toml (edit the file by hand for anything else).",
+    )
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
+    sub = parser.add_subparsers(dest="setting", required=True)
+    explanation = sub.add_parser("explanation", help="show/hide the '# ...' explanation line")
+    explanation.add_argument("value", choices=["on", "off"])
+    return parser
+
+
 def build_history_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tt history",
@@ -156,6 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         return _auth(build_auth_parser().parse_args(argv[1:]))
     if argv[:1] == ["ground"]:
         return _ground(build_ground_parser().parse_args(argv[1:]))
+    if argv[:1] == ["config"]:
+        return _config(build_config_parser().parse_args(argv[1:]))
     if argv[:1] == ["prompt"]:
         return _prompt(build_prompt_parser().parse_args(argv[1:]))
     if argv[:1] == ["history"]:
@@ -253,6 +270,34 @@ def _auth(args: argparse.Namespace) -> int:
         line += f"; fallback: {config.escalation_backend}"
     print(line)
     print('Try it: tt "show me disk usage"')
+    return 0
+
+
+def _config(args: argparse.Namespace) -> int:
+    """`tt config explanation on|off` — flip a [defaults] setting in config.toml, preserving
+    everything else in the file (tomlkit read-modify-write, same pattern as `tt auth`)."""
+    from pathlib import Path
+
+    import tomlkit
+
+    from tinytalk.config import ConfigError, default_config_path, load_config
+
+    config_path = Path(args.config) if args.config else default_config_path()
+    text = config_path.read_text() if config_path.exists() else ""
+    doc = tomlkit.parse(text) if text else tomlkit.document()
+    if "defaults" not in doc:
+        doc["defaults"] = tomlkit.table()
+    doc["defaults"]["explanation"] = args.value == "on"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(tomlkit.dumps(doc))
+
+    try:
+        load_config(config_path)
+    except ConfigError as exc:  # should never happen — surface loudly if it does
+        print(f"tt: the written config failed validation: {exc}", file=sys.stderr)
+        return 1
+    state = "shown" if args.value == "on" else "hidden"
+    print(f"tt: explanation {state} ({config_path})")
     return 0
 
 
@@ -773,7 +818,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         _emit_widget(
             tt_command=result.suggestion.command,
             tt_danger=result.validation.danger,
-            tt_explanation=result.suggestion.explanation,
+            tt_explanation=result.suggestion.explanation if config.show_explanation else "",
         )
     elif args.json:
         print(
@@ -789,10 +834,8 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         )
     else:
         print(result.suggestion.command)
-        print(
-            f"# {result.suggestion.explanation}  [danger: {result.validation.danger}]",
-            file=sys.stderr,
-        )
+        prefix = f"# {result.suggestion.explanation}  " if config.show_explanation else "# "
+        print(f"{prefix}[danger: {result.validation.danger}]", file=sys.stderr)
     _capture(
         args,
         request_text,

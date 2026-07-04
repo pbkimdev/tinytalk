@@ -113,6 +113,32 @@ def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
     assert "cancelled" in capsys.readouterr().err
 
 
+def test_config_explanation_off_then_on(tmp_path, capsys):
+    from tinytalk.config import load_config
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(CONFIG)
+
+    assert main(["config", "--config", str(config_file), "explanation", "off"]) == 0
+    assert "hidden" in capsys.readouterr().out
+    assert load_config(config_file).show_explanation is False
+    assert "kind = \"openai-compat\"" in config_file.read_text()  # rest of the file untouched
+
+    assert main(["config", "--config", str(config_file), "explanation", "on"]) == 0
+    assert "shown" in capsys.readouterr().out
+    assert load_config(config_file).show_explanation is True
+
+
+def test_run_suppresses_explanation_when_disabled(config_path, stub_backend, capsys):
+    from pathlib import Path
+
+    Path(config_path).write_text(CONFIG.replace("[defaults]", "[defaults]\nexplanation = false"))
+    assert main(["find big files", "--config", config_path]) == 0
+    err = capsys.readouterr().err
+    assert "list files by size" not in err
+    assert "[danger:" in err
+
+
 def test_ground_subcommand_reports_and_refreshes(tmp_path, monkeypatch, capsys):
     from tests.test_grounding import make_exe
 

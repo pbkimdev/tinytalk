@@ -293,7 +293,7 @@ _tt_accept_line() {
       BUFFER="$tt_command"
     fi
     CURSOR=${#BUFFER}
-    zle -M "[$tt_danger] $tt_explanation"
+    zle -M "[$tt_danger]${tt_explanation:+ $tt_explanation}"
     return 0
   fi
   zle .accept-line

@@ -82,6 +82,7 @@ class Config:
     posture: str = "local"
     escalation_backend: str | None = None
     language: str = "en"  # explanation language (#107); resolved at load time, never empty
+    show_explanation: bool = True  # [defaults] explanation = false hides the "# ..." line
     cache_enabled: bool = True
     cache_dir: Path | None = None
     prices: dict[str, Price] = field(default_factory=dict)
@@ -149,6 +150,12 @@ def _validate(data: dict, path: Path) -> Config:
             f'{path}: [defaults] language must be a string (e.g. "ko"); got {language!r}'
         )
 
+    show_explanation = defaults.get("explanation", True)
+    if not isinstance(show_explanation, bool):
+        raise ConfigError(
+            f"{path}: [defaults] explanation must be true or false; got {show_explanation!r}"
+        )
+
     raw_backends = data.get("backends")
     if not isinstance(raw_backends, dict) or not raw_backends:
         raise ConfigError(f"{path}: define at least one [backends.<name>] table")
@@ -180,6 +187,7 @@ def _validate(data: dict, path: Path) -> Config:
         posture=posture,
         escalation_backend=escalation,
         language=language or env_language(),
+        show_explanation=show_explanation,
         cache_enabled=bool(cache.get("enabled", True)),
         cache_dir=cache_dir,
         prices=_validate_prices(data.get("prices", {}), path),

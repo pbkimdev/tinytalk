@@ -227,6 +227,21 @@ def test_language_must_be_string(tmp_path):
         load_config(write(tmp_path, text))
 
 
+def test_show_explanation_defaults_true(tmp_path):
+    assert load_config(write(tmp_path, GOOD)).show_explanation is True
+
+
+def test_show_explanation_from_defaults(tmp_path):
+    text = GOOD.replace('backend = "local"', 'backend = "local"\nexplanation = false')
+    assert load_config(write(tmp_path, text)).show_explanation is False
+
+
+def test_show_explanation_must_be_bool(tmp_path):
+    text = GOOD.replace('backend = "local"', 'backend = "local"\nexplanation = "off"')
+    with pytest.raises(ConfigError, match="explanation must be true or false"):
+        load_config(write(tmp_path, text))
+
+
 def test_default_config_path_respects_env(monkeypatch, tmp_path):
     monkeypatch.setenv("TT_CONFIG", str(tmp_path / "custom.toml"))
     assert default_config_path() == tmp_path / "custom.toml"

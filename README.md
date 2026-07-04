@@ -351,6 +351,7 @@ backend = "local"                # the primary slot
 escalation_backend = "claude"    # the fallback slot (optional)
 posture = "hybrid"               # declared stance: local | hybrid | cloud
 language = "ko"                  # explanation language; auto-detected from locale if unset
+explanation = false              # hide the one-line "# ..." explanation (default: true)
 
 [backends.local]
 kind = "openai-compat"
@@ -387,7 +388,9 @@ A few keys worth knowing: `api_key_env` reads a secret from an environment varia
 `capabilities` opts a backend into richer response formats (`tool_calling`, `native_json`,
 `grammar`); `effort` passes a reasoning-effort level through where the provider supports
 it. The **explanation language** (`language`) controls only the one-line explanation — the
-command itself and TinyTalk's own messages stay in English.
+command itself and TinyTalk's own messages stay in English. Turn the explanation off
+entirely by setting `explanation = false`, either by hand or with `tt config explanation
+off` (`tt config explanation on` to bring it back).
 
 ---
 
