@@ -89,21 +89,31 @@ fi
 say "installed: $("$TT" --version)"
 
 # 4. If the user's shells won't find tt (its dir isn't on the pre-install PATH),
-# offer to wire it into their rc file — consent-gated, marker-guarded, idempotent.
-# bash gets ~/.bashrc (plus ~/.bash_profile when it exists, since macOS login
-# shells skip .bashrc); anything else gets .zshrc, matching the zsh-first widget.
+# offer to wire it into their rc files — consent-gated, marker-guarded,
+# idempotent. We register PATH for both zsh and bash across macOS and Linux:
+#   zsh  -> ~/.zshrc
+#   bash -> ~/.bashrc, plus the login profile macOS bash actually reads
+#           (~/.bash_profile, else ~/.profile) when one exists — since macOS
+#           login shells read a profile, not ~/.bashrc.
+# The current $SHELL's files are created if missing; the other shell's files are
+# wired only when they already exist, so we never create rc files for a shell
+# you don't use (nor a ~/.bash_profile that would shadow an existing ~/.profile).
 PATH_MARKER="# tt PATH (added by install.sh)"
 case "$BIN_DIR" in
   "$HOME"/*) BIN_LINE="export PATH=\"\$HOME${BIN_DIR#"$HOME"}:\$PATH\"" ;;
   *) BIN_LINE="export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
+ZSH_RCS="$ZSHRC"
+BASH_RCS="$HOME/.bashrc"
+if [ -f "$HOME/.bash_profile" ]; then BASH_RCS="$BASH_RCS $HOME/.bash_profile"
+elif [ -f "$HOME/.profile" ]; then BASH_RCS="$BASH_RCS $HOME/.profile"; fi
 case "${SHELL:-}" in
-  */bash)
-    PATH_RC="$HOME/.bashrc"
-    if [ -f "$HOME/.bash_profile" ]; then PATH_RC2="$HOME/.bash_profile"; else PATH_RC2=""; fi
-    ;;
-  *) PATH_RC="$ZSHRC"; PATH_RC2="" ;;
+  */bash) PRIMARY_RCS="$BASH_RCS"; OTHER_RCS="$ZSH_RCS" ;;
+  *)      PRIMARY_RCS="$ZSH_RCS";  OTHER_RCS="$BASH_RCS" ;;
 esac
+# primary shell's files always, other shell's files only if they already exist
+PATH_RCS="$PRIMARY_RCS"
+for rc in $OTHER_RCS; do [ -f "$rc" ] && PATH_RCS="$PATH_RCS $rc"; done
 path_wired() { [ -f "$1" ] && grep -qF "$PATH_MARKER" "$1"; }
 wire_path() {
   if path_wired "$1"; then
@@ -121,13 +131,16 @@ if ( PATH="$ORIG_PATH"; command -v tt ) >/dev/null 2>&1; then
   : # already resolvable from the user's own PATH
 elif [ "$NO_RC" = 1 ]; then
   say "PATH: skipped (--no-rc); add it yourself:  $BIN_LINE"
-elif path_wired "$PATH_RC" && { [ -z "$PATH_RC2" ] || path_wired "$PATH_RC2"; }; then
-  say "PATH: already wired — open a new shell to pick it up"
-elif ask "tt is in $BIN_DIR but not on your \$PATH — add it to $PATH_RC${PATH_RC2:+ and $PATH_RC2}?"; then
-  wire_path "$PATH_RC"
-  if [ -n "$PATH_RC2" ]; then wire_path "$PATH_RC2"; fi
 else
-  say "PATH: skipped; add it yourself:  $BIN_LINE"
+  PATH_NEED=""
+  for rc in $PATH_RCS; do path_wired "$rc" || PATH_NEED="$PATH_NEED $rc"; done
+  if [ -z "$PATH_NEED" ]; then
+    say "PATH: already wired — open a new shell to pick it up"
+  elif ask "tt is in $BIN_DIR but not on your \$PATH — add it to$PATH_NEED?"; then
+    for rc in $PATH_NEED; do wire_path "$rc"; done
+  else
+    say "PATH: skipped; add it yourself:  $BIN_LINE"
+  fi
 fi
 
 # 5. Scaffold the config — only if missing, never overwrite.

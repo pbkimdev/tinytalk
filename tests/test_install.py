@@ -266,6 +266,60 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     assert (home3 / ".bash_profile").read_text() == profile
 
 
+def _uv_installs_to_toolbin(fakebin: Path, uv_log: Path) -> None:
+    """Stub uv that installs tt into $HOME/toolbin — off the sandbox PATH."""
+    make_exe(
+        fakebin,
+        "uv",
+        f'#!/bin/sh\necho "$@" >> "{uv_log}"\n'
+        'if [ "$1" = tool ] && [ "$2" = dir ]; then echo "$HOME/toolbin"; exit 0; fi\n'
+        'if [ "$1" = tool ] && [ "$2" = install ]; then\n'
+        '  mkdir -p "$HOME/toolbin"\n'
+        '  printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
+        ' > "$HOME/toolbin/tt"\n'
+        '  chmod +x "$HOME/toolbin/tt"\nfi\nexit 0\n',
+    )
+
+
+def test_path_wired_for_both_shells_when_both_rc_exist(tmp_path):
+    """A zsh user who also keeps a ~/.bashrc gets PATH wired into both files."""
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    (home / ".bashrc").write_text("# my precious bashrc\n")  # they use bash too
+    _uv_installs_to_toolbin(fakebin, tmp_path / "uv.log")
+    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin", "SHELL": "/bin/zsh"}
+
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    zshrc = (home / ".zshrc").read_text()
+    bashrc = (home / ".bashrc").read_text()
+    assert zshrc.count(PATH_MARKER) == 1  # primary shell (zsh)
+    assert bashrc.count(PATH_MARKER) == 1  # other shell, rc already existed
+    assert bashrc.startswith("# my precious bashrc\n")  # appended, not clobbered
+    assert 'export PATH="$HOME/toolbin:$PATH"' in bashrc
+
+    proc = run_install(env, "--yes")  # idempotent across both files
+    assert proc.returncode == 0, proc.stderr
+    assert (home / ".zshrc").read_text() == zshrc
+    assert (home / ".bashrc").read_text() == bashrc
+
+
+def test_other_shell_rc_not_created_when_absent(tmp_path):
+    """No ~/.bashrc → a zsh user's PATH lands only in ~/.zshrc; bash isn't created."""
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    _uv_installs_to_toolbin(fakebin, tmp_path / "uv.log")
+    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin", "SHELL": "/bin/zsh"}
+
+    assert run_install(env, "--yes").returncode == 0
+    assert (home / ".zshrc").read_text().count(PATH_MARKER) == 1
+    assert not (home / ".bashrc").exists()  # never created for an unused shell
+
+
 def test_unknown_flag_fails(sandbox):
     _, env, _ = sandbox
     proc = run_install(env, "--frobnicate")
