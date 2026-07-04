@@ -22,6 +22,16 @@ with a fake `tt` on PATH so runs are fast, deterministic, and offline.
 the bottom row), prints screen captures per stage, and exits PASS/FAIL. Run it under both
 the real config and `-f`: prompt frameworks and syntax highlighters change redraw behavior.
 
+```sh
+.claude/skills/test-shell-ui/scripts/recall.zsh       # prompt-mode ↑/↓ recall (#D1)
+.claude/skills/test-shell-ui/scripts/recall.zsh -f    # clean `zsh -f`
+```
+
+`recall.zsh` proves the ↑/↓ recall widget: inside AI mode the arrows walk the deduped
+commands from `tt history --porcelain` (the stub answers it — see below) into BUFFER, and
+leaving AI mode restores the default arrow bindings. Run it under the real config too —
+that catches restoration against a real third-party binding (e.g. atuin's `atuin-up-search`).
+
 To test other flows (destructive commands, backend failure), point `TT_STUB_RESPONSES`
 at a directory of files `1`, `2`, … — each is printed verbatim as that call's
 `tt --widget` output; a missing file makes the stub exit 1 (the widget's error path).
@@ -31,8 +41,11 @@ Copy the scenario section of `drive.zsh` and adapt the keystrokes/checks.
 
 - `scripts/drive.zsh` — tmux driver: spawns the shell, stubs PATH, sends keystrokes,
   captures screens, asserts nothing was overdrawn.
+- `scripts/recall.zsh` — tmux driver for the ↑/↓ recall widget (#D1): asserts the arrows
+  walk the stubbed history into BUFFER and that leaving AI mode restores the default arrows.
 - `scripts/tt-stub` — fake `tt`: emits canned `tt_command=…` / `tt_danger=…` /
-  `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency.
+  `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency,
+  and answers `history --porcelain` with a canned NUL-delimited newest-first command list.
 
 ## The strategy (reuse these rules when writing new scenarios)
 

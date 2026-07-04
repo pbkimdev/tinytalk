@@ -5,6 +5,14 @@
 # built-in responses: a safe echo greeting, a safe du pipeline, then a command
 # containing the history-expansion hazard `.[!.]*` (#62).
 # Env: TT_STUB_STATE (call-counter file), TT_STUB_DELAY (seconds, default 1).
+#
+# `tt history --porcelain` (the prompt-mode recall widget, #D1) is answered separately:
+# recent commands NUL-delimited, newest-first and already deduped. It is not a --widget
+# call, so it bumps no counter and takes no delay.
+if [ "${1:-}" = "history" ]; then
+  printf '%s\0' 'git status --short' 'ls -la /var/log' 'grep -rn TODO tinytalk/'
+  exit 0
+fi
 state="${TT_STUB_STATE:-${TMPDIR:-/tmp}/tt-stub-count}"
 n=$(cat "$state" 2>/dev/null || echo 0)
 n=$((n + 1))

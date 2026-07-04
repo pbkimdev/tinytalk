@@ -19,6 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from tinytalk.config import Config
+from tinytalk.cost import cost as _cost  # lifted into cost.py; kept importable here for report.py
 from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
 from tinytalk.grounding import SystemGrounding
 from tinytalk.provider.base import Usage
@@ -29,23 +30,6 @@ from tinytalk.validate import CommandValidator
 
 # Deliberately not from the suite: warmup work must never overlap a scored prompt.
 _WARMUP_PROMPT = "print the current working directory"
-
-
-def _cost(usage: Usage, price) -> float:
-    """Cache-aware cost; cached/cache-write rates fall back to the input rate when unset."""
-    cached_rate = price.cached_input_per_mtok or price.input_per_mtok
-    write_rate = price.cache_write_per_mtok or price.input_per_mtok
-    fresh = max(usage.prompt_tokens - usage.cached_prompt_tokens - usage.cache_write_tokens, 0)
-    return round(
-        (
-            fresh * price.input_per_mtok
-            + usage.cached_prompt_tokens * cached_rate
-            + usage.cache_write_tokens * write_rate
-            + usage.completion_tokens * price.output_per_mtok
-        )
-        / 1e6,
-        6,
-    )
 
 
 @dataclass(frozen=True)

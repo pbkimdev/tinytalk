@@ -7,7 +7,8 @@ import json
 import pytest
 
 import tinytalk.eval.runner as runner_mod
-from tinytalk.config import load_config
+from tinytalk.config import Price, load_config
+from tinytalk.cost import cost, cost_breakdown
 from tinytalk.eval.runner import export, render_leaderboard, render_matrix, run_eval
 from tinytalk.eval.suite import SUITE, check_assertion
 from tinytalk.provider.base import Capabilities, Completion, Usage
@@ -38,6 +39,62 @@ def test_check_assertion(assertion, command, expected):
 def test_unknown_assertion_kind_raises():
     with pytest.raises(ValueError, match="unknown assertion kind"):
         check_assertion("telepathy:yes", "ls")
+
+
+# --- cost model (spec-A2: lifted into tinytalk/cost.py) ----------------------
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        Usage(),
+        Usage(100, 50, 150),
+        Usage(100, 50, 150, cached_prompt_tokens=40),
+        Usage(200, 80, 280, cached_prompt_tokens=50, cache_write_tokens=30),
+    ],
+)
+def test_cost_breakdown_four_buckets_sum_to_cost(usage):
+    price = Price(
+        input_per_mtok=3.0,
+        output_per_mtok=15.0,
+        cached_input_per_mtok=0.3,
+        cache_write_per_mtok=3.75,
+    )
+    breakdown = cost_breakdown(usage, price)
+    assert set(breakdown) == {"fresh", "cached", "write", "output"}
+    assert round(sum(breakdown.values()), 6) == cost(usage, price)
+
+
+def test_cost_breakdown_concrete_bucket_values():
+    # Each bucket priced at its own rate over independently-computed token counts —
+    # fresh = prompt - cached - write, so the write bucket is really exercised.
+    price = Price(
+        input_per_mtok=3.0,
+        output_per_mtok=15.0,
+        cached_input_per_mtok=0.3,
+        cache_write_per_mtok=3.75,
+    )
+    usage = Usage(200, 80, 280, cached_prompt_tokens=50, cache_write_tokens=30)
+    breakdown = cost_breakdown(usage, price)
+    assert breakdown["fresh"] == pytest.approx(120 * 3.0 / 1e6)  # 200 - 50 - 30 fresh
+    assert breakdown["cached"] == pytest.approx(50 * 0.3 / 1e6)
+    assert breakdown["write"] == pytest.approx(30 * 3.75 / 1e6)
+    assert breakdown["output"] == pytest.approx(80 * 15.0 / 1e6)
+    # total computed independently, not by re-summing the breakdown.
+    assert cost(usage, price) == pytest.approx(
+        round((120 * 3.0 + 50 * 0.3 + 30 * 3.75 + 80 * 15.0) / 1e6, 6)
+    )
+
+
+def test_cost_breakdown_cached_and_write_rates_fall_back_to_input_rate():
+    # cached_input/cache_write rates unset → both bill at the plain input rate.
+    price = Price(input_per_mtok=3.0, output_per_mtok=15.0)
+    usage = Usage(200, 80, 280, cached_prompt_tokens=50, cache_write_tokens=30)
+    breakdown = cost_breakdown(usage, price)
+    assert breakdown["cached"] == pytest.approx(50 * 3.0 / 1e6)  # fell back to input rate
+    assert breakdown["write"] == pytest.approx(30 * 3.0 / 1e6)  # fell back to input rate
+    assert breakdown["fresh"] == pytest.approx(120 * 3.0 / 1e6)
+    assert breakdown["output"] == pytest.approx(80 * 15.0 / 1e6)
 
 
 def test_suite_shape():

@@ -7,7 +7,9 @@ import json
 
 import pytest
 
+from tinytalk.config import Price
 from tinytalk.contract import Danger, Suggestion
+from tinytalk.cost import cost
 from tinytalk.provider.base import Capabilities, Completion, ProviderError, Usage
 from tinytalk.tiers import (
     NoValidCommand,
@@ -220,3 +222,88 @@ def test_final_provider_error_after_invalid_command_remains_no_command():
     assert exc.value.kind == "no_command"
     assert exc.value.backend == "cloud"
     assert exc.value.last is not None
+
+
+# --- faithful usage & cost plumbing (spec-A2) -------------------------------
+
+
+def test_gate_failure_reports_nonzero_tokens_and_cost():
+    # Both tiers produce parseable commands the gate always rejects → NoValidCommand,
+    # yet the spend still rides the exception (usage plumbed through failure).
+    def never_ok(s: Suggestion) -> ValidationResult:
+        return ValidationResult(ok=False, danger="safe", problems=(f"bad: {s.command}",))
+
+    primary = text_provider(completion_for("cmd-a"), completion_for("cmd-b"))
+    with pytest.raises(NoValidCommand) as exc:
+        run(TierController(primary, validator=never_ok))
+    assert exc.value.usage.total_tokens == 30  # both attempts counted
+    assert cost(exc.value.usage, Price(input_per_mtok=1.0, output_per_mtok=2.0)) > 0
+
+
+def test_provider_error_mid_retry_still_reports_earlier_attempt_spend():
+    # T1 attempt-1 parses-fails (billed 12 tokens), attempt-2 transport-dies mid-ladder;
+    # the earlier spend + ledger must still ride the terminal NoValidCommand, not vanish.
+    def scripted(request, attempt):
+        if attempt == 0:
+            return Completion(text="not json", usage=Usage(9, 3, 12))
+        raise ProviderError("transport died")
+
+    primary = StubProvider(Capabilities(), scripted)  # TEXT-only → both attempts in one tier
+    with pytest.raises(NoValidCommand) as exc:
+        run(TierController(primary))
+    assert exc.value.usage.total_tokens == 12
+    assert [(d.tier, d.result) for d in exc.value.attempts_detail] == [(1, "format_error")]
+
+
+def test_format_failure_across_both_tiers_reports_full_spend():
+    primary = text_provider(
+        Completion(text="nope", usage=Usage(4, 1, 5)),
+        Completion(text="still nope", usage=Usage(4, 1, 5)),
+    )
+    escalated = text_provider(
+        Completion(text="no json", usage=Usage(6, 2, 8)),
+        Completion(text="also no", usage=Usage(6, 2, 8)),
+    )
+    escalated.name = "cloud"
+    with pytest.raises(NoValidCommand) as exc:
+        run(TierController(primary, escalation=lambda: escalated))
+    # T1: two failed attempts (5+5) + T2: two failed attempts (8+8) = 26.
+    assert exc.value.usage.total_tokens == 26
+    assert len(exc.value.attempts_detail) == 4
+    # each ledger entry tagged with the (tier, backend) that produced it —
+    # primary "stub" for the two T1 attempts, fallback "cloud" for the two T2 attempts.
+    assert [(d.tier, d.backend) for d in exc.value.attempts_detail] == [
+        (1, "stub"),
+        (1, "stub"),
+        (2, "cloud"),
+        (2, "cloud"),
+    ]
+
+
+def test_attempts_detail_tagged_with_tier_and_backend():
+    # T1 rejected by the gate (one attempt), T2 succeeds (one attempt) on a named fallback.
+    def validator(s: Suggestion) -> ValidationResult:
+        return ValidationResult(ok=s.command == "good", danger="safe", problems=("nope",))
+
+    primary = text_provider(completion_for("bad"))
+    escalated = text_provider(completion_for("good"))
+    escalated.name = "cloud"
+    result = run(TierController(primary, escalation=lambda: escalated, validator=validator))
+    assert result.tier == 2
+    # one entry per attempt, each tagged with the tier + backend that produced it.
+    assert [(d.tier, d.backend, d.result) for d in result.attempts_detail] == [
+        (1, "stub", "ok"),
+        (2, "cloud", "ok"),
+    ]
+    assert result.attempts == len(result.attempts_detail) == 2
+
+
+def test_prompt_surface_hash_set_on_ask_empty_on_cache_hit():
+    cache = DictCache(preloaded=SUGGESTION)
+    hit = run(TierController(text_provider(), cache=cache))
+    assert hit.tier == 0
+    assert hit.prompt_surface_hash == ""  # a pure cache hit assembles no surface
+
+    asked = run(TierController(text_provider(completion_for())))
+    assert asked.tier == 1
+    assert len(asked.prompt_surface_hash) == 64  # sha256 hex over the assembled surface
