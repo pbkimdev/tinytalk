@@ -18,7 +18,8 @@ import sys
 
 from tinytalk import __version__
 
-# How many recent records `tt history --porcelain` reads before deduping for the widget feed.
+# How many recent records `tt history` reads before deduping — shared by the porcelain
+# widget feed and the plaintext viewer.
 _PORCELAIN_LIMIT = 1000
 
 
@@ -328,10 +329,11 @@ def _prompt(args: argparse.Namespace) -> int:
 
 
 def _history(args: argparse.Namespace) -> int:
-    """`tt history` — the machine-readable recall feed the zsh widget consumes. `--porcelain`
-    emits the deduped recent commands NUL-delimited (newest-first); dedup collapses the VIEW on the
-    exact-normalized command, keeping the newest, while the store keeps everything (store-all,
-    dedup-the-view). The human viewer (fzf picker + plaintext fallback) is spec-C."""
+    """`tt history` — browse and reuse past commands. `--porcelain` feeds the zsh widget the
+    deduped recent commands NUL-delimited (newest-first). Without it, the human viewer prints a
+    numbered plaintext listing (id, time, prompt→command, cost), newest-first. Dedup collapses the
+    VIEW on the exact-normalized command, keeping the newest; the store keeps everything (store-all,
+    dedup-the-view). The fzf-first interactive picker is spec-C2."""
     from tinytalk.history import HistoryStore, dedup
 
     records = [r for r in dedup(HistoryStore().read_recent(_PORCELAIN_LIMIT)) if r.command.strip()]
@@ -339,7 +341,24 @@ def _history(args: argparse.Namespace) -> int:
         for record in records:
             sys.stdout.write(record.command + "\0")  # NUL-terminated: `read -r -d ''` safe
         return 0
-    return 0  # the human viewer arrives in spec-C1
+    if not records:
+        print("tt: no history yet", file=sys.stderr)  # friendly empty state (spec-C1)
+        return 0
+    for record in records:
+        print(_history_line(record))
+    return 0
+
+
+def _history_line(record) -> str:
+    """One plaintext viewer row — `id`, time, prompt→command, cost. The fzf-less fallback;
+    an unparseable timestamp falls back to the raw stored value rather than dropping the row."""
+    import datetime
+
+    try:
+        when = datetime.datetime.fromisoformat(record.ts).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        when = record.ts
+    return f"{record.id:>4}  {when}  {record.prompt} → {record.command}  ${record.cost_usd:.6f}"
 
 
 def _emit_widget(**pairs: object) -> None:

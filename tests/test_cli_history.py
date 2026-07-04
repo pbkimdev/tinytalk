@@ -357,3 +357,56 @@ def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
     commands = [c for c in out.split("\0") if c]
     # newest-first, exact-normalized dedup keeps the newest "GIT   status", empty skipped.
     assert commands == ["GIT   status", "ls -la"]
+
+
+def test_history_plain_empty_store_prints_nothing(state_dir, capsys, monkeypatch):
+    assert main(["history"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""  # stdout stays clean — the reusable substrate
+    assert "no history yet" in captured.err  # friendly empty-state one-liner (spec-C1)
+
+
+def test_history_plain_numbered_listing_newest_first(state_dir, capsys, monkeypatch):
+    # The fzf-less fallback (Scope C1): id, time, prompt→command, cost — one row per command.
+    store = HistoryStore()
+    store.append(
+        HistoryRecord(
+            prompt="print working dir",
+            command="pwd",
+            cost_usd=0.0,
+            ts="2026-07-04T10:00:00-07:00",
+        )
+    )
+    store.append(
+        HistoryRecord(
+            prompt="list by size",
+            command="ls -lhS",
+            cost_usd=2e-5,
+            ts="2026-07-04T10:05:00-07:00",
+        )
+    )
+    assert main(["history"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "   2  2026-07-04 10:05  list by size → ls -lhS  $0.000020",
+        "   1  2026-07-04 10:00  print working dir → pwd  $0.000000",
+    ]
+
+
+def test_history_plain_dedups_the_view_keeping_newest(state_dir, capsys, monkeypatch):
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="a", command="pwd", ts="2026-07-04T10:00:00-07:00"))
+    store.append(HistoryRecord(prompt="b", command="PWD", ts="2026-07-04T10:01:00-07:00"))
+    assert main(["history"]) == 0
+    # Exact-normalized dedup collapses "pwd"/"PWD" to the newest row; the store still has both.
+    assert capsys.readouterr().out.splitlines() == ["   2  2026-07-04 10:01  b → PWD  $0.000000"]
+    assert len(_records()) == 2
+
+
+def test_history_plain_skips_failed_runs(state_dir, capsys, monkeypatch):
+    # A failed run persists an empty command (nothing reusable) — the viewer omits it.
+    store = HistoryStore()
+    store.append(HistoryRecord(prompt="oops", command="", ts="2026-07-04T10:00:00-07:00"))
+    store.append(HistoryRecord(prompt="ok", command="ls", ts="2026-07-04T10:01:00-07:00"))
+    assert main(["history"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1 and "→ ls" in lines[0] and "oops" not in lines[0]
