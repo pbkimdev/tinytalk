@@ -50,6 +50,11 @@ TinyTalk은 자체 평가 스위트(`tt eval`)를 갖고 있습니다 — 자연
 채점합니다. 로컬 모델도 클라우드 모델과 나란히 포함되어 있어서, 완전히 오프라인으로 갔을 때 정확히
 뭘 포기하게 되는지 한눈에 볼 수 있습니다.
 
-![TinyTalk CLI Bench — pass rate와 score vs. cost](docs/bench/2026-07/assets/summary.png)
+최신 공개 실행: **2026-07-03** ([`docs/bench/2026-07-03/`](docs/bench/2026-07-03/)).
 
-전체 인터랙티브 리포트: [`docs/bench/2026-07/index.html`](docs/bench/2026-07/index.html).
+![TinyTalk CLI Bench — pass rate와 score vs. cost](docs/bench/2026-07-03/assets/summary.png)
+
+전체 인터랙티브 리포트: [`docs/bench/2026-07-03/index.html`](docs/bench/2026-07-03/index.html).
+
+재현하거나 새 실행을 게시하려면 [`docs/bench/RUNBOOK.md`](docs/bench/RUNBOOK.md)를 보세요. 각 실행은
+`docs/bench/<YYYY-MM-DD>/` 아래에 두고, 마지막에 `tt eval publish --run-date <date>`로 마무리합니다.

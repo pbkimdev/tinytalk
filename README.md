@@ -55,6 +55,11 @@ English and Korean, graded on whether the output actually parses, references rea
 passes its assertions. Local models are included alongside the hosted ones so you can see exactly
 what you're trading off by going fully offline.
 
-![TinyTalk CLI Bench — pass rate and score vs. cost](docs/bench/2026-07/assets/summary.png)
+Latest published run: **2026-07-03** ([`docs/bench/2026-07-03/`](docs/bench/2026-07-03/)).
 
-Full interactive report: [`docs/bench/2026-07/index.html`](docs/bench/2026-07/index.html).
+![TinyTalk CLI Bench — pass rate and score vs. cost](docs/bench/2026-07-03/assets/summary.png)
+
+Full interactive report: [`docs/bench/2026-07-03/index.html`](docs/bench/2026-07-03/index.html).
+
+To reproduce or publish a new run, see [`docs/bench/RUNBOOK.md`](docs/bench/RUNBOOK.md). Each run
+lives under `docs/bench/<YYYY-MM-DD>/`; finish with `tt eval publish --run-date <date>`.

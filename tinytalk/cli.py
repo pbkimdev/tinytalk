@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
-            "  eval        benchmark configured backends over the built-in prompt suite\n"
+            "  eval        benchmark configured backends (see `tt eval publish` for the docs page)\n"
             "  ground      inspect or rebuild the system grounding cache\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "  prompt      print the assembled model prompt for a request (no model call)\n"
@@ -120,6 +120,10 @@ def build_prompt_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if len(argv) >= 2 and argv[0] == "eval" and argv[1] == "publish":
+        from tinytalk.eval.publish import main as publish_main
+
+        return publish_main(argv[2:])
     if argv[:1] == ["eval"]:
         return _eval(build_eval_parser().parse_args(argv[1:]))
     if argv[:1] == ["init"]:
