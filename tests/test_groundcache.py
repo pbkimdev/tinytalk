@@ -61,7 +61,7 @@ def test_missing_file_is_a_miss(bin_dir, cache_dir):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"schema_version": 2},
+        {"schema_version": 999},
         {"tt_version": "9.9.9"},
         {"os": "OtherOS-1.0-riscv"},
         {"path": "/somewhere/else"},
@@ -188,6 +188,29 @@ def test_negative_help_is_persisted_too(bin_dir, cache_dir, tmp_path):
     assert SystemGrounding(path=path, cache_dir=cache_dir).help_text("mute") is None
     assert SystemGrounding(path=path, cache_dir=cache_dir).help_text("mute") is None
     assert counter.read_text().count("x") == 1
+
+
+def test_help_and_flags_round_trip(cache_dir):
+    groundcache.save_help(cache_dir, "tool", "1.0", "usage: tool --all", frozenset({"--all"}))
+    found, text, flags = groundcache.load_help(cache_dir, "tool", "1.0")
+    assert (found, text, flags) == (True, "usage: tool --all", frozenset({"--all"}))
+    # negative record (no docs) round-trips as (found, None, None), never (None, <set>)
+    groundcache.save_help(cache_dir, "empty", "1.0", None, None)
+    assert groundcache.load_help(cache_dir, "empty", "1.0") == (True, None, None)
+
+
+def test_inconsistent_help_records_are_a_miss(cache_dir):
+    # A record whose help/flags pairing is corrupt must be a miss, not a hit that
+    # silently disables (help without flags) or invents (flags without help) the flag
+    # check — the None-vs-empty-set contract _check_flags relies on must always hold.
+    (cache_dir / "help").mkdir(parents=True)
+    for name, record in (
+        ("noflags", {"schema_version": 2, "help": "usage: x --all"}),  # help, flags missing
+        ("nullflags", {"schema_version": 2, "help": "usage: x --all", "flags": None}),
+        ("orphanflags", {"schema_version": 2, "help": None, "flags": ["--all"]}),
+    ):
+        (cache_dir / "help" / f"{name}@1.0.json").write_text(json.dumps(record))
+        assert groundcache.load_help(cache_dir, name, "1.0") == (False, None, None)
 
 
 def test_replacing_the_binary_invalidates_its_help(bin_dir, cache_dir, tmp_path):

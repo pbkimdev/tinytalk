@@ -26,6 +26,12 @@ class StubGrounding:
     def help_text(self, tool: str) -> str | None:
         return self._help.get(tool)
 
+    def known_flags(self, tool: str):
+        from tinytalk.grounding import extract_long_flags
+
+        help_text = self._help.get(tool)
+        return extract_long_flags(help_text) if help_text is not None else None
+
 
 def validator(cwd: str = ".", help_texts: dict[str, str] | None = None) -> CommandValidator:
     # run_dry_run=False: the DESTRUCTIVE/CAUTION corpora include real git/npm/rsync

@@ -22,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2  # v2: help records carry the parsed long-flag set (#34)
 _SNAPSHOT_TTL_S = 7 * 24 * 3600
 _VERSION_TIMEOUT = 1.0
 _VERSION_MAX_CHARS = 24
@@ -141,31 +141,49 @@ def _help_path(cache_dir: Path, tool: str, key: str) -> Path:
     return cache_dir / "help" / f"{tool}@{key}.json"
 
 
-def load_help(cache_dir: Path, tool: str, key: str) -> tuple[bool, str | None]:
-    """(found, text) for a persisted help entry; any unreadable or invalid entry is a miss."""
+def load_help(
+    cache_dir: Path, tool: str, key: str
+) -> tuple[bool, str | None, frozenset[str] | None]:
+    """(found, text, flags) for a persisted help entry; any unreadable or invalid entry is a
+    miss. `flags` is the tool's long-option set, or None when no help was found."""
     if not _TOOL_NAME.match(tool) or not _TOOL_NAME.match(key):
-        return False, None
+        return False, None, None
     try:
         data = json.loads(_help_path(cache_dir, tool, key).read_text("utf-8"))
     except (OSError, json.JSONDecodeError):
-        return False, None
+        return False, None, None
     if isinstance(data, dict) and data.get("schema_version") == _SCHEMA_VERSION and "help" in data:
         text = data["help"]
-        if text is None or isinstance(text, str):
-            return True, text
-    return False, None  # invalid shape — the save after the re-fetch overwrites it
+        raw_flags = data.get("flags")
+        # A valid record pairs help with flags consistently: help text ⇒ a flag list,
+        # no help ⇒ no flags. Any other shape (help without flags, flags without help)
+        # is corrupt → treat as a miss so the None-vs-empty-set contract `_check_flags`
+        # relies on always holds; the save after the re-fetch overwrites it.
+        if isinstance(text, str) and isinstance(raw_flags, list):
+            return True, text, frozenset(str(f) for f in raw_flags)
+        if text is None and raw_flags is None:
+            return True, None, None
+    return False, None, None
 
 
-def save_help(cache_dir: Path, tool: str, key: str, text: str | None) -> None:
-    """Atomic, best-effort persist of fetched help. None means 'no usable help' — cached too,
-    because re-discovering it costs up to two subprocess timeouts."""
+def save_help(
+    cache_dir: Path, tool: str, key: str, text: str | None, flags: frozenset[str] | None
+) -> None:
+    """Atomic, best-effort persist of fetched help and its long-flag set. None text means
+    'no usable help' — cached too, because re-discovering it costs up to two subprocess
+    timeouts. `flags` is None exactly when there is no help."""
     if not _TOOL_NAME.match(tool) or not _TOOL_NAME.match(key):
         return
     target = _help_path(cache_dir, tool, key)
+    payload = {
+        "schema_version": _SCHEMA_VERSION,
+        "help": text,
+        "flags": sorted(flags) if flags is not None else None,
+    }
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"schema_version": _SCHEMA_VERSION, "help": text}), "utf-8")
+        tmp.write_text(json.dumps(payload), "utf-8")
         tmp.replace(target)
     except OSError:
         return

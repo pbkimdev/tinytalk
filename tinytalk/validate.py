@@ -222,11 +222,11 @@ class CommandValidator:
             long_flags = [a.split("=", 1)[0] for a in seg.args if a.startswith("--") and a != "--"]
             if not long_flags:
                 continue
-            help_text = self._grounding.help_text(seg.command)
-            if not help_text:  # no docs → never false-reject
+            known = self._grounding.known_flags(seg.command)
+            if known is None:  # no docs → never false-reject
                 continue
             for flag in long_flags:
-                if flag not in help_text:
+                if flag not in known:
                     problems.append(f"{seg.command}: unknown option {flag}")
         return problems
 

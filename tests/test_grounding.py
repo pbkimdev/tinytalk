@@ -129,3 +129,27 @@ def test_help_text_refuses_unknown_or_invalid_names(tmp_path):
     assert g.help_text("nonexistent") is None
     assert g.help_text("evil; rm -rf /") is None
     assert g.help_text("../../bin/sh") is None
+
+
+def test_known_flags_sees_options_past_help_truncation(tmp_path):
+    # A real flag documented beyond _HELP_MAX_CHARS must still validate (#34): fd's
+    # --max-depth lives past 4KB of help and was being false-rejected as unknown.
+    from tinytalk.grounding import _HELP_MAX_CHARS
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    filler = "x" * (_HELP_MAX_CHARS + 500)
+    make_exe(bin_dir, "deeptool", f'#!/bin/sh\necho "usage: deeptool {filler} --max-depth N"\n')
+    g = SystemGrounding(path=str(bin_dir))
+    help_text = g.help_text("deeptool")
+    assert help_text is not None and len(help_text) == _HELP_MAX_CHARS  # help stays truncated
+    assert "--max-depth" not in help_text  # the flag fell outside the truncated slice...
+    assert "--max-depth" in g.known_flags("deeptool")  # ...but the flag set still has it
+
+
+def test_known_flags_is_none_without_help(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    make_exe(bin_dir, "mute", "#!/bin/sh\nexit 0\n")  # no usable output
+    g = SystemGrounding(path=str(bin_dir))
+    assert g.known_flags("mute") is None  # no docs → flag check skips, never false-rejects

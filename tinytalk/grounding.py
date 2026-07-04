@@ -36,6 +36,15 @@ from tinytalk.tiers import TierRequest
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9._+-]+$")
 _HELP_TIMEOUT = 3.0
 _HELP_MAX_CHARS = 4000
+_FLAG_RE = re.compile(r"--[A-Za-z][A-Za-z0-9_-]*")
+
+
+def extract_long_flags(help_text: str) -> frozenset[str]:
+    """Every `--flag` named anywhere in a tool's help. Over-inclusive by design: the flag
+    check only ever *clears* a flag (membership → accept), never invents a rejection, so a
+    stray token here can suppress a false 'unknown option' but can never manufacture one.
+    Parsed from the full, untruncated help so options past `_HELP_MAX_CHARS` still count (#34)."""
+    return frozenset(_FLAG_RE.findall(help_text))
 
 
 def installed_binaries(path: str | None = None) -> frozenset[str]:
@@ -88,6 +97,7 @@ class SystemGrounding:
             self.binaries = snap.binaries
             self.versions = snap.versions
         self._help_cache: dict[str, str | None] = {}
+        self._flags_cache: dict[str, frozenset[str] | None] = {}
 
     def system_prompt(self, request: TierRequest) -> str:
         tools = [
@@ -112,19 +122,33 @@ class SystemGrounding:
 
     def help_text(self, tool: str) -> str | None:
         """Fetched-and-cached `--help`/`man` text; None if unavailable. Used by #34."""
+        self._ensure_help(tool)
+        return self._help_cache[tool]
+
+    def known_flags(self, tool: str) -> frozenset[str] | None:
+        """The `--flag` set this tool documents, or None when no help is available (the flag
+        check then skips → never false-rejects). A present-but-empty set means the tool
+        documents no long options, so any `--flag` is genuinely unknown. Used by #34."""
+        self._ensure_help(tool)
+        return self._flags_cache[tool]
+
+    def _ensure_help(self, tool: str) -> None:
+        """Populate both the help-text and flag caches for `tool` from one fetch (or the
+        persisted record), so `help_text` and `known_flags` never fetch twice."""
         if tool in self._help_cache:
-            return self._help_cache[tool]
+            return
         key = self._help_key(tool)
         if key is not None:
-            found, text = groundcache.load_help(self._cache_dir, tool, key)
+            found, text, flags = groundcache.load_help(self._cache_dir, tool, key)
             if found:
                 self._help_cache[tool] = text
-                return text
-        text = self._fetch_help(tool)
+                self._flags_cache[tool] = flags
+                return
+        text, flags = self._fetch_help(tool)
         if key is not None:
-            groundcache.save_help(self._cache_dir, tool, key, text)
+            groundcache.save_help(self._cache_dir, tool, key, text, flags)
         self._help_cache[tool] = text
-        return text
+        self._flags_cache[tool] = flags
 
     def _help_key(self, tool: str) -> str | None:
         """Disk key for persisted help — probed version, else the binary's mtime — or None
@@ -142,12 +166,15 @@ class SystemGrounding:
         except OSError:
             return "unknown"
 
-    def _fetch_help(self, tool: str) -> str | None:
+    def _fetch_help(self, tool: str) -> tuple[str | None, frozenset[str] | None]:
+        """(help, flags) for `tool`: the help truncated for the prompt, the flag set parsed
+        from the *full* output so options past the truncation still validate. (None, None)
+        when no usable docs exist."""
         if not _TOOL_NAME.match(tool) or tool not in self.binaries:
-            return None
+            return None, None
         executable = shutil.which(tool, path=self._path)
         if executable is None:
-            return None
+            return None, None
         for argv, env in (
             ([executable, "--help"], None),
             (["man", tool], {**os.environ, "MANPAGER": "cat", "PAGER": "cat"}),
@@ -167,5 +194,5 @@ class SystemGrounding:
             # BSD tools print a usage line to stderr and exit non-zero on --help;
             # accept any output that looks like documentation.
             if text and ("usage" in text.lower() or len(text) > 80):
-                return text[:_HELP_MAX_CHARS]
-        return None
+                return text[:_HELP_MAX_CHARS], extract_long_flags(text)
+        return None, None
