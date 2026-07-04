@@ -29,6 +29,12 @@ from typing import Iterable
 
 from tinytalk.cache import _WS  # reuse the exact-cache prompt normalization (#36)
 
+# Retention (spec-B1): keep a rolling window of day-segments plus a total-size cap.
+# Both sweeps only ever unlink OLD files — never the active segment — so there is no
+# lock and no lost-append race (mirrors the best-effort append path).
+_RETENTION_DAYS = 7
+_MAX_TOTAL_BYTES = 15 * 1024 * 1024  # 15 MB total safety trim
+
 
 def default_state_dir() -> Path:
     xdg = os.environ.get("XDG_STATE_HOME") or "~/.local/state"
@@ -114,12 +120,13 @@ class HistoryStore:
         self._dir = (directory or default_state_dir()) / "history"
 
     def append(self, record: HistoryRecord) -> HistoryRecord:
-        """Stamp a monotonic id + timestamp and append one JSONL line (best-effort; a
-        capture failure never breaks a request)."""
+        """Stamp a monotonic id + timestamp, append one JSONL line, then sweep old
+        segments (both best-effort; a capture failure never breaks a request)."""
         ts = record.ts or _now_iso()
         stored = dataclasses.replace(record, id=self._next_id(), ts=ts)
         segment = self._segment(ts[:10])
         self._write_line(segment, json.dumps(stored.to_dict(), ensure_ascii=False))
+        self._prune(segment)
         return stored
 
     def read_recent(self, n: int) -> list[HistoryRecord]:
@@ -211,9 +218,82 @@ class HistoryStore:
         except OSError:
             return  # history is best-effort; never break the request over it
 
+    def _prune(self, active: Path) -> None:
+        """Retention sweep, run after each append (best-effort, never raises).
+
+        Unlink day-segments strictly older than 7 days, then trim the oldest
+        survivors until the total on-disk size is under the 15 MB cap. Both sweeps
+        skip `active` (today's segment we just wrote), so retention only ever
+        touches OLD files — no lock, no lost-append race with a concurrent `tt`.
+        """
+        active_date = _segment_date(active)
+        if active_date is None:
+            return  # unrecognized active name — don't guess what counts as old
+        cutoff = active_date - datetime.timedelta(days=_RETENTION_DAYS)
+        survivors: list[Path] = []
+        for path in self._segments():  # sorted oldest-first
+            if path == active:
+                continue
+            seg_date = _segment_date(path)
+            if seg_date is not None and seg_date < cutoff:
+                _unlink(path)  # strictly older than the 7-day window
+            else:
+                survivors.append(path)
+        self._trim_to_cap(active, active_date, survivors)
+
+    def _trim_to_cap(
+        self, active: Path, active_date: datetime.date, survivors: list[Path]
+    ) -> None:
+        """Drop oldest survivors until the total size is under the cap.
+
+        The active segment counts toward the total but is never unlinked (we never
+        rewrite it), so the total exceeds the cap only when today's file alone does.
+        A survivor dated *after* the active date is another `tt` process's newer
+        active segment — this process is a moment behind it across a midnight
+        boundary — so it likewise counts toward the total but is never a size-cap
+        victim; trimming it would delete that process's freshly-written records.
+        Only strictly-older survivors are trimmable.
+        """
+        sizes = {path: _size(path) for path in (active, *survivors)}
+        total = sum(sizes.values())
+        for path in survivors:  # oldest-first
+            if total <= _MAX_TOTAL_BYTES:
+                return
+            seg_date = _segment_date(path)
+            if seg_date is not None and seg_date > active_date:
+                continue  # a concurrent process's newer active segment — leave it
+            _unlink(path)
+            total -= sizes[path]
+
 
 def _now_iso() -> str:
     return datetime.datetime.now().astimezone().isoformat()
+
+
+def _segment_date(path: Path) -> datetime.date | None:
+    """The segment's calendar day, from its `YYYY-MM-DD.jsonl` name.
+
+    The filename — not mtime — is a day-segment's identity: a restore or copy
+    rewrites mtime but not the name, so the name is the stable, cheap age signal.
+    """
+    try:
+        return datetime.date.fromisoformat(path.stem)
+    except ValueError:
+        return None
+
+
+def _size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)  # already gone (concurrent sweep) is fine
+    except OSError:
+        pass  # retention is best-effort; a failed unlink never breaks the write
 
 
 def _parse_line(line: str) -> HistoryRecord | None:
