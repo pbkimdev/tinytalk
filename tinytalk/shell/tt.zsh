@@ -16,6 +16,20 @@ typeset -gi _TT_WAVE_PHASE=0
 # 256-color spectrum for the badge, palindromic so the cycle has no seam.
 typeset -ga _TT_SPECTRA=(51 45 39 33 63 99 135 171 207 213 207 171 135 99 63 39 45)
 
+# Prompt-mode ↑/↓ recall (#D1). Inside AI mode the arrows walk past commands from
+# `tt history --porcelain` (NUL-delimited, newest-first, already deduped by `tt`)
+# into BUFFER — the Atuin model. Loaded once per AI session; index 0 = the live
+# prompt, 1 = newest command, N = oldest.
+typeset -gi _TT_RECALL_LOADED=0
+typeset -gi _TT_RECALL_IDX=0
+typeset -g _TT_RECALL_SAVED_BUFFER=""
+typeset -ga _TT_RECALL_ITEMS=()
+# The arrow escape sequences we take over (normal + application cursor modes) and the
+# widget each maps to; `_TT_RECALL_SAVED_BINDINGS` holds the defaults to restore on leave.
+typeset -ga _TT_RECALL_KEYS=('^[[A' '^[OA' '^[[B' '^[OB')
+typeset -ga _TT_RECALL_WIDGETS=(_tt_recall_up _tt_recall_up _tt_recall_down _tt_recall_down)
+typeset -ga _TT_RECALL_SAVED_BINDINGS=()
+
 # One region_highlight span per badge letter (P = PREDISPLAY offsets), colors
 # shifted by the phase so the spectrum travels through the text.
 _tt_wave_paint() {
@@ -62,8 +76,75 @@ _tt_wave_tick() {
 }
 zle -N _tt_wave_tick
 
+# Shell out to the porcelain ONCE per AI session and cache the array; every later
+# ↑/↓ walks the cache, so navigating costs no subprocess. Best-effort: a missing or
+# failing `tt` just yields an empty list and the arrows become no-ops.
+_tt_recall_load() {
+  (( _TT_RECALL_LOADED )) && return 0
+  _TT_RECALL_LOADED=1
+  _TT_RECALL_ITEMS=()
+  local item
+  while IFS= read -r -d '' item; do
+    _TT_RECALL_ITEMS+=("$item")
+  done < <(command tt history --porcelain 2>/dev/null)
+  return 0
+}
+
+# ↑: stash the in-progress prompt on the first step, then walk toward older commands.
+_tt_recall_up() {
+  _tt_recall_load
+  (( $#_TT_RECALL_ITEMS )) || return 0
+  (( _TT_RECALL_IDX == 0 )) && _TT_RECALL_SAVED_BUFFER="$BUFFER"
+  (( _TT_RECALL_IDX < $#_TT_RECALL_ITEMS )) && (( _TT_RECALL_IDX++ ))
+  BUFFER="$_TT_RECALL_ITEMS[_TT_RECALL_IDX]"
+  CURSOR=$#BUFFER
+}
+zle -N _tt_recall_up
+
+# ↓: walk toward newer commands; stepping past the newest restores the stashed prompt.
+_tt_recall_down() {
+  (( _TT_RECALL_IDX == 0 )) && return 0
+  (( _TT_RECALL_IDX-- ))
+  if (( _TT_RECALL_IDX == 0 )); then
+    BUFFER="$_TT_RECALL_SAVED_BUFFER"
+  else
+    BUFFER="$_TT_RECALL_ITEMS[_TT_RECALL_IDX]"
+  fi
+  CURSOR=$#BUFFER
+}
+zle -N _tt_recall_down
+
+# Take over the arrow keys for recall, remembering each key's default widget so leaving
+# AI mode can put it back exactly (unbound keys restore to unbound).
+_tt_recall_bind() {
+  (( $#_TT_RECALL_SAVED_BINDINGS )) && return 0  # already active — don't clobber the saved defaults
+  local -i i
+  for (( i = 1; i <= $#_TT_RECALL_KEYS; i++ )); do
+    local b="$(bindkey -- "$_TT_RECALL_KEYS[i]")"
+    _TT_RECALL_SAVED_BINDINGS[i]="${b##* }"       # "seq" widget  ->  widget (undefined-key if unbound)
+    bindkey -- "$_TT_RECALL_KEYS[i]" "$_TT_RECALL_WIDGETS[i]"
+  done
+}
+
+_tt_recall_unbind() {
+  (( $#_TT_RECALL_SAVED_BINDINGS )) || return 0
+  local -i i
+  for (( i = 1; i <= $#_TT_RECALL_KEYS; i++ )); do
+    local w="$_TT_RECALL_SAVED_BINDINGS[i]"
+    if [[ -z "$w" || "$w" == "undefined-key" ]]; then
+      bindkey -r -- "$_TT_RECALL_KEYS[i]"
+    else
+      bindkey -- "$_TT_RECALL_KEYS[i]" "$w"
+    fi
+  done
+  _TT_RECALL_SAVED_BINDINGS=()
+}
+
 _tt_ai_on() {
   _TT_AI_MODE=1
+  _TT_RECALL_LOADED=0   # re-query the porcelain once on this session's first ↑ (freshness)
+  _TT_RECALL_IDX=0
+  _tt_recall_bind
   PREDISPLAY="$_TT_BADGE "
   _tt_wave_paint
   _tt_wave_start
@@ -71,6 +152,8 @@ _tt_ai_on() {
 
 _tt_ai_off() {
   _TT_AI_MODE=0
+  _TT_RECALL_IDX=0
+  _tt_recall_unbind
   _tt_wave_stop
   PREDISPLAY=""
   POSTDISPLAY=""
@@ -101,6 +184,17 @@ bindkey '^?' _tt_backspace
 bindkey '^H' _tt_backspace
 
 _tt_accept_line() {
+  if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )); then
+    # A past command was walked into BUFFER verbatim — the user reviewed it while
+    # stepping through the recall, so Enter runs it directly, not as a new NL prompt.
+    # Neutralize any `!` exactly like the generated-command path (#62); line-init
+    # restores histchars at the next prompt.
+    [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
+    histchars=$'\x01'"${histchars[2,3]}"
+    _tt_ai_off
+    zle .accept-line
+    return
+  fi
   if (( _TT_AI_MODE )) && [[ -n "$BUFFER" ]]; then
     # The spinner lives in PREDISPLAY (inside the edit region): a mid-widget
     # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
