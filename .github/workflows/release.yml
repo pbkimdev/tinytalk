@@ -1,0 +1,104 @@
+name: release
+# Build the self-contained `tt` binary for macOS + Linux (arm64/x86_64) and
+# publish them as release assets. Push a tag (v*) to cut a release; the
+# curl installer (install.sh) downloads these assets — no Python/uv on the
+# user's machine.
+#
+# Reproducibility note: the build syncs from uv.lock (`--frozen`). This is
+# load-bearing — the project allows prereleases (for openai-codex), and a loose
+# resolve pulls httpx 1.0.dev (an incompatible API rewrite) instead of the
+# locked 0.28.x. Always build from the lock.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon
+            asset: tt-macos-arm64
+          - os: macos-13        # Intel
+            asset: tt-macos-x86_64
+          - os: ubuntu-24.04
+            asset: tt-linux-x86_64
+          - os: ubuntu-24.04-arm
+            asset: tt-linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Sync locked deps (incl. bedrock + codex extras)
+        run: uv sync --frozen --extra bedrock --extra codex
+
+      - name: Build standalone binary
+        run: |
+          uv run --with pyinstaller pyinstaller --onefile --name tt --clean --noconfirm \
+            --collect-submodules tinytalk \
+            --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
+            --collect-all httpx --collect-all httpcore --collect-all certifi \
+            --collect-all anyio --collect-all h11 \
+            --collect-all keyring \
+            --collect-all questionary --collect-all prompt_toolkit \
+            --collect-all claude_agent_sdk --collect-all openai_codex \
+            --collect-all boto3 --collect-all botocore \
+            packaging/tt_entry.py
+
+      - name: Smoke-test the binary
+        run: |
+          ./dist/tt --version
+          ./dist/tt init zsh >/dev/null
+          ./dist/tt --help >/dev/null
+
+      - name: Name asset + checksum
+        shell: bash
+        run: |
+          mkdir -p out
+          cp dist/tt "out/${{ matrix.asset }}"
+          cd out
+          if command -v sha256sum >/dev/null; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/*
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -1,14 +1,16 @@
 name: install
-# End-to-end proof that ./install.sh works on a fresh machine: Linux + macOS,
-# zsh and bash users, real uv, isolated HOME. Asserts install, PATH + widget
-# wiring, idempotency, and that the CLI answers from a fresh interactive shell.
+# End-to-end proof that install.sh works on a fresh machine: Linux + macOS,
+# zsh and bash users, isolated HOME. Builds the standalone binary the release
+# ships, then feeds it to the installer via TT_BINARY (no published release
+# needed) and asserts install, PATH + widget wiring, idempotency, and that the
+# CLI answers from a fresh interactive shell.
 
 on:
   push:
     branches: [main]
-    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
   pull_request:
-    paths: [install.sh, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
   workflow_dispatch:
 
 jobs:
@@ -26,20 +28,35 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v6
       - name: Install zsh (Linux)
         if: runner.os == 'Linux' && matrix.shell == 'zsh'
         run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Build the standalone binary (from the lock)
+        # --frozen is load-bearing: a loose resolve pulls httpx 1.0.dev (an
+        # incompatible API) instead of the locked 0.28.x. Mirrors release.yml.
+        run: |
+          uv sync --frozen --extra bedrock --extra codex
+          uv run --with pyinstaller pyinstaller --onefile --name tt --clean --noconfirm \
+            --collect-submodules tinytalk \
+            --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
+            --collect-all httpx --collect-all httpcore --collect-all certifi \
+            --collect-all anyio --collect-all h11 \
+            --collect-all keyring \
+            --collect-all questionary --collect-all prompt_toolkit \
+            --collect-all claude_agent_sdk --collect-all openai_codex \
+            --collect-all boto3 --collect-all botocore \
+            packaging/tt_entry.py
       - name: Run installer into a fresh HOME
-        # XDG_CONFIG_HOME pinned inside FAKEHOME — the ubuntu runner exports
-        # its own, which would (correctly) pull the config out of the sandbox.
-        # SHELL drives which rc file the PATH block lands in.
+        # XDG_CONFIG_HOME pinned inside FAKEHOME — the runner exports its own,
+        # which would (correctly) pull the config out of the sandbox. SHELL drives
+        # which rc file the PATH block lands in. TT_BINARY skips the download.
         run: |
           FAKEHOME="$RUNNER_TEMP/tt-home"
           mkdir -p "$FAKEHOME"
           echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
-            SHELL="/bin/${{ matrix.shell }}" ./install.sh --yes
+            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/dist/tt" ./install.sh --yes
       - name: Assert config scaffold and rc wiring (each block exactly once)
         run: |
           cat "$FAKEHOME/${{ matrix.rcfile }}"
@@ -50,7 +67,7 @@ jobs:
         run: |
           cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
-            SHELL="/bin/${{ matrix.shell }}" ./install.sh --yes
+            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/dist/tt" ./install.sh --yes
           diff "$RUNNER_TEMP/rc.before" "$FAKEHOME/${{ matrix.rcfile }}"
       - name: CLI works from a fresh interactive shell
         run: |
