@@ -15,11 +15,12 @@ defaults so the controller works before those land and gets stricter as they do.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import hashlib
+from dataclasses import dataclass, field, replace
 from typing import Callable, Protocol
 
 from tinytalk.contract import Suggestion
-from tinytalk.engine import Generation, generate
+from tinytalk.engine import AttemptDetail, Generation, generate
 from tinytalk.parsing import FormatError
 from tinytalk.prompts import STATIC_SYSTEM, user_message
 from tinytalk.provider.base import Message, Provider, ProviderError, Role, Usage
@@ -48,6 +49,9 @@ class TierResult:
     usage: Usage = field(default_factory=Usage)
     attempts: int = 0
     backend: str = ""
+    # Hash of the assembled prompt surface; empty for a pure cache hit (assembles none).
+    prompt_surface_hash: str = ""
+    attempts_detail: tuple[AttemptDetail, ...] = ()
 
 
 class NoValidCommand(Exception):
@@ -60,6 +64,8 @@ class NoValidCommand(Exception):
         *,
         kind: str = "no_command",
         backend: str = "",
+        usage: Usage | None = None,
+        attempts_detail: tuple[AttemptDetail, ...] = (),
     ):
         detail = "; ".join(problems) or "no backend produced a parseable suggestion"
         super().__init__(detail)
@@ -67,6 +73,8 @@ class NoValidCommand(Exception):
         self.last = last
         self.kind = kind
         self.backend = backend
+        self.usage = usage if usage is not None else Usage()
+        self.attempts_detail = tuple(attempts_detail)
 
 
 class Cache(Protocol):
@@ -135,20 +143,24 @@ class TierController:
         if cached is not None:
             validation = self._validate(cached)
             if validation.ok:
+                # A pure cache hit assembles no prompt surface → prompt_surface_hash "".
                 return TierResult(
                     suggestion=cached, validation=validation, tier=0, backend=self._provider.name
                 )
 
         usage = Usage()
         attempts = 0
+        detail: list[AttemptDetail] = []
         problems: tuple[str, ...] = ()
         last: Suggestion | None = None
 
         # T1 — grounded ask against the default backend.
-        messages = self._messages(request, extra="")
+        messages, surface_hash = self._messages(request, extra="")
         try:
             gen = await generate(self._provider, messages, **self._request_opts)
-            usage, attempts = _accumulate(usage, attempts, gen)
+            usage, attempts, detail = _merge_gen(
+                usage, attempts, detail, gen, tier=1, backend=self._provider.name
+            )
             validation = self._validate(gen.suggestion)
             if validation.ok:
                 self._cache.put(request, self._provider.name, gen.suggestion)
@@ -159,11 +171,21 @@ class TierController:
                     usage=usage,
                     attempts=attempts,
                     backend=self._provider.name,
+                    prompt_surface_hash=surface_hash,
+                    attempts_detail=tuple(detail),
                 )
             problems = validation.problems
             last = gen.suggestion
-        except (FormatError, ProviderError) as exc:
+        except FormatError as exc:
             problems = (str(exc),)
+            usage, attempts, detail = _merge_error(
+                usage, attempts, detail, exc, tier=1, backend=self._provider.name
+            )
+        except ProviderError as exc:
+            problems = (str(exc),)
+            usage, attempts, detail = _merge_error(
+                usage, attempts, detail, exc, tier=1, backend=self._provider.name
+            )
 
         # T2 — enriched grounding + fallback backend when configured.
         needs = last.needs if last is not None else ()
@@ -173,21 +195,32 @@ class TierController:
         except Exception as exc:
             backend = self._escalation_name or self._provider.name
             raise NoValidCommand(
-                problems + (str(exc),), last, kind="transport", backend=backend
+                problems + (str(exc),), last, kind="transport", backend=backend,
+                usage=usage, attempts_detail=tuple(detail),
             ) from exc
-        messages = self._messages(request, extra=extra, problems=problems)
+        messages, surface_hash = self._messages(request, extra=extra, problems=problems)
         try:
             gen = await generate(provider, messages, **self._request_opts)
         except ProviderError as exc:
             kind = "transport" if last is None else "no_command"
+            usage, attempts, detail = _merge_error(
+                usage, attempts, detail, exc, tier=2, backend=provider.name
+            )
             raise NoValidCommand(
-                problems + (str(exc),), last, kind=kind, backend=provider.name
+                problems + (str(exc),), last, kind=kind, backend=provider.name,
+                usage=usage, attempts_detail=tuple(detail),
             ) from exc
         except FormatError as exc:
+            usage, attempts, detail = _merge_error(
+                usage, attempts, detail, exc, tier=2, backend=provider.name
+            )
             raise NoValidCommand(
-                problems + (str(exc),), last, kind="no_command", backend=provider.name
+                problems + (str(exc),), last, kind="no_command", backend=provider.name,
+                usage=usage, attempts_detail=tuple(detail),
             ) from exc
-        usage, attempts = _accumulate(usage, attempts, gen)
+        usage, attempts, detail = _merge_gen(
+            usage, attempts, detail, gen, tier=2, backend=provider.name
+        )
         validation = self._validate(gen.suggestion)
         if validation.ok:
             self._cache.put(request, self._provider.name, gen.suggestion)
@@ -198,21 +231,25 @@ class TierController:
                 usage=usage,
                 attempts=attempts,
                 backend=provider.name,
+                prompt_surface_hash=surface_hash,
+                attempts_detail=tuple(detail),
             )
         raise NoValidCommand(
             problems + validation.problems,
             gen.suggestion,
             kind="no_command",
             backend=provider.name,
+            usage=usage,
+            attempts_detail=tuple(detail),
         )
 
     def _messages(
         self, request: TierRequest, *, extra: str, problems: tuple[str, ...] = ()
-    ) -> list[Message]:
+    ) -> tuple[list[Message], str]:
         system = self._grounding.system_prompt(request)
         if extra:
             system = f"{system}\n\n{extra}"
-        return [
+        messages = [
             Message(Role.SYSTEM, system),
             Message(
                 Role.USER,
@@ -224,16 +261,59 @@ class TierController:
                 ),
             ),
         ]
+        return messages, _surface_hash(messages)
 
 
-def _accumulate(usage: Usage, attempts: int, gen: Generation) -> tuple[Usage, int]:
-    return (
-        Usage(
-            prompt_tokens=usage.prompt_tokens + gen.usage.prompt_tokens,
-            completion_tokens=usage.completion_tokens + gen.usage.completion_tokens,
-            total_tokens=usage.total_tokens + gen.usage.total_tokens,
-            cached_prompt_tokens=usage.cached_prompt_tokens + gen.usage.cached_prompt_tokens,
-            cache_write_tokens=usage.cache_write_tokens + gen.usage.cache_write_tokens,
-        ),
-        attempts + gen.attempts,
+def _surface_hash(messages: list[Message]) -> str:
+    """Stable digest of the assembled prompt surface (the text itself is never stored)."""
+    h = hashlib.sha256()
+    for m in messages:
+        h.update(m.role.value.encode())
+        h.update(b"\0")
+        h.update(m.content.encode())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _add_usage(a: Usage, b: Usage) -> Usage:
+    return Usage(
+        prompt_tokens=a.prompt_tokens + b.prompt_tokens,
+        completion_tokens=a.completion_tokens + b.completion_tokens,
+        total_tokens=a.total_tokens + b.total_tokens,
+        cached_prompt_tokens=a.cached_prompt_tokens + b.cached_prompt_tokens,
+        cache_write_tokens=a.cache_write_tokens + b.cache_write_tokens,
     )
+
+
+def _merge_gen(
+    usage: Usage,
+    attempts: int,
+    detail: list[AttemptDetail],
+    gen: Generation,
+    *,
+    tier: int,
+    backend: str,
+) -> tuple[Usage, int, list[AttemptDetail]]:
+    """Fold a winning generation's accumulated usage + per-attempt ledger into the totals."""
+    tagged = [replace(e, tier=tier, backend=backend) for e in gen.attempts_detail]
+    return _add_usage(usage, gen.usage), attempts + gen.attempts, detail + tagged
+
+
+def _merge_error(
+    usage: Usage,
+    attempts: int,
+    detail: list[AttemptDetail],
+    exc: Exception,
+    *,
+    tier: int,
+    backend: str,
+) -> tuple[Usage, int, list[AttemptDetail]]:
+    """Fold a terminal error's carried usage + ledger (getattr-readable) into the totals.
+
+    Works for both a `FormatError` (ladder exhausted) and a `ProviderError` raised
+    mid-ladder — engine attaches `usage`/`attempts_detail` to either before it escapes.
+    """
+    err_usage = getattr(exc, "usage", None) or Usage()
+    err_detail = getattr(exc, "attempts_detail", ()) or ()
+    tagged = [replace(e, tier=tier, backend=backend) for e in err_detail]
+    return _add_usage(usage, err_usage), attempts + len(err_detail), detail + tagged
