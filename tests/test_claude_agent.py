@@ -36,20 +36,6 @@ class OtherMessage:
     pass
 
 
-class TextBlock:
-    """Shape-compatible stand-in for an AssistantMessage TextBlock."""
-
-    def __init__(self, text):
-        self.text = text
-
-
-class AssistantMessage:
-    """Shape-compatible stand-in for claude_agent_sdk.AssistantMessage."""
-
-    def __init__(self, *blocks):
-        self.content = list(blocks)
-
-
 def fake_query(*messages, capture=None):
     async def query_fn(*, prompt, options):
         if capture is not None:
@@ -59,10 +45,6 @@ def fake_query(*messages, capture=None):
             yield m
 
     return query_fn
-
-
-async def _collect(aiter):
-    return [chunk async for chunk in aiter]
 
 
 def request(fmt=ResponseFormat.JSON_OBJECT, **kwargs):
@@ -193,63 +175,3 @@ def test_default_effort_applied_and_request_wins():
     assert capture["options"].effort == "low"
     asyncio.run(provider.complete(request(reasoning_effort="high")))
     assert capture["options"].effort == "high"
-
-
-def test_stream_emits_text_deltas_then_terminal_completion():
-    provider = ClaudeAgentProvider(
-        "claude-sonnet-5",
-        query_fn=fake_query(
-            AssistantMessage(TextBlock('{"command": "du -h"')),
-            OtherMessage(),  # non-assistant message contributes no delta
-            AssistantMessage(TextBlock(', "danger": "safe"}')),
-            ResultMessage(
-                structured_output=PAYLOAD, usage={"input_tokens": 10, "output_tokens": 5}
-            ),
-        ),
-    )
-    chunks = asyncio.run(_collect(provider.stream(request())))
-    deltas = [c.delta for c in chunks if c.completion is None]
-    assert "".join(deltas) == '{"command": "du -h", "danger": "safe"}'
-    terminal = chunks[-1].completion
-    assert terminal is not None
-    assert json.loads(terminal.text) == PAYLOAD  # reconciled to the validated payload
-    assert terminal.usage.total_tokens == 15
-    assert terminal.model == "claude-sonnet-5"
-
-
-def test_stream_terminal_matches_complete():
-    # The terminal StreamChunk carries the same validated Completion as the blocking path.
-    def query():
-        return fake_query(
-            AssistantMessage(TextBlock("live preview")),
-            ResultMessage(structured_output=PAYLOAD, usage={"input_tokens": 3, "output_tokens": 4}),
-        )
-
-    completion = asyncio.run(
-        ClaudeAgentProvider("claude-sonnet-5", query_fn=query()).complete(request())
-    )
-    chunks = asyncio.run(
-        _collect(ClaudeAgentProvider("claude-sonnet-5", query_fn=query()).stream(request()))
-    )
-    terminal = chunks[-1].completion
-    assert terminal.text == completion.text
-    assert terminal.usage.total_tokens == completion.usage.total_tokens
-    assert terminal.model == completion.model
-
-
-def test_stream_error_result_raises():
-    provider = ClaudeAgentProvider(
-        "claude-sonnet-5",
-        query_fn=fake_query(ResultMessage(is_error=True, result="budget exceeded")),
-    )
-    with pytest.raises(ClaudeAgentError, match="budget exceeded"):
-        asyncio.run(_collect(provider.stream(request())))
-
-
-def test_stream_missing_result_raises():
-    provider = ClaudeAgentProvider(
-        "claude-sonnet-5",
-        query_fn=fake_query(AssistantMessage(TextBlock("orphan preview"))),
-    )
-    with pytest.raises(ClaudeAgentError, match="without a result"):
-        asyncio.run(_collect(provider.stream(request())))

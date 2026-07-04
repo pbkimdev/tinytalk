@@ -7,7 +7,6 @@ surfaced. This is the single most enforceable eval metric (target 100%).
 from __future__ import annotations
 
 import json
-import re
 
 from tinytalk.contract import Danger, Suggestion
 from tinytalk.provider.base import Completion, ResponseFormat
@@ -15,52 +14,6 @@ from tinytalk.provider.base import Completion, ResponseFormat
 
 class FormatError(ValueError):
     """Raised on any payload that does not conform to the contract."""
-
-
-_COMMAND_KEY = re.compile(r'"command"\s*:\s*"')
-_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f"}
-
-
-def partial_command(text: str) -> str:
-    """Best-effort growing value of the top-level `"command"` string from an *incomplete*
-    JSON payload — the widget's live preview channel (#61). NEVER raises; returns `""`
-    until the value has started.
-
-    `command` is the contract's first field, so the first `"command": "` match is the real
-    one (no nested-key disambiguation needed). Decodes standard JSON escapes as it goes and
-    stops at the first unescaped `"` (value complete) or end of input (still streaming); a
-    dangling trailing backslash (escape started, not finished) is dropped. Works on raw
-    tool-call arguments, a bare JSON object, or a JSON object embedded in prose.
-    """
-    match = _COMMAND_KEY.search(text)
-    if match is None:
-        return ""
-    out: list[str] = []
-    i, n = match.end(), len(text)
-    while i < n:
-        ch = text[i]
-        if ch == '"':
-            break  # unescaped closing quote — value complete
-        if ch == "\\":
-            if i + 1 >= n:
-                break  # dangling escape — value still streaming
-            nxt = text[i + 1]
-            if nxt == "u":
-                hexdigits = text[i + 2 : i + 6]
-                if len(hexdigits) < 4:
-                    break  # \uXXXX not fully arrived yet
-                try:
-                    out.append(chr(int(hexdigits, 16)))
-                except ValueError:
-                    out.append(text[i : i + 6])  # best-effort: keep the raw escape
-                i += 6
-                continue
-            out.append(_ESCAPES.get(nxt, nxt))
-            i += 2
-            continue
-        out.append(ch)
-        i += 1
-    return "".join(out)
 
 
 def extract_json_block(text: str) -> str:

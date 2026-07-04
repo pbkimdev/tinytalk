@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from tinytalk.contract import Suggestion, contract_json_schema
@@ -16,13 +15,11 @@ from tinytalk.parsing import FormatError, parse_completion
 from tinytalk.prompts import CONTRACT_TOOL_DESCRIPTION
 from tinytalk.provider.base import (
     Capabilities,
-    Completion,
     CompletionRequest,
     Message,
     Provider,
     ProviderError,
     ResponseFormat,
-    StreamingProvider,
     Tool,
     Usage,
 )
@@ -96,45 +93,12 @@ def build_ladder(caps: Capabilities) -> list[ResponseFormat]:
     return ladder
 
 
-async def _stream_completion(
-    provider: StreamingProvider,
-    request: CompletionRequest,
-    on_partial: Callable[[str], None],
-) -> Completion:
-    """Consume one streaming attempt, feeding the growing raw payload to `on_partial`
-    (best-effort preview) and returning the terminal `Completion`.
-
-    Resets the preview once at the start of the attempt, then forwards each delta. A
-    stream that ends without a terminal completion is a transport fault, raised as
-    `ProviderError` so the ladder handles it exactly like any other backend fault.
-    """
-    try:
-        on_partial("")  # reset the preview for this attempt (empties it between retries)
-    except Exception:
-        pass  # preview is best-effort; it must never break generation
-    acc = ""
-    completion: Completion | None = None
-    async for chunk in provider.stream(request):
-        if chunk.delta:
-            acc += chunk.delta
-            try:
-                on_partial(acc)
-            except Exception:
-                pass  # preview is best-effort; it must never break generation
-        if chunk.completion is not None:
-            completion = chunk.completion
-    if completion is None:
-        raise ProviderError("stream ended without a terminal completion")
-    return completion
-
-
 async def generate(
     provider: Provider,
     messages: list[Message],
     *,
     grammar: str | None = None,
     retries_per_tier: int = 2,
-    on_partial: Callable[[str], None] | None = None,
     **req_opts: object,
 ) -> Generation:
     """Run a request through the degradation ladder; never return malformed output.
@@ -162,10 +126,7 @@ async def generate(
             )
             start = time.perf_counter()
             try:
-                if on_partial is not None and isinstance(provider, StreamingProvider):
-                    completion = await _stream_completion(provider, request, on_partial)
-                else:
-                    completion = await provider.complete(request)
+                completion = await provider.complete(request)
             except ProviderError as exc:
                 # A transport fault mid-ladder still spent tokens on earlier
                 # attempts; carry the accumulated usage + ledger so the caller

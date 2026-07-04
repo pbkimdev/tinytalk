@@ -739,34 +739,7 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
             session_context=session_context,
             language=config.language,
         )
-        # Widget mode may stream a best-effort partial-command preview to a temp file the
-        # zsh widget polls (TT_WIDGET_PARTIAL). It NEVER touches stdout — the final tt_*
-        # wire protocol is byte-identical, and BUFFER is only ever set from the validated
-        # command. All non-widget uses (plain, json, eval) leave on_partial None → today's
-        # exact blocking behavior.
-        on_partial = None
-        partial_path = os.environ.get("TT_WIDGET_PARTIAL") if args.widget else None
-        if partial_path:
-            from tinytalk.parsing import partial_command
-
-            last = ""
-
-            def _write_partial(acc: str) -> None:
-                nonlocal last
-                cmd = partial_command(acc)
-                if cmd == last:
-                    return
-                last = cmd
-                try:
-                    tmp = partial_path + ".new"
-                    with open(tmp, "w", encoding="utf-8") as f:
-                        f.write(cmd)
-                    os.replace(tmp, partial_path)  # atomic; widget never reads a half-written line
-                except OSError:
-                    pass
-
-            on_partial = _write_partial
-        result = asyncio.run(controller.suggest(request, on_partial=on_partial))
+        result = asyncio.run(controller.suggest(request))
     except ConfigError as exc:
         print(f"tt: {exc}", file=sys.stderr)
         return 1
