@@ -30,6 +30,7 @@ _BACKEND_COLORS: dict[str, str] = {
     "local-gemma4-26b": _LOCAL_COLORS[0],
     "local-gemma4-e4b": _LOCAL_COLORS[2],
     "local-gemma4-12b-qat": _LOCAL_COLORS[3],
+    "local-gemma4-12b-8bit": "#4A5D23",
 }
 
 _PAPER = "#FAF9F5"
@@ -78,6 +79,7 @@ def render_report(reports: list[BackendReport], meta: RunMeta) -> str:
     ranked = sorted(reports, key=lambda r: (-r.strict_pass_pct, _chart_cost(r), r.backend))
     colors = _assign_colors(ranked)
     any_local = any(r.local for r in ranked)
+    n_oracle = _oracle_coverage(ranked)
     sections = [
         _header(meta),
         _section(
@@ -86,6 +88,23 @@ def render_report(reports: list[BackendReport], meta: RunMeta) -> str:
             "the command parses, every binary exists, and all assertions hold.",
             _chart_block(_bars_svg(ranked, colors), _legend(ranked, colors)),
         ),
+    ]
+    if n_oracle:
+        sections.append(
+            _section(
+                "Text grader vs. execution oracle",
+                f"For the {n_oracle} targets with a deterministic execution oracle, the command "
+                "was run in an isolated sandbox against fixed fixtures and its output compared to a "
+                "golden. text = the command satisfied the assertions; exec = it produced the right "
+                "output. The gap is where a command reads as correct but isn't — commands are still "
+                "never executed in the product, only in the eval sandbox.",
+                _chart_block(
+                    _oracle_bars_svg(ranked, colors),
+                    _oracle_key() + _legend(ranked, colors),
+                ),
+            )
+        )
+    sections += [
         _section(
             "Score vs. cost",
             "Up and left is better. Pass rate is expanded from 60% upward so top-model "
@@ -154,6 +173,10 @@ svg {{ display: block; width: 100%; height: auto; }}
   text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }}
 .legend-item {{ display: inline-flex; align-items: center; gap: 7px; color: {_INK}; }}
 .legend-dot {{ width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }}
+.oracle-key {{ display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 4px 0;
+  color: {_MUTED}; font-size: 12px; line-height: 1.45; }}
+.oracle-key span {{ display: inline-flex; gap: 5px; align-items: baseline; }}
+.oracle-key strong {{ color: {_INK}; font-weight: 600; }}
 .tablewrap {{ overflow-x: auto; max-width: 100%; margin-top: 8px; border: 1px solid {_RULE};
   border-radius: 10px; background: #fff; -webkit-overflow-scrolling: touch; }}
 table {{ border-collapse: collapse; font-size: 13px; white-space: nowrap; table-layout: fixed;
@@ -176,6 +199,8 @@ td.model strong {{ display: block; font-weight: 600; font-size: 14px; }}
 td.model small {{ display: block; color: {_MUTED}; font-size: 12px; margin-top: 2px;
   font-weight: 400; }}
 td.pass.best {{ color: {_ACCENT}; font-weight: 600; }}
+td.oracle {{ font-weight: 600; }}
+td.muted {{ color: {_MUTED}; font-weight: 400; }}
 th.en, td.en, th.ko, td.ko {{ text-align: center; padding-left: 10px; padding-right: 10px; }}
 th.en, th.ko {{ font-size: 13px; }}
 col.col-lang {{ width: 4rem; }}
@@ -241,6 +266,7 @@ _KNOWN_LABELS: dict[str, tuple[str, str]] = {
     "local-gemma4-e4b": ("Gemma 4 E4B", "local · MLX 4-bit"),
     "local-qwen36-35b": ("Qwen 3.6 35B A3B", "local · MTP"),
     "local-gemma4-12b-qat": ("Gemma 4 12B QAT", "local · oMLX 4-bit · MTP"),
+    "local-gemma4-12b-8bit": ("Gemma 4 12B", "local · oMLX 8-bit"),
 }
 
 
@@ -291,6 +317,16 @@ def _legend(ranked: list[BackendReport], colors: dict[str, str]) -> str:
             f'<span class="legend-group"><span class="legend-group-label">Local</span>{items(local)}</span>'
         )
     return f'<div class="legend">{"".join(groups)}</div>'
+
+
+def _oracle_key() -> str:
+    return (
+        '<div class="oracle-key">'
+        "<span><strong>Text grader</strong>assertions pass without running the command.</span>"
+        "<span><strong>Execution oracle</strong>runs the command in the eval sandbox and "
+        "checks its output, so it is stricter.</span>"
+        "</div>"
+    )
 
 
 # --- charts ------------------------------------------------------------------
@@ -438,6 +474,80 @@ def _bars_svg(ranked: list[BackendReport], colors: dict[str, str]) -> str:
     return _svg(len(ranked) * row_h, parts)
 
 
+def _oracle_covered(r: BackendReport) -> list[PromptResult]:
+    return [x for x in r.results if x.oracle_pass is not None]
+
+
+def _oracle_pcts(r: BackendReport) -> tuple[float, float, int] | None:
+    """(text-assertion %, execution-oracle %, n) over the oracle-covered targets.
+
+    Both rates use the SAME covered subset so the gap is an apples-to-apples measure of
+    how far a text-passing command drifts from producing the right output. None if the
+    backend has no oracle-covered rows (e.g. an older export without oracle scores).
+    """
+    cov = _oracle_covered(r)
+    if not cov:
+        return None
+    n = len(cov)
+    text = 100.0 * sum(1 for x in cov if x.assertions_pass) / n
+    executed = 100.0 * sum(1 for x in cov if x.oracle_pass) / n
+    return text, executed, n
+
+
+def _oracle_coverage(ranked: list[BackendReport]) -> int:
+    """Largest oracle-covered target count across backends — for the section caption."""
+    return max((p[2] for r in ranked if (p := _oracle_pcts(r))), default=0)
+
+
+def _oracle_bars_svg(ranked: list[BackendReport], colors: dict[str, str]) -> str:
+    """Per model: faded 'text' bar (assertion pass) over the solid 'exec' bar (output
+    verified). The big number is the execution-verified rate — the honest one."""
+    name_w, avg_w, lang_w, bar_h, bar_gap = 210, 52, 34, 14, 6
+    avg_text_shift = 24
+    row_gap = bar_h + bar_gap
+    bars_h = bar_h + bar_gap + bar_h
+    avg_x = name_w + 4
+    bar_x = name_w + avg_w + 10 + lang_w
+    bar_w = _W - bar_x - 8
+    row_h = bars_h + 18
+    rows = [(r, p) for r in ranked if (p := _oracle_pcts(r)) is not None]
+    parts = []
+    for i, (r, (text_pct, exec_pct, _n)) in enumerate(rows):
+        y = i * row_h
+        color = colors[r.backend]
+        parts.append(_text(0, y + bars_h / 2 + 5, _label(r), size=15, fill=color, weight="600"))
+        parts.append(
+            _text(
+                avg_x + avg_w - 2 - avg_text_shift,
+                y + bars_h / 2,
+                f"{exec_pct:.0f}%",
+                size=22,
+                fill=color,
+                anchor="end",
+                weight="600",
+                baseline="central",
+                title=f"{_label(r)} output-verified: {exec_pct:.0f}%",
+            )
+        )
+        for j, (tag, pct, opacity) in enumerate(
+            (("text", text_pct, 0.4), ("exec", exec_pct, 1.0))
+        ):
+            by = y + j * row_gap
+            bw = max(bar_w * pct / 100.0, 1.5)
+            parts.append(_text(bar_x - 6, by + bar_h - 3, tag, size=11, fill=_MUTED, anchor="end"))
+            parts.append(
+                f'<rect x="{bar_x}" y="{by}" width="{bar_w:.1f}" height="{bar_h}" '
+                f'rx="3" fill="{_RULE}"/>'
+            )
+            parts.append(
+                f'<rect x="{bar_x}" y="{by}" width="{bw:.1f}" height="{bar_h}" rx="3" '
+                f'fill="{color}" fill-opacity="{opacity}">'
+                f"<title>{html.escape(_label(r))} {tag}: {pct:.0f}%</title></rect>"
+            )
+            parts.append(_bar_label(by, bar_x, bw, pct, bar_h=bar_h, bar_w=bar_w))
+    return _svg(len(rows) * row_h, parts)
+
+
 def _ticks_125(lo: float, hi: float) -> list[float]:
     ticks = []
     exp = math.floor(math.log10(lo))
@@ -533,10 +643,18 @@ def _score_py(score: float, mt: int, ph: int) -> float:
     return mt + ph * (high_frac + _SCORE_LOW_FRAC * (_SCORE_BREAK - s) / _SCORE_BREAK)
 
 
+def _zero_cost_x_offsets(ranked: list[BackendReport]) -> dict[str, float]:
+    zero_cost = [r for r in ranked if _chart_cost(r) <= 0]
+    if len(zero_cost) < 2:
+        return {}
+    return {r.backend: i * 14.0 for i, r in enumerate(zero_cost)}
+
+
 def _score_cost_svg(ranked: list[BackendReport], colors: dict[str, str]) -> str:
     height, ml, mr, mt, mb = 420, 56, 30, 16, 46
     pw, ph = _W - ml - mr, height - mt - mb
     lo, hi = _cost_axis(ranked)
+    zero_offsets = _zero_cost_x_offsets(ranked)
 
     def px(cost: float) -> float:
         c = max(cost, lo)
@@ -587,7 +705,7 @@ def _score_cost_svg(ranked: list[BackendReport], colors: dict[str, str]) -> str:
         )
 
     for r in ranked:
-        x, y = px(_chart_cost(r)), py(r.strict_pass_pct)
+        x, y = px(_chart_cost(r)) + zero_offsets.get(r.backend, 0.0), py(r.strict_pass_pct)
         parts.append(
             _chart_point(
                 x,
@@ -658,6 +776,7 @@ _COLUMNS = (
     ("EN", "en"),
     ("KO", "ko"),
     ("Assert", "assert"),
+    ("Oracle", "oracle"),
     ("Format", "format"),
     ("Parse", "parses"),
     ("Danger label", "danger"),
@@ -675,6 +794,7 @@ _COL_COLS = {
     "en": "col-lang",
     "ko": "col-lang",
     "assert": "col-pct",
+    "oracle": "col-pct",
     "format": "col-pct",
     "parses": "col-pct",
     "danger": "col-pct",
@@ -694,6 +814,11 @@ _COLUMN_TIPS: dict[str, str] = {
         "How often the model tagged the command safe, caution, or destructive as the "
         "suite expects. Scored separately from strict pass."
     ),
+    "oracle": (
+        "Execution oracle: the command was run in a sandbox against fixtures and its output "
+        "compared to a golden, over the targets that have one. Catches commands that pass the "
+        "text assertions but produce the wrong output. — when the backend has no oracle scores."
+    ),
 }
 
 
@@ -712,6 +837,18 @@ def _table_head() -> str:
         tip_attr = f' title="{html.escape(tip)}"' if tip else ""
         cells.append(f'<th scope="col" class="{cls}"{tip_attr}>{inner}</th>')
     return "".join(cells)
+
+
+def _oracle_cell(r: BackendReport) -> str:
+    p = _oracle_pcts(r)
+    if p is None:
+        return '<td class="oracle muted">—</td>'
+    text_pct, exec_pct, _n = p
+    drop = f" (−{text_pct - exec_pct:.0f} vs text)" if text_pct - exec_pct >= 1 else ""
+    return (
+        f'<td class="oracle" title="{exec_pct:.0f}% output-verified{html.escape(drop)}">'
+        f"{exec_pct:.0f}%</td>"
+    )
 
 
 def _table(ranked: list[BackendReport], colors: dict[str, str]) -> str:
@@ -739,6 +876,7 @@ def _table(ranked: list[BackendReport], colors: dict[str, str]) -> str:
             f'<td class="en">{r.strict_pass_pct_en:.0f}%</td>',
             f'<td class="ko">{r.strict_pass_pct_ko:.0f}%</td>',
             f'<td class="assert">{r.assertions_pct:.0f}%</td>',
+            _oracle_cell(r),
             f'<td class="format">{r.format_ok_pct:.0f}%</td>',
             f'<td class="parses">{r.parses_pct:.0f}%</td>',
             f'<td class="danger">{r.danger_pct:.0f}%</td>',
@@ -769,6 +907,19 @@ def _target_passed(index: dict[str, PromptResult], prompts: list[EvalPrompt]) ->
         (row := index.get(p.id)) is not None and BackendReport._strict(row)
         for p in prompts
     )
+
+
+def _target_oracle_passed(
+    index: dict[str, PromptResult], prompts: list[EvalPrompt]
+) -> bool | None:
+    covered = [
+        row
+        for prompt in prompts
+        if (row := index.get(prompt.id)) is not None and row.oracle_pass is not None
+    ]
+    if not covered:
+        return None
+    return all(row.oracle_pass for row in covered)
 
 
 def _suite_outcomes(
@@ -824,6 +975,18 @@ def _suite_section(ranked: list[BackendReport], colors: dict[str, str]) -> str:
             if _target_passed({row.prompt_id: row for row in report.results}, pair)
         )
         score = f"{n_pass}/{len(ranked)} models" if ranked else ""
+        oracle_results = []
+        for report in ranked:
+            oracle_passed = _target_oracle_passed(
+                {row.prompt_id: row for row in report.results}, pair
+            )
+            if oracle_passed is not None:
+                oracle_results.append(oracle_passed)
+        if oracle_results:
+            n_oracle = sum(1 for passed in oracle_results if passed)
+            score = f"{score} · oracle {n_oracle}/{len(oracle_results)}" if score else (
+                f"oracle {n_oracle}/{len(oracle_results)}"
+            )
         body = _suite_outcomes(pair, ranked, colors) + "".join(
             _suite_prompt_row(p) for p in pair
         )
@@ -850,6 +1013,11 @@ def _fine_print(meta: RunMeta, any_local: bool) -> str:
     items.append(
         "Strict pass = contract-valid JSON + command parses (zsh -n) + binaries exist + "
         "all assertions pass. Danger accuracy is scored separately. Commands are never executed."
+    )
+    items.append(
+        "Oracle % = the command run in an isolated eval sandbox against fixtures, output compared "
+        "to a golden — over the subset of targets that have an execution oracle, so it is not "
+        "comparable to strict pass over all 50 prompts. It never runs a product command."
     )
     lis = "".join(f"<li>{html.escape(i)}</li>" for i in items)
     return f'<div class="fineprint"><ul>{lis}</ul></div>'

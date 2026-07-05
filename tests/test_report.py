@@ -8,7 +8,18 @@ from tinytalk.eval.runner import BackendReport, PromptResult, export
 META = RunMeta(run_date="2026-07-03", machine="Apple M5 Max")
 
 
-def result(prompt_id, lang, target, *, passing=True, cached=0, error=None, cost=0.001, latency=1.0):
+def result(
+    prompt_id,
+    lang,
+    target,
+    *,
+    passing=True,
+    cached=0,
+    error=None,
+    cost=0.001,
+    latency=1.0,
+    oracle_pass=None,
+):
     ok = passing and error is None
     return PromptResult(
         prompt_id=prompt_id,
@@ -30,6 +41,7 @@ def result(prompt_id, lang, target, *, passing=True, cached=0, error=None, cost=
         cached_prompt_tokens=cached,
         latency_s=latency,
         cost_usd=cost,
+        oracle_pass=oracle_pass,
     )
 
 
@@ -111,6 +123,33 @@ def test_report_includes_foldable_test_suite_before_all_numbers():
     assert "suite-outcomes" in page
     assert "suite-caret-closed" in page
     assert "▼" in page
+
+
+def test_oracle_report_includes_section_key_and_table_column():
+    report = BackendReport(
+        "oracle-backend",
+        "oracle-model",
+        results=[
+            result(
+                "disk-usage-top-en",
+                "en",
+                "disk-usage-top",
+                oracle_pass=True,
+            ),
+            result(
+                "disk-usage-top-ko",
+                "ko",
+                "disk-usage-top",
+                oracle_pass=False,
+            ),
+        ],
+    )
+    page = render_report([report], META)
+    assert "<h2>Text grader vs. execution oracle</h2>" in page
+    assert "<strong>Text grader</strong>" in page
+    assert "<strong>Execution oracle</strong>" in page
+    assert 'class="oracle" title="' in page
+    assert ">Oracle</th>" in page
 
 
 def test_scatter_charts_show_model_label_on_hover():
