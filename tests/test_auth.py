@@ -474,7 +474,7 @@ def test_declined_replace_confirm_writes_nothing(tmp_path):
 
 
 def test_setup_openai_compat_full_flow():
-    io = ScriptedIO(["http://localhost:11434/v1", "sk-local", "qwen3:8b", "medium"])
+    io = ScriptedIO(["manual", "http://localhost:11434/v1", "sk-local", "qwen3:8b", "medium"])
     draft = auth._setup_openai_compat(
         io, prober=lambda base_url, api_key: (["qwen3:8b", "llama3"], None)
     )
@@ -489,20 +489,20 @@ def test_setup_openai_compat_full_flow():
 
 
 def test_setup_openai_compat_keyless_local_server_no_secret():
-    io = ScriptedIO(["http://localhost:11434/v1", "", "qwen3:8b", auth._NO_EFFORT])
+    io = ScriptedIO(["manual", "http://localhost:11434/v1", "", "qwen3:8b", auth._NO_EFFORT])
     draft = auth._setup_openai_compat(io, prober=lambda b, k: (["qwen3:8b"], None))
     assert draft.secret is None
     assert "effort" not in draft.fields
 
 
 def test_setup_openai_compat_recognizes_real_openai_endpoint():
-    io = ScriptedIO(["https://api.openai.com/v1", "sk-real", "gpt-5.4", auth._NO_EFFORT])
+    io = ScriptedIO(["manual", "https://api.openai.com/v1", "sk-real", "gpt-5.4", auth._NO_EFFORT])
     draft = auth._setup_openai_compat(io, prober=lambda b, k: (["gpt-5.4"], None))
     assert draft.fields["capabilities"] == ["tool_calling", "native_json"]
 
 
 def test_setup_openai_compat_no_discovery_free_types():
-    io = ScriptedIO(["http://weird-server/v1", "", "typed-model-id", auth._NO_EFFORT])
+    io = ScriptedIO(["manual", "http://weird-server/v1", "", "typed-model-id", auth._NO_EFFORT])
     draft = auth._setup_openai_compat(io, prober=lambda b, k: ([], None))
     assert draft.fields["model"] == "typed-model-id"
 
@@ -518,6 +518,7 @@ def test_setup_openai_compat_probe_failure_retries():
 
     io = ScriptedIO(
         [
+            "manual",
             "http://dead:1/v1",
             "k1",
             "retry",  # credential test failed -> re-enter and try again
@@ -534,9 +535,71 @@ def test_setup_openai_compat_probe_failure_retries():
 
 
 def test_setup_openai_compat_probe_failure_abort():
-    io = ScriptedIO(["http://dead:1/v1", "k1", "abort"])
+    io = ScriptedIO(["manual", "http://dead:1/v1", "k1", "abort"])
     draft = auth._setup_openai_compat(io, prober=lambda b, k: ([], "connection refused"))
     assert draft is None
+
+
+def test_setup_openai_compat_managed_returns_provisioned_draft():
+    canned = auth.BackendDraft(
+        {
+            "kind": "openai-compat",
+            "base_url": "http://localhost:3333/v1",
+            "model": "gemma-4-12B-it-8bit",
+            "capabilities": [],
+        }
+    )
+    io = ScriptedIO(["managed"])
+
+    draft = auth._setup_openai_compat(io, provisioner=lambda io: canned)
+
+    assert draft is canned
+
+
+def test_setup_openai_compat_managed_decline_falls_back_to_manual():
+    io = ScriptedIO(
+        [
+            "managed",
+            "http://localhost:11434/v1",
+            "",
+            "qwen3:8b",
+            auth._NO_EFFORT,
+        ]
+    )
+
+    draft = auth._setup_openai_compat(
+        io,
+        provisioner=lambda io: None,
+        prober=lambda b, k: (["qwen3:8b"], None),
+    )
+
+    assert draft.fields["base_url"] == "http://localhost:11434/v1"
+    assert draft.secret is None
+
+
+def test_setup_openai_compat_managed_failure_falls_back_to_manual():
+    # A provisioner that raises must degrade to the manual flow, never crash the wizard.
+    io = ScriptedIO(
+        [
+            "managed",
+            "http://localhost:11434/v1",
+            "",
+            "qwen3:8b",
+            auth._NO_EFFORT,
+        ]
+    )
+
+    def boom(_io):
+        raise RuntimeError("hf download failed")
+
+    draft = auth._setup_openai_compat(
+        io,
+        provisioner=boom,
+        prober=lambda b, k: (["qwen3:8b"], None),
+    )
+
+    assert draft.fields["base_url"] == "http://localhost:11434/v1"
+    assert draft.secret is None
 
 
 # --- anthropic-compat setup ----------------------------------------------------------
@@ -844,6 +907,7 @@ def test_secret_stored_via_keyring_and_referenced_by_account(tmp_path, monkeypat
     io = ScriptedIO(
         [
             "openai-compat",
+            "manual",
             "https://api.openai.com/v1",
             "sk-real",
             "gpt-5.4",
@@ -872,6 +936,7 @@ def test_secret_not_stored_when_confirm_declined(tmp_path, monkeypatch):
     io = ScriptedIO(
         [
             "openai-compat",
+            "manual",
             "https://api.openai.com/v1",
             "sk-real",
             "gpt-5.4",

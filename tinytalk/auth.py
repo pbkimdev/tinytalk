@@ -259,7 +259,34 @@ def _retry(io: WizardIO) -> bool:
 # --- per-kind setup steps -----------------------------------------------------------
 
 
-def _setup_openai_compat(io: WizardIO, *, prober=None) -> BackendDraft | None:
+def _setup_openai_compat(io: WizardIO, *, prober=None, provisioner=None) -> BackendDraft | None:
+    mode = io.select(
+        "Connect an OpenAI-compatible server:",
+        [
+            ("managed", "Set up local Gemma + server for me (recommended)"),
+            ("manual", "I already have a server — enter its base URL"),
+        ],
+    )
+    if mode is None:
+        return None
+    if mode == "managed":
+        if provisioner is None:
+            from tinytalk.localsetup import provision_local_backend
+
+            provisioner = provision_local_backend
+        try:
+            draft = provisioner(io)
+        except Exception as exc:  # managed setup is best-effort; never crash the wizard
+            print(f"tt auth: managed local setup failed ({exc}) — falling back to manual setup.")
+            draft = None
+        if draft is not None:
+            return draft
+        # A declined, unavailable, or failed managed setup falls through to the manual flow.
+
+    return _setup_openai_compat_manual(io, prober=prober)
+
+
+def _setup_openai_compat_manual(io: WizardIO, *, prober=None) -> BackendDraft | None:
     probe = prober or _probe_openai_compat
     base_url_default = "http://localhost:11434/v1"
     while True:
