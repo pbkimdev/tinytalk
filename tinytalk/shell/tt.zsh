@@ -122,12 +122,10 @@ _tt_recall_ready() {
     _tt_recall_note
   else
     _TT_RECALL_STATE="ready"
-    if [[ "$BUFFER" == "$_TT_RECALL_LOAD_BUFFER" ]]; then
-      _TT_RECALL_SAVED_BUFFER="$BUFFER"
-      _TT_RECALL_IDX=1
-      BUFFER="$_TT_RECALL_ITEMS[1]"
-      CURSOR=$#BUFFER
-    fi
+    # The ↑ that kicked off the load couldn't step (no data yet); now it landed, so
+    # replay that deferred first step through the same widget — unless the user has
+    # typed since (BUFFER moved off the buffer we forked on).
+    [[ "$BUFFER" == "$_TT_RECALL_LOAD_BUFFER" ]] && _tt_recall_up
     zle -M ""
   fi
   zle -R
