@@ -24,6 +24,8 @@ from urllib.parse import urlparse
 
 from tinytalk.config import Config
 from tinytalk.cost import cost as _cost  # lifted into cost.py; kept importable here for report.py
+from tinytalk.eval.oracle import CASES as ORACLE_CASES
+from tinytalk.eval.oracle import oracle_pass as _oracle_pass
 from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
 from tinytalk.grounding import SystemGrounding
 from tinytalk.provider.base import Completion, CompletionRequest, Provider, ToolCall, Usage
@@ -51,6 +53,7 @@ class PromptResult:
     expected_assertions: list[str] = field(default_factory=list)
     assertions: dict[str, bool] = field(default_factory=dict)
     assertions_pass: bool = False
+    oracle_pass: bool | None = None
     danger: str | None = None
     danger_expected: str = "safe"
     danger_correct: bool = False
@@ -91,6 +94,13 @@ class BackendReport:
     @property
     def assertions_pct(self) -> float:
         return self._pct(lambda r: r.assertions_pass)
+
+    @property
+    def oracle_pass_pct(self) -> float:
+        results = [r for r in self.results if r.target in ORACLE_CASES]
+        if not results:
+            return 0.0
+        return 100.0 * sum(1 for r in results if r.oracle_pass is True) / len(results)
 
     @staticmethod
     def _strict(r: PromptResult) -> bool:
@@ -321,6 +331,9 @@ async def _run_prompt(
 
     ladder = validator.report(suggestion)
     assertions = {a: check_assertion(a, suggestion.command) for a in prompt.assertions}
+    oracle_result = None
+    if prompt.target in ORACLE_CASES:
+        oracle_result = _oracle_pass(prompt.target, suggestion.command)
     return PromptResult(
         **{
             **asdict(base),
@@ -330,6 +343,7 @@ async def _run_prompt(
             "binaries_exist": ladder.binaries_exist,
             "assertions": assertions,
             "assertions_pass": all(assertions.values()),
+            "oracle_pass": oracle_result,
             "danger": ladder.danger,
             "danger_correct": ladder.danger == prompt.expected_danger,
             "tier": tier,

@@ -159,6 +159,17 @@ def payload(command: str) -> str:
     )
 
 
+ENV_ORACLE_PASS = (
+    "awk -F= 'NR==FNR {if ($1 !~ /^#/ && $1 != \"\") seen[$1]=1; next} "
+    "$1 !~ /^#/ && $1 != \"\" && !($1 in seen) {print FNR, $1}' .env .env.example "
+    "# enumerate"
+)
+ENV_ORACLE_FAIL = (
+    "awk -F= 'NR==FNR {seen[$1]=1; next} $1 !~ /^#/ && NF {print FNR, $1}' "
+    ".env.example .env # enumerate"
+)
+
+
 @pytest.fixture
 def config(tmp_path):
     p = tmp_path / "config.toml"
@@ -245,6 +256,7 @@ def test_export_json_and_csv(config, stub_backends, tmp_path):
     assert data[0]["results"][0]["prompt_id"] == "log-top-errors-en"
     assert data[0]["results"][0]["lang"] == "en"
     assert data[0]["results"][0]["target"] == "log-top-errors"
+    assert data[0]["results"][0]["oracle_pass"] is None
 
     csv_path = tmp_path / "results.csv"
     export(reports, csv_path)
@@ -254,6 +266,31 @@ def test_export_json_and_csv(config, stub_backends, tmp_path):
 
     with pytest.raises(ValueError, match="unsupported export"):
         export(reports, tmp_path / "results.xlsx")
+
+
+def test_eval_records_oracle_pass_without_changing_strict_pass(config, monkeypatch):
+    commands = [ENV_ORACLE_PASS, ENV_ORACLE_FAIL]
+
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: Completion(text=payload(commands[i]), usage=Usage(100, 50, 150)),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    reports = run_eval(
+        config,
+        ["alpha"],
+        prompt_ids=["env-missing-keys-en", "env-missing-keys-ko"],
+        progress=False,
+        warmup=False,
+    )
+
+    results = reports[0].results
+    assert [r.oracle_pass for r in results] == [True, False]
+    assert [r.assertions_pass for r in results] == [True, True]
+    assert reports[0].oracle_pass_pct == 50.0
+    assert reports[0].strict_pass_pct == 100.0
 
 
 def test_eval_export_records_model_io(config, monkeypatch, tmp_path):
