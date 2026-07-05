@@ -8,6 +8,11 @@ backend = "local-gemma4-26b"
 [cache]
 enabled = false
 
+# Local oMLX backends carry no `effort` field on purpose: the managed oMLX server on :3333 ignores
+# the OpenAI `reasoning_effort` param for Gemma — proven 2026-07-05 by a temperature-0 A/B whose
+# outputs were byte-identical with vs without effort="high" (same completion-token count, no reasoning
+# field). Local numbers are therefore effort-invariant; only the hosted deepseek backend below has a
+# live effort knob (its output changes with reasoning_effort).
 [backends.local-gemma4-26b]
 kind = "openai-compat"
 base_url = "http://localhost:3333/v1"
@@ -48,6 +53,17 @@ kind = "codex-agent-sdk"
 model = "gpt-5.5"
 effort = "low"
 
+# Added 2026-07-05 (STEP 0): Deepseek V4 Flash — the one hosted frontier model in the official
+# 5-target set. Config-only: the key resolves from $DEEPSEEK_API_KEY via BackendConfig.api_key;
+# base_url /v1 is Deepseek's OpenAI-compatible endpoint. Model id, endpoint, and pricing verified
+# against api-docs.deepseek.com/quick_start/pricing on 2026-07-05.
+[backends.deepseek-v4-flash]
+kind = "openai-compat"
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-v4-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+effort = "high"
+
 # Quotes captured 2026-07-03 — sources and the local-proxy rationale live in RUNBOOK.md.
 [prices."claude-sonnet-5"]
 input_per_mtok = 2.0
@@ -71,3 +87,10 @@ output_per_mtok = 0.2
 [prices."mtplx-qwen36-35b-a3b-optimized-balance"]
 input_per_mtok = 0.14
 output_per_mtok = 1.0
+
+# Verified 2026-07-05 against api-docs.deepseek.com/quick_start/pricing: cache-miss input $0.14,
+# output $0.28, cache-hit input $0.0028 per 1M tokens.
+[prices."deepseek-v4-flash"]
+input_per_mtok = 0.14
+output_per_mtok = 0.28
+cached_input_per_mtok = 0.0028
