@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import glob
 import json
 import pathlib
 import platform
@@ -81,6 +82,56 @@ def load_backend_report(path: pathlib.Path) -> BackendReport:
     if len(reports) != 1:
         raise ValueError(f"expected one backend report in {path}, got {len(reports)}")
     return reports[0]
+
+
+def backend_order_from_results(path: pathlib.Path) -> tuple[str, ...]:
+    if not path.is_file():
+        return ()
+    return tuple(entry["backend"] for entry in json.loads(path.read_text("utf-8")))
+
+
+def expand_export_paths(spec: str | pathlib.Path) -> tuple[pathlib.Path, ...]:
+    path = pathlib.Path(spec)
+    if path.is_dir():
+        paths = tuple(sorted(path.glob("*.json")))
+    elif path.is_file():
+        paths = (path,)
+    else:
+        paths = tuple(sorted(pathlib.Path(match) for match in glob.glob(str(spec))))
+    if not paths:
+        raise ValueError(f"no export files matched {spec}")
+    return paths
+
+
+def publish_from_exports(
+    export_paths: tuple[pathlib.Path, ...],
+    meta: RunMeta,
+    out_dir: pathlib.Path,
+    *,
+    backend_order: tuple[str, ...] = (),
+) -> None:
+    """Publish complete per-backend exports without re-scoring or merging rows."""
+    if not export_paths:
+        raise ValueError("no export files supplied")
+    order = {backend: i for i, backend in enumerate(backend_order)}
+    entries = []
+    seen = set()
+    for path in export_paths:
+        report = load_backend_report(path)
+        if report.backend in seen:
+            raise ValueError(f"duplicate backend export: {report.backend}")
+        seen.add(report.backend)
+        payload = json.loads(path.read_text("utf-8"))
+        entries.append((order.get(report.backend, len(order)), report.backend, payload[0]))
+    entries.sort(key=lambda entry: (entry[0], entry[1]))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results_path = out_dir / "results.json"
+    results_path.write_text(
+        json.dumps([payload for _, _, payload in entries], indent=2),
+        encoding="utf-8",
+    )
+    html = render_report(load_reports(results_path), meta)
+    (out_dir / "index.html").write_text(html, encoding="utf-8")
 
 
 def rescore_row(row: PromptResult) -> PromptResult:
@@ -174,12 +225,29 @@ def main(argv: list[str] | None = None) -> int:
         default="v3new-",
         help="prefix for subset-sweep exports merged with the full run (default: v3new-)",
     )
+    parser.add_argument(
+        "--exports",
+        metavar="DIR_OR_GLOB",
+        nargs="+",
+        help="publish complete per-backend exports without merge re-scoring",
+    )
     args = parser.parse_args(argv)
     try:
         data_dir, run_date = resolve_paths(args.data_dir, args.run_date)
-        backends = backends_from_config(pathlib.Path(args.config))
         meta = load_run_meta(data_dir, run_date, machine=args.machine or "")
-        publish(data_dir, backends, meta, new_prefix=args.new_prefix)
+        if args.exports:
+            export_paths = tuple(
+                path for spec in args.exports for path in expand_export_paths(spec)
+            )
+            publish_from_exports(
+                export_paths,
+                meta,
+                data_dir,
+                backend_order=backend_order_from_results(data_dir / "results.json"),
+            )
+        else:
+            backends = backends_from_config(pathlib.Path(args.config))
+            publish(data_dir, backends, meta, new_prefix=args.new_prefix)
     except (OSError, ConfigError, ValueError, KeyError) as exc:
         print(f"publish: {exc}", file=sys.stderr)
         return 1

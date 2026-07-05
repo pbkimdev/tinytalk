@@ -15,6 +15,7 @@ from tinytalk.eval.publish import (
     load_run_meta,
     merge_backend,
     parse_run_date,
+    publish_from_exports,
     rescore_row,
     resolve_paths,
 )
@@ -22,7 +23,13 @@ from tinytalk.eval.runner import BackendReport, PromptResult
 from tinytalk.eval.suite import SUITE
 
 
-def _row(prompt_id: str, *, command: str | None = "du -h", parses: bool = True) -> PromptResult:
+def _row(
+    prompt_id: str,
+    *,
+    command: str | None = "du -h",
+    parses: bool = True,
+    oracle_pass: bool | None = None,
+) -> PromptResult:
     prompt = next(p for p in SUITE if p.id == prompt_id)
     ok = command is not None and parses
     assertions = {a: ok for a in prompt.assertions}
@@ -36,6 +43,7 @@ def _row(prompt_id: str, *, command: str | None = "du -h", parses: bool = True) 
         binaries_exist=ok,
         assertions=assertions,
         assertions_pass=ok and bool(assertions),
+        oracle_pass=oracle_pass,
         danger="safe",
         danger_expected=prompt.expected_danger,
         danger_correct=ok,
@@ -99,6 +107,62 @@ def test_merge_backend_keeps_rescored_rows_and_appends_new(monkeypatch):
     new = BackendReport("alpha", "model-a", results=[_row(new_id)])
     merged = merge_backend(old, new)
     assert [r.prompt_id for r in merged.results] == [kept_id, new_id]
+
+
+def test_publish_from_exports_preserves_complete_reports(tmp_path):
+    alpha_path = tmp_path / "alpha.json"
+    beta_path = tmp_path / "beta.json"
+    alpha = BackendReport(
+        "alpha",
+        "model-a",
+        results=[_row(SUITE[0].id, oracle_pass=True)],
+    )
+    beta = BackendReport(
+        "beta",
+        "model-b",
+        local=True,
+        results=[_row(SUITE[1].id, oracle_pass=False)],
+    )
+    alpha_path.write_text(
+        json.dumps(
+            [
+                {
+                    "backend": alpha.backend,
+                    "model": alpha.model,
+                    "local": alpha.local,
+                    "results": [alpha.results[0].__dict__],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    beta_path.write_text(
+        json.dumps(
+            [
+                {
+                    "backend": beta.backend,
+                    "model": beta.model,
+                    "local": beta.local,
+                    "results": [beta.results[0].__dict__],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "publish"
+    publish_from_exports(
+        (alpha_path, beta_path),
+        load_run_meta(out_dir, "2026-07-05", machine="test machine"),
+        out_dir,
+        backend_order=("beta", "alpha"),
+    )
+
+    results = json.loads(out_dir.joinpath("results.json").read_text("utf-8"))
+    assert [entry["backend"] for entry in results] == ["beta", "alpha"]
+    assert results[0]["results"][0]["oracle_pass"] is False
+    assert results[1]["results"][0]["oracle_pass"] is True
+    assert "TinyTalk CLI Bench" in out_dir.joinpath("index.html").read_text("utf-8")
 
 
 def test_load_backend_report_rejects_empty_export(tmp_path):
