@@ -15,8 +15,16 @@ model = "gemma-4-26B-A4B-it-MLX-8bit"
 
 [backends.local-gemma4-e4b]
 kind = "openai-compat"
-base_url = "http://localhost:3334/v1"
+base_url = "http://localhost:3333/v1"
 model = "lmstudio-community--gemma-4-E4B-it-MLX-4bit"
+
+# Added 2026-07-05: Gemma 4 12B 8-bit plus the matching assistant drafter are downloaded from
+# Hugging Face and served by managed oMLX on :3333. The backend targets the main model; the
+# assistant/MTP attachment is server-side provenance, not a TinyTalk config field.
+[backends.local-gemma4-12b-8bit]
+kind = "openai-compat"
+base_url = "http://localhost:3333/v1"
+model = "gemma-4-12B-it-8bit"
 
 # Added 2026-07-05: Gemma 4 12B QAT (4-bit) with an assistant MTP drafter, served by the same
 # managed oMLX server on :3333 (omlx.local resolves to 127.0.0.1 — localhost keeps local=True).

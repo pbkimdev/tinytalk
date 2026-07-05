@@ -9,10 +9,13 @@ deterministic assertion DSL.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import json
+import os
 import statistics
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -30,6 +33,7 @@ from tinytalk.validate import CommandValidator
 
 # Deliberately not from the suite: warmup work must never overlap a scored prompt.
 _WARMUP_PROMPT = "print the current working directory"
+_EVAL_MAX_TOKENS = 1024
 
 
 @dataclass(frozen=True)
@@ -134,22 +138,60 @@ def run_eval(
     progress: bool = True,
     warmup: bool = True,
 ) -> list[BackendReport]:
-    if prompt_ids:
-        # A bare target (e.g. "disk-usage-top") selects the prompt in every language.
-        unknown = set(prompt_ids) - {p.id for p in suite} - {p.target for p in suite}
-        if unknown:
-            raise ValueError(f"unknown prompt ids: {', '.join(sorted(unknown))}")
-        suite = tuple(p for p in suite if p.id in prompt_ids or p.target in prompt_ids)
-    grounding = SystemGrounding()
-    validator = CommandValidator(grounding, cwd=cwd, run_dry_run=False)  # never execute (PRD §11)
-    return [
-        asyncio.run(
-            _run_backend(
-                config, name, suite, grounding, validator, cwd=cwd, progress=progress, warmup=warmup
+    with _isolated_eval_state():
+        if prompt_ids:
+            # A bare target (e.g. "disk-usage-top") selects the prompt in every language.
+            unknown = set(prompt_ids) - {p.id for p in suite} - {p.target for p in suite}
+            if unknown:
+                raise ValueError(f"unknown prompt ids: {', '.join(sorted(unknown))}")
+            suite = tuple(p for p in suite if p.id in prompt_ids or p.target in prompt_ids)
+        grounding = SystemGrounding()
+        validator = CommandValidator(grounding, cwd=cwd, run_dry_run=False)  # never execute (PRD §11)
+        return [
+            asyncio.run(
+                _run_backend(
+                    config,
+                    name,
+                    suite,
+                    grounding,
+                    validator,
+                    cwd=cwd,
+                    progress=progress,
+                    warmup=warmup,
+                )
             )
-        )
-        for name in backend_names
-    ]
+            for name in backend_names
+        ]
+
+
+@contextlib.contextmanager
+def _isolated_eval_state():
+    """Run evals with empty TinyTalk cache/history roots.
+
+    The eval controller already passes ``cache=None`` so scored prompts never hit
+    the T0 exact suggestion cache. This environment guard makes the invariant
+    harder to regress: any future eval-side cache or history access lands in a
+    fresh temporary XDG root instead of the user's interactive state.
+    """
+    old_cache = os.environ.get("XDG_CACHE_HOME")
+    old_state = os.environ.get("XDG_STATE_HOME")
+    with tempfile.TemporaryDirectory(
+        prefix="tt-eval-cache-"
+    ) as cache_root, tempfile.TemporaryDirectory(prefix="tt-eval-state-") as state_root:
+        os.environ["XDG_CACHE_HOME"] = cache_root
+        os.environ["XDG_STATE_HOME"] = state_root
+        try:
+            yield
+        finally:
+            _restore_env("XDG_CACHE_HOME", old_cache)
+            _restore_env("XDG_STATE_HOME", old_state)
+
+
+def _restore_env(name: str, value: str | None) -> None:
+    if value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = value
 
 
 async def _run_backend(
@@ -166,8 +208,13 @@ async def _run_backend(
     backend_cfg = config.backend(name)
     provider = make_provider(backend_cfg)
     # temperature=0: greedy decoding so scores are reproducible (bench protocol, #90).
+    # max_tokens keeps local OpenAI-compatible servers from using enormous defaults
+    # when a model starts narrating instead of returning the compact JSON contract.
     controller = TierController(
-        provider, grounding=grounding, validator=validator, request_opts={"temperature": 0.0}
+        provider,
+        grounding=grounding,
+        validator=validator,
+        request_opts={"temperature": 0.0, "max_tokens": _EVAL_MAX_TOKENS},
     )
     price = config.price(backend_cfg.model)
     report = BackendReport(backend=name, model=backend_cfg.model, local=_is_local(backend_cfg))

@@ -218,7 +218,7 @@ def test_eval_subcommand_renders_leaderboard(config_path, monkeypatch, capsys):
         lambda request, i: Completion(text=json.dumps(PAYLOAD), usage=Usage(10, 5, 15)),
     )
     monkeypatch.setattr(runner_mod, "make_provider", lambda cfg: provider)
-    assert main(["eval", "--config", config_path, "--prompts", "find-large-files"]) == 0
+    assert main(["eval", "--config", config_path, "--prompts", "count-lines-code"]) == 0
     out = capsys.readouterr().out
     assert "backend" in out
-    assert "find-large-files" in out
+    assert "count-lines-code" in out

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -171,7 +172,7 @@ def stub_backends(monkeypatch):
         return StubProvider(
             Capabilities(),
             lambda request, i: Completion(
-                text=payload("awk '{print $1}' access.log | sort | uniq -c | sort -rn"),
+                text=payload("awk '$9 == 500 {print $7}' access.log | sort | uniq -c | sort -rn"),
                 usage=Usage(100, 50, 150),
             ),
         )
@@ -183,7 +184,7 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     reports = run_eval(
         config,
         ["alpha", "beta"],
-        prompt_ids=["unique-frequency-en", "find-large-files-en"],
+        prompt_ids=["log-top-errors-en", "count-lines-code-en"],
         progress=False,
     )
     assert [r.backend for r in reports] == ["alpha", "beta"]
@@ -192,8 +193,8 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     assert len(alpha.results) == 2
 
     by_id = {r.prompt_id: r for r in alpha.results}
-    disk = by_id["unique-frequency-en"]
-    assert disk.lang == "en" and disk.target == "unique-frequency"
+    disk = by_id["log-top-errors-en"]
+    assert disk.lang == "en" and disk.target == "log-top-errors"
     assert disk.format_ok and disk.parses and disk.binaries_exist
     assert disk.assertions_pass
     assert disk.danger == "safe" and disk.danger_correct
@@ -202,7 +203,7 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
     # cost from the price table: 100×1.0/1e6 + 50×2.0/1e6
     assert disk.cost_usd == pytest.approx(0.0002)
 
-    todo = by_id["find-large-files-en"]
+    todo = by_id["count-lines-code-en"]
     assert todo.format_ok  # the command is real, it just doesn't find
     assert not todo.assertions_pass
 
@@ -216,40 +217,40 @@ def test_end_to_end_eval_over_two_backends(config, stub_backends, tmp_path):
 
 
 def test_bare_target_selects_both_languages(config, stub_backends):
-    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["log-top-errors"], progress=False)
     results = reports[0].results
-    assert [r.prompt_id for r in results] == ["unique-frequency-en", "unique-frequency-ko"]
+    assert [r.prompt_id for r in results] == ["log-top-errors-en", "log-top-errors-ko"]
     assert {r.lang for r in results} == {"en", "ko"}
     # the stub answers both languages identically, so per-language rates agree
     assert reports[0].strict_pass_pct_en == reports[0].strict_pass_pct_ko == 100.0
 
 
 def test_leaderboard_and_matrix_render(config, stub_backends):
-    reports = run_eval(config, ["alpha", "beta"], prompt_ids=["unique-frequency"], progress=False)
+    reports = run_eval(config, ["alpha", "beta"], prompt_ids=["log-top-errors"], progress=False)
     board = render_leaderboard(reports)
     assert "alpha" in board and "beta" in board
     assert "format" in board and "cost" in board
     assert "pass" in board and "EN" in board and "KO" in board
     matrix = render_matrix(reports)
-    assert "unique-frequency-en" in matrix and "unique-frequency-ko" in matrix
+    assert "log-top-errors-en" in matrix and "log-top-errors-ko" in matrix
     assert "pass" in matrix
 
 
 def test_export_json_and_csv(config, stub_backends, tmp_path):
-    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False)
     json_path = tmp_path / "results.json"
     export(reports, json_path)
     data = json.loads(json_path.read_text())
     assert data[0]["backend"] == "alpha"
-    assert data[0]["results"][0]["prompt_id"] == "unique-frequency-en"
+    assert data[0]["results"][0]["prompt_id"] == "log-top-errors-en"
     assert data[0]["results"][0]["lang"] == "en"
-    assert data[0]["results"][0]["target"] == "unique-frequency"
+    assert data[0]["results"][0]["target"] == "log-top-errors"
 
     csv_path = tmp_path / "results.csv"
     export(reports, csv_path)
     lines = csv_path.read_text().strip().splitlines()
     assert lines[0].startswith("backend,model,prompt_id,lang,target")
-    assert lines[1].startswith("alpha,model-a,unique-frequency-en,en,unique-frequency")
+    assert lines[1].startswith("alpha,model-a,log-top-errors-en,en,log-top-errors")
 
     with pytest.raises(ValueError, match="unsupported export"):
         export(reports, tmp_path / "results.xlsx")
@@ -265,7 +266,7 @@ def test_format_failure_is_scored_not_fatal(config, monkeypatch):
         return StubProvider(Capabilities(), lambda request, i: Completion(text="no json at all"))
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
-    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["log-top-errors"], progress=False)
     result = reports[0].results[0]
     assert not result.format_ok
     assert result.error is not None
@@ -284,7 +285,7 @@ def test_cached_tokens_flow_and_cache_aware_cost(config, monkeypatch):
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
     reports = run_eval(
-        config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False, warmup=False
+        config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False, warmup=False
     )
     result = reports[0].results[0]
     assert result.cached_prompt_tokens == 40
@@ -307,12 +308,41 @@ def test_warmup_and_temperature_pinning(config, monkeypatch):
         return provider
 
     monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
-    reports = run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False)
+    reports = run_eval(config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False)
     assert len(providers[0].requests) == 2  # warmup + one scored prompt
     assert all(req.temperature == 0.0 for req in providers[0].requests)
+    assert all(req.max_tokens == 1024 for req in providers[0].requests)
     assert len(reports[0].results) == 1
     assert reports[0].total_tokens == 15  # warmup usage never scored
 
     providers.clear()
-    run_eval(config, ["alpha"], prompt_ids=["unique-frequency-en"], progress=False, warmup=False)
+    run_eval(config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False, warmup=False)
     assert len(providers[0].requests) == 1
+
+
+def test_eval_uses_isolated_cache_and_state_roots(config, monkeypatch):
+    seen: list[tuple[str | None, str | None]] = []
+    monkeypatch.setenv("XDG_CACHE_HOME", "/real/cache")
+    monkeypatch.setenv("XDG_STATE_HOME", "/real/state")
+
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: (
+                seen.append((os.environ.get("XDG_CACHE_HOME"), os.environ.get("XDG_STATE_HOME")))
+                or Completion(
+                    text=payload("awk '{print $1}' access.log | sort | uniq -c | sort -rn")
+                )
+            ),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    run_eval(config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False, warmup=False)
+
+    assert seen
+    assert seen[0][0] != "/real/cache"
+    assert seen[0][1] != "/real/state"
+    assert seen[0][0] and os.path.basename(seen[0][0]).startswith("tt-eval-cache-")
+    assert seen[0][1] and os.path.basename(seen[0][1]).startswith("tt-eval-state-")
+    assert os.environ["XDG_CACHE_HOME"] == "/real/cache"
+    assert os.environ["XDG_STATE_HOME"] == "/real/state"

@@ -15,8 +15,9 @@ RUN_DATE=2026-07-03
 
 | Backend | Model | Runtime | Notes |
 |---|---|---|---|
-| `local-gemma4-26b` | gemma-4-26B-A4B-it-MLX-8bit | oMLX, managed server on :3333 | MoE 25.2B total / ~3.8B active |
-| `local-gemma4-e4b` | lmstudio-community--gemma-4-E4B-it-MLX-4bit | `omlx serve --hf-cache --port 3334` | on-device class, 4.5B effective |
+| `local-gemma4-26b` | gemma-4-26B-A4B-it-MLX-8bit | oMLX, managed server on :3333 | MoE 25.2B total / ~3.8B active; no MTP drafter in the default roster |
+| `local-gemma4-12b-8bit` | gemma-4-12B-it-8bit | oMLX, managed server on :3333 | 12B 8-bit with matching assistant drafter downloaded (`gemma-4-12B-it-assistant-8bit`); record MTP-on/off provenance when used |
+| `local-gemma4-e4b` | lmstudio-community--gemma-4-E4B-it-MLX-4bit | oMLX, managed server on :3333 | on-device class, 4.5B effective |
 | `local-qwen36-35b` | mtplx-qwen36-35b-a3b-optimized-balance | `mtplx quickstart --model Youssofal/Qwen3.6-35B-A3B-MTPLX-Optimized-Balance --port 18080 --yes` | MTP speculative decoding. Roster note: the PRD named Qwen 3.6 **27B**; the mtplx-installed build is the **35B-A3B** MoE — swapped by decision on #90. |
 | `sonnet5-low` | claude-sonnet-5 | Claude Agent SDK (`effort = "low"`) | Auth = local Claude Code login, **no API key**. Latency includes SDK/CLI startup per request — footnoted in the report. |
 | `gpt55-low` | gpt-5.5 | OpenAI Codex SDK (`effort = "low"`) | Auth = local Codex CLI ChatGPT login, **no API key** (the env `OPENAI_API_KEY` 401'd). Latency includes SDK/CLI startup — footnoted like Sonnet. Needs `uv sync --extra codex`. |
@@ -40,10 +41,10 @@ one comparable cost axis. The report's fine print repeats this.
 
 ## Preflight
 
-1. `curl -s localhost:3333/v1/models` lists `gemma-4-26B-A4B-it-MLX-8bit` (managed oMLX).
-2. E4B weights present in the HF cache (`hf download lmstudio-community/gemma-4-E4B-it-MLX-4bit`),
-   then `omlx serve --hf-cache --port 3334` lists it. The bare `refs/main` stub in the cache does
-   NOT count — the first run hit this: no snapshot, so `--hf-cache` silently skips the model.
+1. `curl -s localhost:3333/v1/models` lists `gemma-4-26B-A4B-it-MLX-8bit`,
+   `gemma-4-12B-it-8bit`, `gemma-4-12B-it-assistant-8bit`, and
+   `lmstudio-community--gemma-4-E4B-it-MLX-4bit` (managed oMLX).
+2. Do not start a second oMLX server on `3334`; the bench roster uses the managed `3333` server.
 3. `mtplx quickstart --model Youssofal/Qwen3.6-35B-A3B-MTPLX-Optimized-Balance --port 18080 --yes`;
    `curl -s localhost:18080/v1/models` answers.
 4. `claude` CLI logged in (Sonnet rides it); `codex login status` says logged in (GPT-5.5 rides
@@ -58,7 +59,7 @@ One backend at a time — local models share the GPU, so never two sweeps concur
 cd <repo>
 RUN_DATE=2026-07-03
 mkdir -p "docs/bench/$RUN_DATE"
-for b in local-gemma4-26b local-gemma4-e4b local-qwen36-35b sonnet5-low gpt55-low; do
+for b in local-gemma4-26b local-gemma4-12b-8bit local-gemma4-e4b local-qwen36-35b sonnet5-low gpt55-low; do
   TT_CONFIG=docs/bench/bench.toml uv run tt eval --backends "$b" \
     --export "docs/bench/$RUN_DATE/$b.json"
 done

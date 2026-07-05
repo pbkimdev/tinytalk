@@ -42,30 +42,30 @@ from tinytalk.eval.suite import SUITE
 # an analysis concern, not something the runner or product needs.
 CATEGORY: dict[str, str] = {
     "count-lines-code": "text-processing",
-    "extract-columns": "text-processing",
-    "replace-in-files": "text-processing",
-    "unique-frequency": "text-processing",
-    "watch-log": "text-processing",
-    "grep-recursive-ext": "text-processing",
-    "find-large-files": "text-processing",
+    "env-missing-keys": "text-processing",
+    "log-window-uniq-ip": "text-processing",
     "json-extract": "structured-parsing",
     "extract-ips": "structured-parsing",
     "ini-section": "structured-parsing",
     "awk-group-sum": "structured-parsing",
+    "jsonl-p95-routes": "structured-parsing",
+    "csv-quoted-join": "structured-parsing",
+    "yaml-image-policy": "structured-parsing",
     "log-top-errors": "pipelines",
     "csv-columns-transform": "pipelines",
     "loop-backup-copies": "pipelines",
     "diff-sorted": "pipelines",
     "parallel-compress": "pipelines",
+    "git-conflict-markers": "pipelines",
+    "find-hardlink-groups": "pipelines",
     "cert-expiry": "networking",
     "dns-trace": "networking",
     "ssh-stream-copy": "networking",
-    "k8s-crashloop": "kubernetes",
+    "rsync-delete-dry-run": "networking",
     "k8s-restart-count": "kubernetes",
-    "git-delete-branch": "git-and-fs",
-    "git-find-deleted": "git-and-fs",
-    "archive-create": "git-and-fs",
+    "k8s-old-tls-secrets": "kubernetes",
     "delete-node-modules": "git-and-fs",
+    "tar-safe-extract-logs": "git-and-fs",
 }
 
 # A FALSIFIABLE HYPOTHESIS, defined by the linguistic property (the canonical answer must
@@ -73,7 +73,7 @@ CATEGORY: dict[str, str] = {
 # string), NOT by the failure set. If backslash-in-JSON was the true cause, a fixed model's
 # escape_heavy delivery should recover. Kept a curated subset, never derived per-run.
 ESCAPE_HEAVY: frozenset[str] = frozenset(
-    {"count-lines-code", "extract-ips", "ini-section", "k8s-restart-count"}
+    {"count-lines-code", "extract-ips", "ini-section", "k8s-restart-count", "git-conflict-markers"}
 )
 
 # Targets in suite order, deduplicated across the EN/KO pair.
@@ -333,6 +333,11 @@ class BackendAnalysis:
     delivery: DeliveryStats
     layers: LayerStats
     slices: SliceStats
+    local: bool = False  # served on this machine (drives cloud/local color + labels in the dashboard)
+
+    @property
+    def strict_pass_pct(self) -> float:
+        return _pct(self.layers.first_failing.get("pass", 0), self.n)
 
 
 @dataclass(frozen=True)
@@ -350,6 +355,7 @@ def analyze_report(report: BackendReport) -> BackendAnalysis:
         delivery=_delivery_stats(report.results),
         layers=_layer_stats(report.results),
         slices=_slice_stats(report),
+        local=report.local,
     )
 
 

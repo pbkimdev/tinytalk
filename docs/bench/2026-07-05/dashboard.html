@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TinyTalk CLI Bench &middot; 2026-07-05</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --plex-sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --plex-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --bg:#ffffff; --layer:#f4f4f4; --layer-2:#ffffff; --field:#f4f4f4;
+  --text:#161616; --text-2:#525252; --text-3:#6f6f6f; --on-color:#ffffff;
+  --border:#e0e0e0; --border-strong:#8d8d8d; --link:#0f62fe;
+  --s-cloud:#1192e8; --s-local:#6929c4;
+  --pass:#24a148; --intent:#8d8d8d; --drop:#da1e28;
+  --track:#e0e0e0;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#161616; --layer:#262626; --layer-2:#393939; --field:#262626;
+  --text:#f4f4f4; --text-2:#c6c6c6; --text-3:#a8a8a8;
+  --border:#393939; --border-strong:#6f6f6f; --link:#4589ff;
+  --s-cloud:#33b1ff; --s-local:#8a3ffc;
+  --pass:#42be65; --intent:#8d8d8d; --drop:#fa4d56;
+  --track:#393939;
+}}
+:root[data-theme="white"]{
+  --bg:#ffffff; --layer:#f4f4f4; --layer-2:#ffffff; --field:#f4f4f4;
+  --text:#161616; --text-2:#525252; --text-3:#6f6f6f;
+  --border:#e0e0e0; --border-strong:#8d8d8d; --link:#0f62fe;
+  --s-cloud:#1192e8; --s-local:#6929c4; --pass:#24a148; --intent:#8d8d8d; --drop:#da1e28; --track:#e0e0e0;
+}
+:root[data-theme="g100"]{
+  --bg:#161616; --layer:#262626; --layer-2:#393939; --field:#262626;
+  --text:#f4f4f4; --text-2:#c6c6c6; --text-3:#a8a8a8;
+  --border:#393939; --border-strong:#6f6f6f; --link:#4589ff;
+  --s-cloud:#33b1ff; --s-local:#8a3ffc; --pass:#42be65; --intent:#8d8d8d; --drop:#fa4d56; --track:#393939;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--plex-sans);
+  font-size:14px;line-height:1.4;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--plex-mono)}
+.wrap{max-width:1056px;margin:0 auto;padding:48px 16px 96px}
+a{color:var(--link)}
+
+/* header */
+.topbar{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);
+  padding-bottom:12px;margin-bottom:40px}
+.brand{font-family:var(--plex-mono);font-size:12px;letter-spacing:.32px;color:var(--text-2);text-transform:uppercase}
+.brand b{color:var(--text);font-weight:600}
+.toggle{font-family:var(--plex-sans);font-size:12px;color:var(--text-2);background:none;
+  border:1px solid var(--border-strong);padding:6px 12px;cursor:pointer}
+.toggle:hover{background:var(--layer)}
+.toggle:focus-visible{outline:2px solid var(--link);outline-offset:1px}
+h1{font-size:clamp(26px,3.6vw,34px);font-weight:600;letter-spacing:-.32px;margin:0;line-height:1.1;text-wrap:balance}
+.sub{color:var(--text-2);font-size:15px;max-width:68ch;margin:14px 0 0}
+.meta{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:20px;font-family:var(--plex-mono);
+  font-size:12px;color:var(--text-3)}
+.meta b{color:var(--text-2);font-weight:500}
+
+/* tiles */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);margin-top:32px;border:1px solid var(--border)}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+.tile{background:var(--layer);padding:24px}
+.tile .role{font-family:var(--plex-mono);font-size:12px;letter-spacing:.32px;text-transform:uppercase;color:var(--text-3)}
+.tile .name{font-size:16px;font-weight:600;margin-top:4px}
+.tile .kind{display:inline-block;margin-left:8px;font-family:var(--plex-mono);font-size:11px;
+  padding:1px 8px;border-radius:12px;color:var(--k);border:1px solid var(--k);vertical-align:middle}
+.tile .big{font-family:var(--plex-mono);font-size:46px;font-weight:600;letter-spacing:-1px;line-height:1;
+  margin-top:18px;color:var(--k)}
+.tile .big small{font-size:18px;color:var(--text-3);font-weight:400;letter-spacing:0}
+.tile .foot{font-family:var(--plex-mono);font-size:12px;color:var(--text-3);margin-top:10px}
+
+/* sections */
+section{margin-top:56px}
+.eyebrow{font-family:var(--plex-mono);font-size:12px;letter-spacing:.32px;text-transform:uppercase;
+  color:var(--link);font-weight:500}
+h2{font-size:20px;font-weight:600;margin:8px 0 0;letter-spacing:-.16px}
+.cap{color:var(--text-2);max-width:74ch;margin:10px 0 24px}
+.panel{background:var(--layer);border:1px solid var(--border);padding:clamp(20px,3vw,28px)}
+
+/* bar rows (square, Carbon) */
+.rows{display:flex;flex-direction:column;gap:14px}
+.row{display:grid;grid-template-columns:132px 1fr;gap:16px;align-items:center}
+@media (max-width:560px){.row{grid-template-columns:96px 1fr;gap:10px}}
+.rlab{font-family:var(--plex-mono);font-size:13px;color:var(--text-2);text-align:right;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.track{position:relative;height:20px;background:var(--track)}
+.fill{position:absolute;left:0;top:0;bottom:0;background:var(--k);display:flex;align-items:center;
+  justify-content:flex-end;padding-right:8px}
+.fill .v{font-family:var(--plex-mono);font-size:12px;font-weight:600;color:var(--on-color)}
+.grpwrap{display:flex;flex-direction:column;gap:5px}
+.gbar{position:relative;height:14px;background:var(--track)}
+.gbar .gf{position:absolute;left:0;top:0;bottom:0;background:var(--k)}
+.gbar .gv{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-family:var(--plex-mono);
+  font-size:10px;font-weight:600;color:var(--text-2)}
+
+/* legend + tags */
+.legend{display:flex;flex-wrap:wrap;gap:12px 20px;margin-top:20px;font-family:var(--plex-mono);
+  font-size:12px;color:var(--text-2)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.sw{width:12px;height:12px;flex:none}
+.sw.hollow{background:transparent;border:1px solid var(--border-strong)}
+.tag{display:inline-flex;align-items:center;gap:7px;font-family:var(--plex-mono);font-size:12px;
+  background:var(--field);border-radius:14px;padding:4px 12px;color:var(--text-2)}
+.tag .d{width:8px;height:8px;flex:none}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+
+/* stability range plot */
+.rangeplot{display:flex;flex-direction:column;gap:14px}
+.rline,.raxis{display:grid;grid-template-columns:104px 1fr 74px;gap:16px;align-items:center}
+@media (max-width:560px){.rline,.raxis{grid-template-columns:72px 1fr 64px;gap:10px}}
+.rlab{font-family:var(--plex-mono);font-size:13px;color:var(--k);font-weight:600;text-align:right;white-space:nowrap}
+.rtrack{position:relative;height:22px}
+.rtrack .axisline{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--track)}
+.rband{position:absolute;top:50%;transform:translateY(-50%);height:8px;background:var(--k);opacity:.28}
+.rdot{position:absolute;top:50%;width:12px;height:12px;background:var(--k);
+  border:2px solid var(--layer);transform:translate(-50%,-50%);box-shadow:0 0 0 1px var(--k)}
+.rval{font-family:var(--plex-mono);font-size:12.5px;color:var(--k);font-weight:600;white-space:nowrap}
+.rt{position:relative;height:16px}
+.rtk{position:absolute;transform:translateX(-50%);font-family:var(--plex-mono);font-size:10.5px;color:var(--text-3);top:2px}
+.rtk::before{content:"";position:absolute;left:50%;top:-6px;width:1px;height:5px;background:var(--border-strong)}
+.rcap{font-family:var(--plex-mono);font-size:10px;color:var(--text-3);letter-spacing:.4px;text-transform:uppercase}
+
+/* flip stat cards */
+.flip{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin-top:24px}
+@media (max-width:560px){.flip{grid-template-columns:1fr}}
+.flipc{background:var(--layer);padding:20px 22px}
+.flipc .k{font-family:var(--plex-mono);font-size:12px;letter-spacing:.32px;text-transform:uppercase;color:var(--text-3)}
+.flipc .pair{display:flex;align-items:baseline;gap:18px;margin-top:14px}
+.flipc .col{display:flex;flex-direction:column}
+.flipc .col b{font-family:var(--plex-mono);font-size:34px;font-weight:600;line-height:1;letter-spacing:-1px}
+.flipc .col .who{font-family:var(--plex-mono);font-size:11px;color:var(--text-3);margin-top:5px}
+.flipc .vs{font-family:var(--plex-mono);font-size:12px;color:var(--text-3)}
+.flipc .note{font-size:13px;color:var(--text-2);margin-top:14px;line-height:1.45}
+
+/* stacked layer bar */
+.stackrow{margin-bottom:18px}
+.stackrow .who{display:flex;justify-content:space-between;font-family:var(--plex-mono);font-size:13px;
+  color:var(--text-2);margin-bottom:7px}
+.stackrow .who b{color:var(--k);font-weight:600}
+.stack{display:flex;height:32px;gap:1px;background:var(--border)}
+.seg{display:flex;align-items:center;justify-content:center;color:var(--on-color);font-family:var(--plex-mono);
+  font-size:12px;font-weight:600;min-width:2px;overflow:hidden;white-space:nowrap}
+
+/* two-up */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border)}
+@media (max-width:640px){.two{grid-template-columns:1fr}}
+.two .panel{border:none}
+.microbars{display:flex;flex-direction:column;gap:12px}
+.mb{display:grid;grid-template-columns:104px 1fr;gap:12px;align-items:center}
+.mb .ml{font-family:var(--plex-mono);font-size:12px;color:var(--text-2);text-align:right}
+
+/* category */
+.cat{display:flex;flex-direction:column;gap:16px}
+.catrow{display:grid;grid-template-columns:148px 1fr;gap:16px;align-items:center}
+@media (max-width:560px){.catrow{grid-template-columns:112px 1fr}}
+.catrow .cl{font-family:var(--plex-mono);font-size:12.5px;color:var(--text-2);text-align:right}
+
+/* callout + table + footer */
+.callout{border-left:3px solid var(--link);padding:2px 0 2px 16px;margin-top:22px;color:var(--text)}
+.callout b{font-weight:600}
+details{margin-top:24px}
+summary{cursor:pointer;font-family:var(--plex-mono);font-size:12px;color:var(--text-2)}
+.tblwrap{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-family:var(--plex-mono);font-size:12px}
+th,td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{color:var(--text-3);font-weight:500;text-transform:uppercase;letter-spacing:.32px;
+  background:var(--layer);border-bottom:1px solid var(--border-strong)}
+tbody tr:hover{background:var(--layer)}
+footer{margin-top:64px;border-top:1px solid var(--border);padding-top:20px;color:var(--text-3);
+  font-family:var(--plex-mono);font-size:12px;line-height:1.7}
+footer b{color:var(--text-2);font-weight:500}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><b>TinyTalk</b> · CLI bench · natural language &rarr; shell</div>
+    <button class="toggle" id="tg" aria-label="Toggle theme">Theme</button>
+  </div>
+  <h1>Gemma 4 12B QAT vs. Claude Sonnet 5</h1>
+  <p class="sub">A 50-prompt run — 25 tasks in English and Korean — scoring whether plain language
+    becomes a correct, runnable shell command. Beyond the headline scores: <em>how</em> each backend
+    misses, and how much it moves across repeated runs.</p>
+  <div class="meta"><span><b>2026-07-05</b></span><span>Apple M5 Max</span>
+    <span>temperature 0</span><span>validation-only · never executed</span>
+    <span>rule/assertion-based (not an LLM judge)</span></div>
+  <div class="grid2"><div class="tile" style="--k:var(--s-local)">
+  <div class="role">oMLX · 4-bit · assistant MTP</div>
+  <div class="name">Gemma 4 12B QAT<span class="kind" style="--k:var(--s-local)">local · $0</span></div>
+  <div class="big">88<small>% strict</small></div>
+  <div class="foot">EN 88 · KO 88 &nbsp;·&nbsp; delivery 90%</div>
+</div><div class="tile" style="--k:var(--s-cloud)">
+  <div class="role">Agent SDK · low effort</div>
+  <div class="name">Claude Sonnet 5<span class="kind" style="--k:var(--s-cloud)">cloud</span></div>
+  <div class="big">98<small>% strict</small></div>
+  <div class="foot">EN 100 · KO 96 &nbsp;·&nbsp; delivery 100%</div>
+</div></div>
+  <section><div class="eyebrow">Strict pass</div>
+  <h2>Overall score</h2>
+  <p class="cap">A command passes strict when it parses, every binary and flag is real, and it does
+    what the request asked — checked deterministically, never executed.</p>
+  <div class="panel"><div class="rows"><div class="row"><div class="rlab">Claude Sonnet 5</div>
+      <div class="track"><div class="fill" style="--k:var(--s-cloud);width:98%">
+        <span class="v">98%</span></div></div></div><div class="row"><div class="rlab">Gemma 4 12B QAT</div>
+      <div class="track"><div class="fill" style="--k:var(--s-local);width:88%">
+        <span class="v">88%</span></div></div></div></div></div></section>
+  <section><div class="eyebrow">Reproducibility</div>
+  <h2>Ask the same thing twice</h2>
+  <p class="cap">Both backends run at temperature 0. Re-run the whole suite N times and watch what
+    changes — the finding a single leaderboard number hides.</p>
+  <div class="panel">
+    <div class="rangeplot"><div class="rline" style="--k:var(--s-local)"><div class="rlab">Gemma 12B</div><div class="rtrack"><div class="axisline"></div><div class="rdot" style="left:12.5%" data-tip="Gemma 12B — 86% ×5"></div></div><div class="rval">86</div></div><div class="rline" style="--k:var(--s-cloud)"><div class="rlab">Sonnet 5</div><div class="rtrack"><div class="axisline"></div><div class="rband" style="left:75.0%;width:25.0%"></div><div class="rdot" style="left:75.0%" data-tip="Sonnet 5 — 96% ×2"></div><div class="rdot" style="left:100.0%" data-tip="Sonnet 5 — 100%"></div></div><div class="rval">96–100</div></div>
+      <div class="raxis"><div></div><div class="rt"><span class="rtk" style="left:0%">84</span><span class="rtk" style="left:25%">88</span><span class="rtk" style="left:50%">92</span><span class="rtk" style="left:75%">96</span><span class="rtk" style="left:100%">100</span></div><div class="rcap">strict&nbsp;%</div></div>
+    </div>
+    <div class="legend"><span><span class="sw" style="background:var(--s-local)"></span>Gemma 12B · 5 runs</span><span><span class="sw" style="background:var(--s-cloud)"></span>Sonnet 5 · 3 runs</span><span>&#9679; one run &nbsp; &#9644; [min–max]</span></div>
+    <div class="flip">
+      <div class="flipc"><div class="k">Command rewrite rate</div><div class="pair"><div class="col"><b style="color:var(--s-local)">0%</b><span class="who">Gemma 12B</span></div><span class="vs">vs</span><div class="col"><b style="color:var(--s-cloud)">52%</b><span class="who">Sonnet 5</span></div></div><div class="note">Share of prompts whose exact command text changed run-to-run.</div></div>
+      <div class="flipc"><div class="k">Verdict flip rate</div><div class="pair"><div class="col"><b style="color:var(--s-local)">0%</b><span class="who">Gemma 12B</span></div><span class="vs">vs</span><div class="col"><b style="color:var(--s-cloud)">6%</b><span class="who">Sonnet 5</span></div></div><div class="note">Share whose pass/fail actually flipped. The rewrite–flip gap is harmless drift.</div></div>
+    </div>
+    <p class="callout"><b>Not a temperature setting</b> — temp 0 is already greedy. Local greedy +
+      lossless-MTP decode is deterministic; hosted batched-MoE serving is not, at any temperature.
+      Trust one local run; average several hosted ones.</p>
+  </div></section>
+  <section><div class="eyebrow">First failing gate</div>
+  <h2>Anatomy of a miss</h2>
+  <p class="cap">Each prompt's first failing gate, out of 50. A dropped answer (the model
+    garbled its own output) is a different problem from a wrong approach.</p>
+  <div class="panel"><div class="stackrow" style="--k:var(--s-local)">
+    <div class="who"><b>Gemma 4 12B QAT</b><span>delivered 5, intent 1</span></div>
+    <div class="stack"><div class="seg" style="background:var(--pass);flex:88.0 1 0" data-tip="pass: 44/50">88%</div><div class="seg" style="background:var(--intent);flex:2.0 1 0" data-tip="wrong approach: 1/50">1</div><div class="seg" style="background:var(--drop);flex:10.0 1 0" data-tip="dropped: 5/50">5 dropped</div></div></div><div class="stackrow" style="--k:var(--s-cloud)">
+    <div class="who"><b>Claude Sonnet 5</b><span>intent 1</span></div>
+    <div class="stack"><div class="seg" style="background:var(--pass);flex:98.0 1 0" data-tip="pass: 49/50">98%</div><div class="seg" style="background:var(--intent);flex:2.0 1 0" data-tip="wrong approach: 1/50">1</div></div></div><div class="legend"><span><span class="sw" style="background:var(--pass)"></span>pass</span><span><span class="sw" style="background:var(--intent)"></span>wrong approach</span><span><span class="sw" style="background:var(--drop)"></span>dropped</span></div></div></section>
+  <section><div class="eyebrow">Delivery</div>
+  <h2>Where the answers get dropped</h2>
+  <p class="cap">Delivery rate = a runnable command came back at all. Every dropped answer is a
+    malformed structured output; they concentrate on one linguistic property.</p>
+  <div class="two">
+    <div class="panel"><div class="eyebrow" style="color:var(--text-3);margin-bottom:14px">Gemma 4 12B QAT · dropped-answer causes</div>
+      <div class="tags"><span class="tag"><span class="d" style="background:var(--intent)"></span>malformed json · 1</span><span class="tag"><span class="d" style="background:var(--drop)"></span>unescaped backslash · 4</span></div>
+      <p class="cap" style="margin:16px 0 0;font-size:13px">Regex / <span class="mono">sed</span> escapes
+        (<span class="mono">\b \. \d</span>) break the JSON the command is wrapped in — repairable in
+        the parser, no retrain needed.</p></div>
+    <div class="panel"><div class="eyebrow" style="color:var(--text-3);margin-bottom:16px">Delivery: escape-heavy vs the rest</div>
+      <div class="microbars"><div class="mb"><div class="ml">Gemma 12B · esc-heavy</div><div class="track"><div class="fill" style="--k:var(--drop);width:37.5%"><span class="v">38%</span></div></div></div><div class="mb"><div class="ml">Gemma 12B · rest</div><div class="track"><div class="fill" style="--k:var(--s-local);width:100.0%"><span class="v">100%</span></div></div></div><div class="mb"><div class="ml">Sonnet 5 · esc-heavy</div><div class="track"><div class="fill" style="--k:var(--s-cloud);width:100.0%"><span class="v">100%</span></div></div></div><div class="mb"><div class="ml">Sonnet 5 · rest</div><div class="track"><div class="fill" style="--k:var(--s-cloud);width:100.0%"><span class="v">100%</span></div></div></div></div>
+      <p class="cap" style="margin:16px 0 0;font-size:13px">Falsifiable: fix backslash-in-JSON and
+        escape-heavy delivery should recover toward 100%.</p></div>
+  </div></section>
+  <section><div class="eyebrow">By capability</div>
+  <h2>Strict pass per task family</h2>
+  <p class="cap">Where each backend is strong and where it needs work.</p>
+  <div class="panel"><div class="cat"><div class="catrow"><div class="cl">git-and-fs</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:100.0%"></div><span class="gv">100%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:100.0%"></div><span class="gv">100%</span></div></div></div><div class="catrow"><div class="cl">kubernetes</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:75.0%"></div><span class="gv">75%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:75.0%"></div><span class="gv">75%</span></div></div></div><div class="catrow"><div class="cl">networking</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:100.0%"></div><span class="gv">100%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:100.0%"></div><span class="gv">100%</span></div></div></div><div class="catrow"><div class="cl">pipelines</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:90.0%"></div><span class="gv">90%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:100.0%"></div><span class="gv">100%</span></div></div></div><div class="catrow"><div class="cl">structured-parsing</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:62.5%"></div><span class="gv">62%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:100.0%"></div><span class="gv">100%</span></div></div></div><div class="catrow"><div class="cl">text-processing</div><div class="grpwrap"><div class="gbar"><div class="gf" style="background:var(--s-local);width:92.9%"></div><span class="gv">93%</span></div><div class="gbar"><div class="gf" style="background:var(--s-cloud);width:100.0%"></div><span class="gv">100%</span></div></div></div></div>
+    <div class="legend"><span><span class="sw" style="background:var(--s-local)"></span>Gemma 4 12B QAT</span><span><span class="sw" style="background:var(--s-cloud)"></span>Claude Sonnet 5</span></div></div></section>
+  <details><summary>&#9656; data table (all figures)</summary><div class="tblwrap"><table><thead><tr><th>metric</th><th>Gemma 4 12B QAT</th><th>Claude Sonnet 5</th></tr></thead><tbody><tr><td>strict pass</td><td>88%</td><td>98%</td></tr><tr><td>EN / KO</td><td>88 / 88</td><td>100 / 96</td></tr><tr><td>delivery rate</td><td>90%</td><td>100%</td></tr><tr><td>dropped answers</td><td>5</td><td>0</td></tr><tr><td>escape-heavy delivery</td><td>38%</td><td>100%</td></tr><tr><td>cat · git-and-fs</td><td>100%</td><td>100%</td></tr><tr><td>cat · kubernetes</td><td>75%</td><td>75%</td></tr><tr><td>cat · networking</td><td>100%</td><td>100%</td></tr><tr><td>cat · pipelines</td><td>90%</td><td>100%</td></tr><tr><td>cat · structured-parsing</td><td>62%</td><td>100%</td></tr><tr><td>cat · text-processing</td><td>93%</td><td>100%</td></tr></tbody></table></div></details>
+  <footer>
+    <b>Method.</b> 25 golden targets &times; English/Korean = 50 prompts. Strict pass = parses +
+    real binaries/flags + intent assertions; nothing executed. Temperature 0; repeated runs power the
+    stability metric.<br>
+    <b>Rendered</b> from the run's <span class="mono">results.json</span> by
+    <span class="mono">tt eval dashboard</span> &mdash; IBM Carbon Design System.
+  </footer>
+</div>
+<div id="tip" role="status" style="position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;
+  background:var(--text);color:var(--bg);font-family:var(--plex-mono);font-size:11.5px;padding:5px 9px;
+  z-index:9;max-width:280px"></div>
+<script>
+(function(){
+  var root=document.documentElement,btn=document.getElementById('tg');
+  function cur(){var t=root.getAttribute('data-theme');return t||(matchMedia('(prefers-color-scheme:dark)').matches?'g100':'white');}
+  btn.addEventListener('click',function(){root.setAttribute('data-theme',cur()==='g100'?'white':'g100');});
+  var tip=document.getElementById('tip');
+  document.addEventListener('pointermove',function(e){
+    var t=e.target.closest('[data-tip]');
+    if(!t){tip.style.opacity=0;return;}
+    tip.textContent=t.getAttribute('data-tip');
+    tip.style.left=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8)+'px';
+    tip.style.top=(e.clientY+16)+'px';tip.style.opacity=1;});
+})();
+</script>
+</body></html>

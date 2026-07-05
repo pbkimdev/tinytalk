@@ -159,6 +159,10 @@ def build_history_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if len(argv) >= 2 and argv[0] == "eval" and argv[1] == "dashboard":
+        from tinytalk.eval.dashboard import main as dashboard_main
+
+        return dashboard_main(argv[2:])
     if len(argv) >= 2 and argv[0] == "eval" and argv[1] == "analyze":
         from tinytalk.eval.analyze import main as analyze_main
 

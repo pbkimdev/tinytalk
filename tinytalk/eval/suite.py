@@ -2,10 +2,11 @@
 
 25 golden targets, each carried by two prompts — natural English and natural
 Korean — sharing one assertion set, so an EN↔KO score gap is a pure language
-effect. Suite v3 leans hard: the 15 easiest v2 targets (plain listings,
-single-flag lookups) were retired once every model saturated them; what
-remains is multi-stage pipelines, tools beyond coreutils, shell constructs,
-and networking/parsing tasks most developers reach for a search engine on.
+effect. Suite v4 keeps the 25-target shape but retires the 10 most trivially
+saturated v3 targets under the current scorer, preserving known discriminators
+plus a few anchors. The 10 replacements concentrate on structured parsing,
+escape-heavy commands, multi-stage composition, less-common shell tools, and
+quoting/whitespace edge cases so frontier low-effort models have real headroom.
 Assertions are `kind:value` strings, checked deterministically against the
 generated command — cheaper and more reproducible than an LLM judge
 (deferred post-v1):
@@ -65,63 +66,7 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         ("uses_any:wc|awk", r"regex:\.py\b|\bpy\b"),
         "safe",
     ),
-    (
-        "extract-columns",
-        "From access.log, give me just the first and the last column of every line",
-        "access.log에서 각 줄의 첫 번째랑 마지막 컬럼만 뽑아줘",
-        ("uses_any:awk|cut", "contains:access.log"),
-        "safe",
-    ),
-    (
-        "replace-in-files",
-        "Swap every 'foo' for 'bar' in all the .txt files here — change the files themselves",
-        "여기 있는 .txt 파일들에서 'foo'를 전부 'bar'로 바꿔줘. 파일 자체를 고쳐서",
-        ("uses_any:sed|perl", "contains:foo", "contains:bar"),
-        "caution",
-    ),
-    (
-        "unique-frequency",
-        "Count how often each value shows up in the first column of access.log, most common first",
-        "access.log 첫 번째 컬럼에 어떤 값이 몇 번씩 나오는지 세서, 많이 나온 순으로 보여줘",
-        ("uses_any:sort|awk", "pipes_to:uniq"),
-        "safe",
-    ),
-    (
-        "watch-log",
-        "Keep watching the end of /var/log/system.log as new lines come in",
-        "/var/log/system.log 끝부분을 계속 지켜보고 싶어. 새 로그가 들어오는 대로 보이게",
-        ("uses:tail", "regex:-[0-9]*[fF]", "contains:/var/log/system.log"),
-        "safe",
-    ),
-    (
-        "grep-recursive-ext",
-        "Look for the string 'connect_timeout' in every .yaml file under this directory",
-        "이 디렉토리 아래 .yaml 파일들에서 'connect_timeout' 문자열 찾아줘",
-        ("uses_any:grep|rg", "contains:connect_timeout"),
-        "safe",
-    ),
-    (
-        "find-large-files",
-        "Find any files over 100MB hiding under my home directory",
-        "홈 디렉토리 아래에서 100MB 넘는 파일들 찾아줘",
-        ("uses_any:find|fd", "contains:100"),
-        "safe",
-    ),
-    # archive / git / danger checks
-    (
-        "archive-create",
-        "Pack this whole directory up into backup.tar.gz, but leave out the .git folder",
-        "이 디렉토리 전체를 backup.tar.gz로 압축해줘. .git 폴더는 빼고",
-        ("uses:tar", "contains:backup.tar.gz", "regex:(--exclude|\\.git)"),
-        "caution",
-    ),
-    (
-        "git-delete-branch",
-        "Get rid of my local git branch called old-feature",
-        "로컬 git 브랜치 중에 old-feature라는 거 지워줘",
-        ("uses:git", "contains:branch", "regex:-[dD]", "contains:old-feature"),
-        "caution",
-    ),
+    # danger anchor
     (
         "delete-node-modules",
         "Completely wipe the node_modules folder in this directory",
@@ -151,21 +96,6 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
             "pipes_to:sort",
             "regex:(tail -n \\+2|1d|NR ?> ?1)",
         ),
-        "safe",
-    ),
-    # rigor: tools outside coreutils
-    (
-        "k8s-crashloop",
-        "Any pods stuck in CrashLoopBackOff on the cluster? Look across every namespace",
-        "클러스터에 CrashLoopBackOff로 죽어 있는 파드 있는지 봐줘. 네임스페이스 전부 다 뒤져서",
-        ("uses:kubectl", "regex:(-A|--all-namespaces)", "regex:(?i)crashloop"),
-        "safe",
-    ),
-    (
-        "git-find-deleted",
-        "Someone deleted config.yaml from this repo at some point — find the commit that did it",
-        "이 저장소에서 누가 config.yaml을 지웠는데, 어느 커밋에서 지워졌는지 찾아줘",
-        ("uses:git", "regex:(log|rev-list)", "contains:config.yaml"),
         "safe",
     ),
     # rigor: shell constructs (a per-file action that doesn't vectorize forces a loop)
@@ -258,7 +188,143 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         "Gzip all the .log files in this directory, running 4 compressions at a time "
         "in parallel",
         "이 디렉토리의 .log 파일들을 gzip으로 압축해줘. 한 번에 4개씩 병렬로 돌려서",
-        ("contains:gzip", "regex:(-P ?4|parallel|-j ?4)", "contains:.log"),
+        ("contains:gzip", "regex:(-P ?4|parallel|-j ?4)", r"regex:(\.log\b|\blog\b)"),
+        "caution",
+    ),
+    # v4 hard: structured data, quoting, policy checks, and richer shell composition
+    (
+        "jsonl-p95-routes",
+        "From requests.jsonl, compute the p95 latency_ms per route for 5xx responses and show the top 3 slowest routes",
+        "requests.jsonl에서 5xx 응답만 골라 route별 latency_ms p95를 계산하고 가장 느린 3개 route를 보여줘",
+        (
+            "contains:requests.jsonl",
+            "uses_any:jq|python|awk",
+            "regex:(latency_ms|duration_ms)",
+            "regex:(route|path)",
+            "regex:(p95|95|0\\.95|percentile)",
+            "regex:(5[0-9][0-9]|5xx)",
+            "regex:(head|-n ?3|top|\\[0:3\\])",
+        ),
+        "safe",
+    ),
+    (
+        "csv-quoted-join",
+        "Join orders.csv to customers.csv by customer_id and sum amount by customer email; the CSVs may contain quoted commas",
+        "orders.csv와 customers.csv를 customer_id로 조인해서 customer email별 amount 합계를 구해줘. CSV 안에는 따옴표로 감싼 쉼표가 있을 수 있어",
+        (
+            "contains:orders.csv",
+            "contains:customers.csv",
+            "regex:(python3?|mlr|xsv|csvsql|csvjoin)",
+            "regex:(customer_id|email)",
+            "regex:(amount|sum|total)",
+        ),
+        "safe",
+    ),
+    (
+        "yaml-image-policy",
+        "Across Kubernetes YAML files, list container images whose tag is latest or missing; skip charts/ and vendor/",
+        "Kubernetes YAML 파일들에서 태그가 latest이거나 아예 없는 container image를 찾아줘. charts/랑 vendor/는 빼고",
+        (
+            "regex:(image|containers)",
+            "regex:(latest|tag)",
+            "regex:(charts|vendor)",
+            "regex:(python3?|yq)",
+            "regex:(-g|--glob|--exclude|-prune|continue)",
+        ),
+        "safe",
+    ),
+    (
+        "env-missing-keys",
+        "Compare .env.example with .env and print each missing required key with its .env.example line number, preserving order and ignoring comments and blanks",
+        ".env.example과 .env를 비교해서 로컬에 빠진 필수 키와 .env.example의 줄 번호를 같이 보여줘. 순서는 유지하고 주석과 빈 줄은 무시해",
+        (
+            "contains:.env.example",
+            "contains:.env",
+            "uses_any:awk|python|grep",
+            "regex:(set\\(|-F|seen|while)",
+            "regex:(#|^\\^#|blank|NF)",
+            "regex:(grep -n|nl |enumerate)",
+            "not_contains:sort",
+        ),
+        "safe",
+    ),
+    (
+        "git-conflict-markers",
+        "For files currently conflicted in git, count how many conflict marker blocks each file contains",
+        "git에서 현재 충돌 난 파일마다 conflict marker 블록이 몇 개인지 세어줘",
+        (
+            "uses:git",
+            "regex:(diff|ls-files)",
+            "regex:(<<<<<<<|>>>>>>>)",
+            "regex:(grep|rg|awk|python3?)",
+        ),
+        "safe",
+    ),
+    (
+        "rsync-delete-dry-run",
+        "Preview which remote files would be deleted when syncing ./site to web01:/srv/site; do not change anything",
+        "./site를 web01:/srv/site로 동기화하면 원격에서 지워질 파일이 뭔지 미리 보여줘. 실제 변경은 하지 말고",
+        (
+            "uses:rsync",
+            "contains:site",
+            "contains:web01",
+            "regex:(--delete|--del)",
+            "regex:(--dry-run| -[A-Za-z]*n[A-Za-z]*\\b)",
+            "regex:(deleting|grep|awk|sed)",
+        ),
+        "caution",
+    ),
+    (
+        "k8s-old-tls-secrets",
+        "Across all namespaces, list TLS secrets older than 90 days with namespace, name, and creation timestamp",
+        "전체 네임스페이스에서 90일 넘은 TLS secret을 namespace, name, creation timestamp와 함께 보여줘",
+        (
+            "uses:kubectl",
+            "regex:(-A|--all-namespaces)",
+            "regex:(secret|secrets)",
+            "regex:(kubernetes.io/tls|tls)",
+            "contains:90",
+            "regex:(jq|awk|python|jsonpath)",
+        ),
+        "safe",
+    ),
+    (
+        "log-window-uniq-ip",
+        "In access.log, count unique IPs per minute from 14:00 through 14:15, excluding 2xx responses",
+        "access.log에서 14:00부터 14:15까지 분 단위 unique IP 수를 세어줘. 2xx 응답은 제외하고",
+        (
+            "contains:access.log",
+            "uses_any:awk|python|perl",
+            "regex:(14:00|14:15|14)",
+            "regex:(2[0-9][0-9]|200|2xx|\\^2)",
+            "regex:(sort -u|uniq|set\\(|seen\\[)",
+        ),
+        "safe",
+    ),
+    (
+        "find-hardlink-groups",
+        "Find files under this tree that are hardlinks to the same inode and print each inode group together",
+        "이 트리 아래에서 같은 inode를 공유하는 hardlink 파일들을 찾아 inode 그룹별로 묶어서 보여줘",
+        (
+            "uses_any:find|fd",
+            "regex:(-links|stat|inode|%i|inum)",
+            "uses_any:awk|sort|uniq|python",
+            "regex:(group|\\$1|inode|%i)",
+        ),
+        "safe",
+    ),
+    (
+        "tar-safe-extract-logs",
+        "Extract only var/log/*.log from backup.tar.gz into ./logs, stripping the first two path components and not overwriting existing files",
+        "backup.tar.gz에서 var/log/*.log만 ./logs로 풀어줘. 앞의 경로 두 단계는 제거하고 기존 파일은 덮어쓰지 말고",
+        (
+            "uses:tar",
+            "contains:backup.tar.gz",
+            "contains:logs",
+            "regex:(var/log|\\.log)",
+            "regex:(--strip-components|--transform| -s)",
+            "regex:(--keep-old-files|--skip-old-files|-[A-Za-z]*k[A-Za-z]*)",
+        ),
         "caution",
     ),
 )
