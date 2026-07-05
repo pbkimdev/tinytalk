@@ -116,7 +116,12 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert link.is_symlink() and os.readlink(link) == str(launcher)
 
     config = home / ".config" / "tinytalk" / "config.toml"
-    assert "[defaults]" in config.read_text()
+    text = config.read_text()
+    assert "[cache]\nenabled = true" in text
+    assert "run `tt auth`" in text
+    assert "\n[defaults]" not in text
+    assert "\n[backends.local]" not in text
+    assert '# [backends.local]' in text
 
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(MARKER) == 1
@@ -183,6 +188,30 @@ def test_no_rc_flag_skips_zshrc(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes", "--no-rc").returncode == 0
     assert not (home / ".zshrc").exists()
+
+
+def test_auth_nudge_skips_for_yes_no_rc_or_headless(sandbox, tmp_path):
+    # --yes means "non-interactive, auto-accept rc edits" for scripts/CI — it must NOT
+    # launch the interactive tt auth wizard.
+    home, env, tt_log = sandbox
+    assert run_install(env, "--yes").returncode == 0
+    assert "auth\n" not in tt_log.read_text()
+
+    home2 = tmp_path / "home2"
+    home2.mkdir()
+    tt_log2 = tmp_path / "tt2.log"
+    bundle2 = make_bundle(tmp_path, tt_log2, tag="no-rc")
+    env2 = {"HOME": str(home2), "PATH": f"{home2}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle2)}
+    assert run_install(env2, "--yes", "--no-rc").returncode == 0
+    assert "auth\n" not in tt_log2.read_text()
+
+    home3 = tmp_path / "home3"
+    home3.mkdir()
+    tt_log3 = tmp_path / "tt3.log"
+    bundle3 = make_bundle(tmp_path, tt_log3, tag="headless")
+    env3 = {"HOME": str(home3), "PATH": f"{home3}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle3)}
+    assert run_install(env3).returncode == 0
+    assert "auth\n" not in tt_log3.read_text()
 
 
 def test_prompt_defaults_to_no(sandbox):
