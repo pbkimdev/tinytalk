@@ -85,6 +85,11 @@ def build_eval_parser() -> argparse.ArgumentParser:
         metavar="JSON",
         help="re-render --report from a previous --export .json instead of running",
     )
+    parser.add_argument(
+        "--data-preview",
+        action="store_true",
+        help="eval-only: include read-only fixture file previews in scored prompts",
+    )
     return parser
 
 
@@ -225,7 +230,13 @@ def _eval(args: argparse.Namespace) -> int:
             config = load_config(Path(args.config) if args.config else None)
             backends = args.backends.split(",") if args.backends else sorted(config.backends)
             prompt_ids = args.prompts.split(",") if args.prompts else None
-            reports = run_eval(config, backends, prompt_ids=prompt_ids, cwd=os.getcwd())
+            reports = run_eval(
+                config,
+                backends,
+                prompt_ids=prompt_ids,
+                cwd=os.getcwd(),
+                data_preview=args.data_preview,
+            )
     except (OSError, ConfigError, ValueError) as exc:
         print(f"tt: {exc}", file=sys.stderr)
         return 1

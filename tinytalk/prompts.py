@@ -203,7 +203,12 @@ def t1_system(
 
 
 def user_message(
-    prompt: str, *, cwd: str = ".", session_context: str = "", problems: tuple[str, ...] = ()
+    prompt: str,
+    *,
+    cwd: str = ".",
+    session_context: str = "",
+    file_context: str = "",
+    problems: tuple[str, ...] = (),
 ) -> str:
     """The user message for every model call — each part gated by its condition."""
     parts = [prompt]
@@ -211,6 +216,8 @@ def user_message(
         parts.append(f"(current directory: {cwd})")
     if session_context:
         parts.append(f"Recent commands in this session:\n{session_context}")
+    if file_context:
+        parts.append(file_context)
     if problems:
         parts.append(
             "A previous attempt was rejected: " + "; ".join(problems) + ". Fix those issues."

@@ -108,6 +108,29 @@ def test_t1_pass_returns_and_caches():
     assert "runnable" in provider.requests[0].messages[0].content
 
 
+def test_default_request_does_not_add_file_preview_block():
+    provider = text_provider(completion_for())
+    asyncio.run(TierController(provider).suggest(TierRequest(prompt="show disk usage")))
+    user = provider.requests[0].messages[1].content
+    assert user == "show disk usage"
+    assert "Working-directory file previews" not in user
+
+
+def test_file_context_is_only_added_when_set():
+    provider = text_provider(completion_for())
+    asyncio.run(
+        TierController(provider).suggest(
+            TierRequest(
+                prompt="show disk usage",
+                file_context="Working-directory file previews (read-only context):\n--- data.csv ---",
+            )
+        )
+    )
+    user = provider.requests[0].messages[1].content
+    assert "show disk usage" in user
+    assert "Working-directory file previews (read-only context):" in user
+
+
 def test_t1_gate_fail_escalates_to_t2_with_enrichment():
     def validator(s: Suggestion) -> ValidationResult:
         if "gdu" in s.command:

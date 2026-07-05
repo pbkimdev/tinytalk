@@ -63,15 +63,20 @@ def test_user_message_each_condition():
     assert prompts.user_message("do it", session_context="ls") == (
         "do it\n\nRecent commands in this session:\nls"
     )
+    assert prompts.user_message("do it", file_context="Working-directory file previews") == (
+        "do it\n\nWorking-directory file previews"
+    )
     assert prompts.user_message("do it", problems=("p1", "p2")) == (
         "do it\n\nA previous attempt was rejected: p1; p2. Fix those issues."
     )
 
 
 def test_user_message_all_parts_in_order():
-    assert prompts.user_message("do it", cwd="/x", session_context="ls", problems=("p1",)) == (
+    assert prompts.user_message(
+        "do it", cwd="/x", session_context="ls", file_context="files", problems=("p1",)
+    ) == (
         "do it\n\n(current directory: /x)\n\nRecent commands in this session:\nls"
-        "\n\nA previous attempt was rejected: p1. Fix those issues."
+        "\n\nfiles\n\nA previous attempt was rejected: p1. Fix those issues."
     )
 
 

@@ -31,6 +31,7 @@ class TierRequest:
     prompt: str
     cwd: str = "."
     session_context: str = ""  # redacted recent commands (#35)
+    file_context: str = ""  # eval-only read-only fixture previews; product callers leave empty
     language: str = "en"  # explanation language (#107); "en" ⇒ no prompt clause, no key material
 
 
@@ -269,6 +270,7 @@ class TierController:
                     request.prompt,
                     cwd=request.cwd,
                     session_context=request.session_context,
+                    file_context=request.file_context,
                     problems=problems,
                 ),
             ),

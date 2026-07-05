@@ -26,6 +26,7 @@ from tinytalk.config import Config
 from tinytalk.cost import cost as _cost  # lifted into cost.py; kept importable here for report.py
 from tinytalk.eval.oracle import CASES as ORACLE_CASES
 from tinytalk.eval.oracle import oracle_pass as _oracle_pass
+from tinytalk.eval.preview import build_file_preview
 from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
 from tinytalk.grounding import SystemGrounding
 from tinytalk.provider.base import Completion, CompletionRequest, Provider, ToolCall, Usage
@@ -151,6 +152,7 @@ def run_eval(
     cwd: str = ".",
     progress: bool = True,
     warmup: bool = True,
+    data_preview: bool = False,
 ) -> list[BackendReport]:
     with _isolated_eval_state():
         if prompt_ids:
@@ -172,6 +174,7 @@ def run_eval(
                     cwd=cwd,
                     progress=progress,
                     warmup=warmup,
+                    data_preview=data_preview,
                 )
             )
             for name in backend_names
@@ -218,6 +221,7 @@ async def _run_backend(
     cwd: str,
     progress: bool,
     warmup: bool,
+    data_preview: bool,
 ) -> BackendReport:
     backend_cfg = config.backend(name)
     recorder = EvalRecorder(make_provider(backend_cfg))
@@ -244,7 +248,15 @@ async def _run_backend(
                 print(f"  [{name}] warmup failed (ignored): {exc}", file=sys.stderr)
 
     for prompt in suite:
-        result = await _run_prompt(controller, recorder, validator, prompt, price, cwd)
+        result = await _run_prompt(
+            controller,
+            recorder,
+            validator,
+            prompt,
+            price,
+            cwd,
+            data_preview=data_preview,
+        )
         report.results.append(result)
         if progress:
             mark = "✓" if result.assertions_pass else ("!" if result.format_ok else "✗")
@@ -295,12 +307,17 @@ async def _run_prompt(
     prompt: EvalPrompt,
     price,
     cwd: str,
+    *,
+    data_preview: bool = False,
 ) -> PromptResult:
     recorder.reset()
     start = time.perf_counter()
     suggestion, tier, usage, error = None, None, Usage(), None
+    file_context = build_file_preview(prompt.target) if data_preview and prompt.target in ORACLE_CASES else ""
     try:
-        tier_result = await controller.suggest(TierRequest(prompt=prompt.text, cwd=cwd))
+        tier_result = await controller.suggest(
+            TierRequest(prompt=prompt.text, cwd=cwd, file_context=file_context)
+        )
         suggestion, tier, usage = tier_result.suggestion, tier_result.tier, tier_result.usage
     except NoValidCommand as exc:
         suggestion = exc.last  # rejected by the gate — still score what came back
