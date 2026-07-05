@@ -101,7 +101,18 @@ class ClaudeAgentProvider:
                     "claude-agent-sdk is not installed; `uv sync` (or pip install claude-agent-sdk)"
                 ) from exc
 
-            options = ClaudeAgentOptions(model=self.model, max_turns=1, allowed_tools=[])
+            from tinytalk.addons import AddonMissing, claude_cli_path
+
+            # Frozen binary: the `claude` CLI is a downloaded add-on, not bundled — point the
+            # SDK at it. Source installs get None and the SDK resolves `claude` from $PATH.
+            try:
+                cli_path = claude_cli_path()
+            except AddonMissing as exc:
+                raise ClaudeAgentError(str(exc)) from exc
+
+            options = ClaudeAgentOptions(
+                model=self.model, max_turns=1, allowed_tools=[], cli_path=cli_path
+            )
             query_fn = query
 
         if request.response_format is ResponseFormat.JSON_OBJECT:

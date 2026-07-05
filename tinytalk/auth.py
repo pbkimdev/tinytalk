@@ -335,6 +335,13 @@ def _setup_anthropic_compat(io: WizardIO, *, prober=None) -> BackendDraft | None
 
 
 def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None:
+    from tinytalk.addons import AddonInstallError, install_addon
+
+    try:
+        install_addon("claude")
+    except AddonInstallError as exc:
+        print(f"tt auth: {exc}")
+        return None
     probe = prober or _probe_claude_agent
     print(
         "Auth follows the Claude Agent SDK's own convention: an existing `claude` CLI "
@@ -395,6 +402,13 @@ def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendD
 
 
 def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
+    from tinytalk.addons import AddonInstallError, install_addon
+
+    try:
+        install_addon("bedrock")
+    except AddonInstallError as exc:
+        print(f"tt auth: {exc}")
+        return None
     probe = prober or _probe_bedrock
     region = io.text("AWS region:", default="us-east-1")
     if not region:

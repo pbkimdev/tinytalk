@@ -202,8 +202,13 @@ def _build_client(
     access_key_id: str | None,
     secret_access_key: str | None,
 ):
+    from tinytalk.addons import AddonMissing, ensure_bedrock_importable
+
     try:
+        ensure_bedrock_importable()  # frozen binary: pull boto3 in from the downloaded add-on
         import boto3
+    except AddonMissing as exc:
+        raise BedrockError(str(exc)) from exc
     except ImportError as exc:
         raise BedrockError(_INSTALL_HINT) from exc
     session_kwargs: dict = {"region_name": region}

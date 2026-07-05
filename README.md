@@ -73,6 +73,11 @@ shell config without asking. In one pass it:
 Pass `--yes` to accept every prompt (handy for scripts/CI), `--no-rc` to leave your shell
 config untouched, or `--version <tag>` to pin a release.
 
+The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**
+and the **Claude Agent SDK** download a one-time add-on the first time you set them up with
+`tt auth`, so those two need network at setup — see [Offline / manual add-on
+install](#offline--manual-add-on-install) for an air-gapped machine.
+
 The interactive `?` prompt is a **zsh** widget, so zsh is recommended — it's the default
 shell on macOS, and one `apt install zsh` away on Linux. The plain `tt "..."` command works
 in any shell, including bash. Prefer to build from source? Clone the repo and run
@@ -123,7 +128,8 @@ claude setup-token   # prints a one-year token → export CLAUDE_CODE_OAUTH_TOKE
 
 Then run `tt auth`, choose **Claude Agent SDK**, and pick a model. TinyTalk doesn't ask
 for a secret here — it uses your existing `claude` login (or `ANTHROPIC_API_KEY` if you'd
-rather use a console key).
+rather use a console key). On a release binary, this first setup fetches a one-time add-on
+(the `claude` CLI for your platform), so it needs network once.
 
 ![tt auth — Claude](docs/assets/authclaude.png)
 
@@ -170,7 +176,9 @@ the AWS console:
 
 Then `tt auth` → **AWS Bedrock**. It asks for a region and an optional profile, discovers
 the models your credentials can see, and lets you pick one. If discovery comes up empty,
-it offers to take an explicit access-key pair instead (stored in your keychain).
+it offers to take an explicit access-key pair instead (stored in your keychain). On a
+release binary, this first setup also fetches a one-time Bedrock add-on (`boto3` and its
+dependencies), so it needs network once.
 
 ![tt auth — Bedrock](docs/assets/authbedrock.png)
 
@@ -197,6 +205,59 @@ escalation_backend = "claude"  # fallback slot
 ```
 
 Run `tt auth` again any time to set up the fallback slot, swap a slot, or remove one.
+
+### Offline / manual add-on install
+
+The **AWS Bedrock** and **Claude Agent SDK** backends live outside the `tt` binary and are
+downloaded on first `tt auth`. On an air-gapped box — no network when you run the wizard —
+fetch the add-on by hand on a connected machine and drop it into place. This is exactly what
+`tt auth` automates.
+
+First, note your version — the add-on is version-stamped and must match the binary:
+
+```sh
+tt --version        # e.g. 0.1.0 — use it for <version> below
+```
+
+Download the add-on you want, plus its checksum, from the matching release (`v<version>`).
+Bedrock ships one cross-platform archive; the Claude CLI is per-platform — pick `macos-arm64`,
+`linux-x86_64`, or `linux-arm64`:
+
+```sh
+base=https://github.com/pbkimdev/tinytalk/releases/download/v<version>
+
+# Bedrock (cross-platform):
+curl -LO "$base/tt-bedrock-addon.tar.gz"
+curl -LO "$base/tt-bedrock-addon.tar.gz.sha256"
+
+# Claude Agent SDK (pick your platform):
+curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz"
+curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz.sha256"
+```
+
+Verify each archive against its checksum:
+
+```sh
+shasum -a 256 -c tt-bedrock-addon.tar.gz.sha256
+```
+
+Unpack into the version-stamped add-on directory, honoring `$XDG_DATA_HOME` (defaults to
+`~/.local/share`). Each add-on lives at `…/tinytalk/addons/<name>/<version>/`:
+
+```sh
+dir="${XDG_DATA_HOME:-$HOME/.local/share}/tinytalk/addons"
+
+# Bedrock → the boto3/ tree sits at the directory root:
+mkdir -p "$dir/bedrock/<version>"
+tar -xzf tt-bedrock-addon.tar.gz -C "$dir/bedrock/<version>"
+
+# Claude → a single `claude` binary, made executable:
+mkdir -p "$dir/claude/<version>"
+tar -xzf tt-claude-addon-macos-arm64.tar.gz -C "$dir/claude/<version>"
+chmod +x "$dir/claude/<version>/claude"
+```
+
+`tt` picks the add-on up on the next run — no wizard needed.
 
 ---
 
@@ -378,9 +439,9 @@ and any credentials. The available kinds:
 |---|---|
 | `openai-compat` | Any OpenAI-compatible HTTP API — local (oMLX, llama.cpp, Ollama) or hosted |
 | `anthropic-compat` | Anthropic Messages API over raw HTTP |
-| `claude-agent-sdk` | Claude via the Agent SDK (Claude Code login or `ANTHROPIC_API_KEY`) |
+| `claude-agent-sdk` | Claude via the Agent SDK (Claude Code login or `ANTHROPIC_API_KEY`) — one-time add-on fetched at `tt auth` |
 | `codex-agent-sdk` | GPT via the Codex CLI login |
-| `bedrock` | AWS Bedrock (uses your AWS credential chain) |
+| `bedrock` | AWS Bedrock (uses your AWS credential chain) — one-time add-on fetched at `tt auth` |
 | `azure-openai` | Azure OpenAI (endpoint + API key + deployment) |
 
 A few keys worth knowing: `api_key_env` reads a secret from an environment variable;
