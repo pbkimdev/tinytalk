@@ -1,0 +1,5 @@
+order_id,customer_id,amount,note
+o1,c1,12.50,"rush, gift"
+o2,c2,6.25,standard
+o3,c1,5.00,standard
+o4,c3,4.00,"quoted, comma"

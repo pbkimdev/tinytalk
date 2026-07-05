@@ -1,0 +1,8 @@
+spec:
+  containers:
+    - name: a
+      image: nginx:latest
+    - name: b
+      image: myapp:1.2.3
+    - name: c
+      image: redis

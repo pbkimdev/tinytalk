@@ -1,0 +1,4 @@
+customer_id,name,email
+c1,"Ada, Lovelace",ada@example.com
+c2,"Grace Hopper",grace@example.com
+c3,"Linus, Torvalds",linus@example.com

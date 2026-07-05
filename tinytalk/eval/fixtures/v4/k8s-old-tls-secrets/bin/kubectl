@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+old_tls=$(date -u -v-120d +%Y-%m-%dT%H:%M:%SZ)
+new_tls=$(date -u -v-10d +%Y-%m-%dT%H:%M:%SZ)
+old_opaque=$(date -u -v-200d +%Y-%m-%dT%H:%M:%SZ)
+field_selector_tls=false
+for arg in "$@"; do
+  if [ "$arg" = "type=kubernetes.io/tls" ]; then
+    field_selector_tls=true
+  fi
+done
+cat <<JSON
+{
+  "items": [
+    {
+      "metadata": {"namespace": "default", "name": "old-tls", "creationTimestamp": "$old_tls"},
+      "type": "kubernetes.io/tls"
+    },
+    {
+      "metadata": {"namespace": "default", "name": "new-tls", "creationTimestamp": "$new_tls"},
+      "type": "kubernetes.io/tls"
+    }$(if [ "$field_selector_tls" = false ]; then cat <<OPAQUE
+,
+    {
+      "metadata": {"namespace": "kube-system", "name": "old-opaque", "creationTimestamp": "$old_opaque"},
+      "type": "Opaque"
+    }
+OPAQUE
+fi)
+  ]
+}
+JSON

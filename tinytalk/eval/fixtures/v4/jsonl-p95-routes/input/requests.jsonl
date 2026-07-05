@@ -1,0 +1,8 @@
+{"route":"/checkout","status":500,"latency_ms":500}
+{"route":"/checkout","status":502,"latency_ms":800}
+{"route":"/checkout","status":503,"latency_ms":1200}
+{"route":"/search","status":500,"latency_ms":100}
+{"route":"/search","status":504,"latency_ms":900}
+{"route":"/login","status":500,"latency_ms":450}
+{"route":"/health","status":200,"latency_ms":9999}
+{"route":"/checkout","status":200,"latency_ms":3000}
