@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+# Fake `atuin` for capture.zsh's offline self-test: emulates `atuin ai inline`
+# with canned commands from $ATUIN_STUB_RESPONSES (files 1,2,… in fixture order,
+# selected by an invocation counter in $ATUIN_STUB_STATE).
+if [[ "${1:-} ${2:-}" == "ai inline" ]]; then
+  local n cmd
+  n=$(( $(cat "${ATUIN_STUB_STATE}" 2>/dev/null || echo 0) + 1 ))
+  print -rn -- "$n" > "${ATUIN_STUB_STATE}"
+  cmd="$(cat "${ATUIN_STUB_RESPONSES}/$n" 2>/dev/null)"
+  print -u1 -- "  Suggested command:"      # stdout -> pane, so the poll matches
+  print -u1 -- "\$ ${cmd}"
+  read -k 1 -s _key                        # block until the driver presses Tab
+  print -u2 -- "__atuin_ai_insert__:${cmd}"  # stderr -> hook file, like real atuin
+  exit 0
+fi
+exit 0

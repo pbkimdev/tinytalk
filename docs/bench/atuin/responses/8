@@ -1,0 +1,1 @@
+awk -F, 'NR>1{s[$1]+=$3} END{for(k in s) print k, s[k]}' sales.csv
