@@ -168,28 +168,31 @@ if [ -f "$CONFIG" ]; then
 else
   mkdir -p "$CONFIG_DIR"
   cat > "$CONFIG" <<'EOF'
-# TinyTalk config — backends, posture, cache, prices. Run `tt auth` to set up a
-# cloud backend, or point the local backend below at your own server.
-[defaults]
-backend = "local"
-posture = "local"
-
-# Local backend via an OpenAI-compatible server (oMLX, llama.cpp, Ollama, ...).
-# Start your server, then adjust base_url/model to match. No API key needed.
-[backends.local]
-kind = "openai-compat"
-base_url = "http://localhost:8000/v1"   # llama.cpp defaults to 8080
-model = "gemma-4-26B-A4B-it-MLX-8bit"
+# TinyTalk config — run `tt auth` to set up a backend.
+#
+# Example, if you already have an OpenAI-compatible local server:
+# [defaults]
+# backend = "local"
+#
+# [backends.local]
+# kind = "openai-compat"
+# base_url = "http://localhost:11434/v1"
+# model = "qwen3:8b"
 
 [cache]
 enabled = true
 EOF
-  say "config: wrote starter $CONFIG (edit backends to taste)"
+  say "config: wrote starter $CONFIG (run tt auth to set up a backend)"
 fi
 
 # 6. Warm the grounding snapshot (best-effort) so the first request skips the scan.
-"$TT" ground --refresh >/dev/null 2>&1 || true
-say "grounding: warmed the tool snapshot (tt ground --refresh)"
+# `tt ground` needs an active backend, which a fresh install doesn't have yet — don't
+# claim success it didn't have.
+if "$TT" ground --refresh >/dev/null 2>&1; then
+  say "grounding: warmed the tool snapshot (tt ground --refresh)"
+else
+  say "grounding: skipped (no backend configured yet — run tt auth, then tt ground --refresh)"
+fi
 
 # 7. Wire the ? widget into ~/.zshrc — consent-gated, marker-guarded, idempotent.
 MARKER="# tt zsh integration (added by install.sh)"
@@ -219,7 +222,20 @@ else
   say "zsh: skipped; enable any time with: eval \"\$(tt init zsh)\""
 fi
 
+# The auth nudge is interactive by nature (tt auth is a questionary wizard), so it's
+# offered only to a real TTY user. --yes means "non-interactive, auto-accept rc edits"
+# for scripts/CI — it must NOT launch the wizard.
+if [ "$NO_RC" = 1 ]; then
+  say "auth: skipped (--no-rc); run any time with: tt auth"
+elif [ "$YES" = 1 ]; then
+  say "auth: skipped (--yes is non-interactive); run any time with: tt auth"
+elif ask "Set up a model now? (runs tt auth)"; then
+  "$TT" auth || say "auth: tt auth did not complete; run it again any time with: tt auth"
+else
+  say "auth: skipped; run any time with: tt auth"
+fi
+
 say ""
 say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my disk usage'
-say "set up a cloud model:   tt auth"
+say "set up a model:   tt auth"
 say "uninstall:   rm $TT && rm -rf $LIB_DIR/tt   (and remove the 'added by install.sh' blocks from your rc files)"
