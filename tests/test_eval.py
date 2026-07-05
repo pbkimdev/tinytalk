@@ -256,6 +256,54 @@ def test_export_json_and_csv(config, stub_backends, tmp_path):
         export(reports, tmp_path / "results.xlsx")
 
 
+def test_eval_export_records_model_io(config, monkeypatch, tmp_path):
+    raw = {
+        "id": "cmpl-test",
+        "choices": [{"message": {"content": "raw body", "reasoning_content": "brief trace"}}],
+    }
+
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: Completion(
+                text=payload("awk '$9 == 500 {print $7}' access.log | sort | uniq -c | sort -rn"),
+                usage=Usage(100, 50, 150),
+                model="stub-model",
+                raw=raw,
+            ),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    reports = run_eval(
+        config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False, warmup=False
+    )
+    result = reports[0].results[0]
+    assert result.command is not None
+    assert result.prompt_text == "Which URLs in access.log keep failing with 500s? Count them up and show me the 5 worst offenders"
+    assert result.expected_assertions == [
+        "contains:access.log",
+        "contains:500",
+        "pipes_to:sort",
+        "regex:(uniq -c|awk)",
+    ]
+    assert result.attempts[0]["request"]["messages"][0]["role"] == "system"
+    assert result.attempts[0]["request"]["messages"][1]["content"]
+    assert result.attempts[0]["request"]["temperature"] == 0.0
+    assert result.attempts[0]["request"]["max_tokens"] == 8192
+    assert result.attempts[0]["response"]["text"].startswith('{"command"')
+    assert result.attempts[0]["response"]["model"] == "stub-model"
+    assert result.attempts[0]["response"]["usage"]["prompt_tokens"] == 100
+    assert result.attempts[0]["response"]["thinking"] == "brief trace"
+    assert result.attempts[0]["response"]["raw"] == raw
+
+    out = tmp_path / "results.json"
+    export(reports, out)
+    saved = json.loads(out.read_text())
+    saved_attempt = saved[0]["results"][0]["attempts"][0]
+    assert saved_attempt["request"]["messages"][1]["content"]
+    assert saved_attempt["response"]["raw"] == raw
+
+
 def test_unknown_prompt_id_fails_fast(config, stub_backends):
     with pytest.raises(ValueError, match="unknown prompt ids"):
         run_eval(config, ["alpha"], prompt_ids=["nope"], progress=False)

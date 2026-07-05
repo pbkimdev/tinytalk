@@ -19,13 +19,14 @@ import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from tinytalk.config import Config
 from tinytalk.cost import cost as _cost  # lifted into cost.py; kept importable here for report.py
 from tinytalk.eval.suite import SUITE, EvalPrompt, check_assertion
 from tinytalk.grounding import SystemGrounding
-from tinytalk.provider.base import Usage
+from tinytalk.provider.base import Completion, CompletionRequest, Provider, ToolCall, Usage
 from tinytalk.provider.factory import make_provider
 from tinytalk.tiers import NoValidCommand, TierController, TierRequest
 from tinytalk.validate import CommandValidator
@@ -41,11 +42,13 @@ class PromptResult:
     prompt_id: str
     lang: str = "en"
     target: str = ""
+    prompt_text: str = ""
     command: str | None = None
     error: str | None = None
     format_ok: bool = False
     parses: bool = False
     binaries_exist: bool = False
+    expected_assertions: list[str] = field(default_factory=list)
     assertions: dict[str, bool] = field(default_factory=dict)
     assertions_pass: bool = False
     danger: str | None = None
@@ -58,6 +61,7 @@ class PromptResult:
     cache_write_tokens: int = 0
     latency_s: float = 0.0
     cost_usd: float = 0.0
+    attempts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -206,12 +210,12 @@ async def _run_backend(
     warmup: bool,
 ) -> BackendReport:
     backend_cfg = config.backend(name)
-    provider = make_provider(backend_cfg)
+    recorder = EvalRecorder(make_provider(backend_cfg))
     # temperature=0: greedy decoding so scores are reproducible (bench protocol, #90).
     # max_tokens keeps local OpenAI-compatible servers from using enormous defaults
     # when a model starts narrating instead of returning the compact JSON contract.
     controller = TierController(
-        provider,
+        recorder,
         grounding=grounding,
         validator=validator,
         request_opts={"temperature": 0.0, "max_tokens": _EVAL_MAX_TOKENS},
@@ -223,13 +227,14 @@ async def _run_backend(
         # One discarded request eats model load / cold start so it never pollutes the
         # first scored latency. Errors are non-fatal: the scored loop reports its own.
         try:
+            recorder.reset()
             await controller.suggest(TierRequest(prompt=_WARMUP_PROMPT, cwd=cwd))
         except Exception as exc:
             if progress:
                 print(f"  [{name}] warmup failed (ignored): {exc}", file=sys.stderr)
 
     for prompt in suite:
-        result = await _run_prompt(controller, validator, prompt, price, cwd)
+        result = await _run_prompt(controller, recorder, validator, prompt, price, cwd)
         report.results.append(result)
         if progress:
             mark = "✓" if result.assertions_pass else ("!" if result.format_ok else "✗")
@@ -240,6 +245,34 @@ async def _run_backend(
     return report
 
 
+class EvalRecorder:
+    """Provider wrapper that records eval-only request/response transcripts."""
+
+    def __init__(self, provider: Provider):
+        self._provider = provider
+        self.name = provider.name
+        self.capabilities = provider.capabilities
+        self.attempts: list[dict[str, Any]] = []
+
+    def reset(self) -> None:
+        self.attempts = []
+
+    async def complete(self, request: CompletionRequest) -> Completion:
+        attempt: dict[str, Any] = {"request": _request_snapshot(request)}
+        start = time.perf_counter()
+        try:
+            completion = await self._provider.complete(request)
+        except Exception as exc:
+            attempt["latency_s"] = round(time.perf_counter() - start, 3)
+            attempt["error"] = {"type": type(exc).__name__, "message": str(exc)}
+            self.attempts.append(attempt)
+            raise
+        attempt["latency_s"] = round(time.perf_counter() - start, 3)
+        attempt["response"] = _completion_snapshot(completion)
+        self.attempts.append(attempt)
+        return completion
+
+
 def _is_local(backend_cfg) -> bool:
     host = urlparse(backend_cfg.base_url or "").hostname or ""
     return host in ("localhost", "127.0.0.1", "::1")
@@ -247,11 +280,13 @@ def _is_local(backend_cfg) -> bool:
 
 async def _run_prompt(
     controller: TierController,
+    recorder: EvalRecorder,
     validator: CommandValidator,
     prompt: EvalPrompt,
     price,
     cwd: str,
 ) -> PromptResult:
+    recorder.reset()
     start = time.perf_counter()
     suggestion, tier, usage, error = None, None, Usage(), None
     try:
@@ -259,6 +294,7 @@ async def _run_prompt(
         suggestion, tier, usage = tier_result.suggestion, tier_result.tier, tier_result.usage
     except NoValidCommand as exc:
         suggestion = exc.last  # rejected by the gate — still score what came back
+        usage = exc.usage
         error = str(exc)
     except Exception as exc:  # transport/SDK fault for this prompt only
         error = f"{type(exc).__name__}: {exc}"
@@ -268,7 +304,9 @@ async def _run_prompt(
         prompt_id=prompt.id,
         lang=prompt.lang,
         target=prompt.target,
+        prompt_text=prompt.text,
         error=error,
+        expected_assertions=list(prompt.assertions),
         danger_expected=prompt.expected_danger,
         latency_s=round(latency, 3),
         prompt_tokens=usage.prompt_tokens,
@@ -276,6 +314,7 @@ async def _run_prompt(
         cached_prompt_tokens=usage.cached_prompt_tokens,
         cache_write_tokens=usage.cache_write_tokens,
         cost_usd=_cost(usage, price),
+        attempts=list(recorder.attempts),
     )
     if suggestion is None:
         return base
@@ -296,6 +335,80 @@ async def _run_prompt(
             "tier": tier,
         }
     )
+
+
+def _request_snapshot(request: CompletionRequest) -> dict[str, Any]:
+    return {
+        "messages": [{"role": m.role.value, "content": m.content} for m in request.messages],
+        "tools": [asdict(t) for t in request.tools],
+        "response_format": request.response_format.value,
+        "grammar": request.grammar,
+        "reasoning_effort": request.reasoning_effort,
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+    }
+
+
+def _completion_snapshot(completion: Completion) -> dict[str, Any]:
+    raw = _safe_json(completion.raw)
+    return {
+        "model": completion.model,
+        "text": completion.text,
+        "tool_calls": [_tool_call_snapshot(t) for t in completion.tool_calls],
+        "usage": asdict(completion.usage),
+        "thinking": _extract_thinking(raw),
+        "raw": raw,
+    }
+
+
+def _tool_call_snapshot(tool_call: ToolCall) -> dict[str, str]:
+    return {"id": tool_call.id, "name": tool_call.name, "arguments": tool_call.arguments}
+
+
+def _safe_json(value: object) -> Any:
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError):
+        return _object_snapshot(value)
+
+
+def _object_snapshot(value: object) -> dict[str, Any]:
+    if value is None:
+        return {"type": "NoneType", "repr": "None"}
+    data: dict[str, Any] = {"type": type(value).__name__, "repr": repr(value)}
+    attrs: dict[str, Any] = {}
+    for name in ("result", "structured_output", "usage", "final_response", "reasoning", "thinking"):
+        if hasattr(value, name):
+            attrs[name] = _safe_json(getattr(value, name))
+    if attrs:
+        data["attrs"] = attrs
+    return data
+
+
+def _extract_thinking(raw: Any) -> Any:
+    found: list[Any] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {
+                    "thinking",
+                    "reasoning",
+                    "reasoning_content",
+                    "reasoning_text",
+                    "chain_of_thought",
+                }:
+                    found.append(value)
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(raw)
+    if not found:
+        return None
+    return found[0] if len(found) == 1 else found
 
 
 def render_leaderboard(reports: list[BackendReport]) -> str:
