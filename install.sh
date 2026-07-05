@@ -111,6 +111,11 @@ mkdir -p "$LIB_DIR" || die "could not create $LIB_DIR"
 rm -rf "$LIB_DIR/tt"   # drop any previous version's tree before unpacking the new one
 tar -xzf "$TMP" -C "$LIB_DIR" || die "could not unpack the bundle into $LIB_DIR"
 [ -x "$LIB_DIR/tt/tt" ] || die "the bundle is missing its tt launcher"
+# tar restores the archive's build-time mtime onto the launcher, but the .zshrc cache
+# block regenerates `init.zsh` only when the launcher is newer than the cache (`-nt`).
+# Stamp it to now so an upgrade always refreshes the cached widget instead of keeping
+# the previous version's.
+touch "$LIB_DIR/tt/tt"
 TT="$BIN_DIR/tt"
 ln -sf "$LIB_DIR/tt/tt" "$TT" || die "could not link $TT -> $LIB_DIR/tt/tt"
 "$TT" --version >/dev/null 2>&1 || die "the installed binary did not run"

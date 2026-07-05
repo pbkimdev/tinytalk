@@ -109,9 +109,8 @@ def claude_cli_path() -> str | None:
     A frozen build with no add-on raises `AddonMissing("claude")` rather than letting the SDK
     surface a raw `CLINotFoundError`.
     """
-    exe = addon_dir("claude") / "claude"
-    if exe.is_file() and os.access(exe, os.X_OK):
-        return str(exe)
+    if is_installed("claude"):
+        return str(addon_dir("claude") / "claude")
     if _is_frozen():
         raise AddonMissing("claude")
     return None
