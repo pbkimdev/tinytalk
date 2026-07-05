@@ -311,7 +311,7 @@ def test_warmup_and_temperature_pinning(config, monkeypatch):
     reports = run_eval(config, ["alpha"], prompt_ids=["log-top-errors-en"], progress=False)
     assert len(providers[0].requests) == 2  # warmup + one scored prompt
     assert all(req.temperature == 0.0 for req in providers[0].requests)
-    assert all(req.max_tokens == 1024 for req in providers[0].requests)
+    assert all(req.max_tokens == 8192 for req in providers[0].requests)
     assert len(reports[0].results) == 1
     assert reports[0].total_tokens == 15  # warmup usage never scored
 

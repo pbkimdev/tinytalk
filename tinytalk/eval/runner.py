@@ -33,7 +33,7 @@ from tinytalk.validate import CommandValidator
 
 # Deliberately not from the suite: warmup work must never overlap a scored prompt.
 _WARMUP_PROMPT = "print the current working directory"
-_EVAL_MAX_TOKENS = 1024
+_EVAL_MAX_TOKENS = 8192
 
 
 @dataclass(frozen=True)
