@@ -36,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  history     browse and reuse past commands\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "  prompt      print the assembled model prompt for a request (no model call)\n"
+            "  upgrade     download and install the latest tt release\n"
+            "  uninstall   remove tt files and keyring entries\n"
             "\n"
             "run `tt <command> --help` for command options"
         ),
@@ -100,6 +102,28 @@ def build_auth_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+    )
+    return parser
+
+
+def build_upgrade_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt upgrade",
+        description="Download and install the latest TinyTalk onedir release.",
+    )
+    parser.add_argument("--version", default="latest", help="release tag (default: latest)")
+    return parser
+
+
+def build_uninstall_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt uninstall",
+        description="Remove TinyTalk installed files and configured keyring entries.",
+    )
+    parser.add_argument("--yes", "-y", action="store_true", help="do not prompt for confirmation")
+    parser.add_argument("--keep-config", action="store_true", help="leave ~/.config/tinytalk intact")
+    parser.add_argument(
+        "--config", metavar="PATH", help="config file to inspect for keyring accounts"
     )
     return parser
 
@@ -182,6 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         return _init(argv[1:])
     if argv[:1] == ["auth"]:
         return _auth(build_auth_parser().parse_args(argv[1:]))
+    if argv[:1] == ["upgrade"]:
+        return _upgrade(build_upgrade_parser().parse_args(argv[1:]))
+    if argv[:1] == ["uninstall"]:
+        return _uninstall(build_uninstall_parser().parse_args(argv[1:]))
     if argv[:1] == ["ground"]:
         return _ground(build_ground_parser().parse_args(argv[1:]))
     if argv[:1] == ["config"]:
@@ -290,6 +318,218 @@ def _auth(args: argparse.Namespace) -> int:
     print(line)
     print('Try it: tt "show me disk usage"')
     return 0
+
+
+def _upgrade(args: argparse.Namespace) -> int:
+    try:
+        new_version = _perform_upgrade(args.version)
+    except Exception as exc:
+        print(f"tt upgrade: {exc}", file=sys.stderr)
+        return 1
+    print(f"tt: upgraded to {new_version}")
+    return 0
+
+
+def _perform_upgrade(version: str) -> str:
+    import hashlib
+    import os
+    import shutil
+    import subprocess
+    import tarfile
+    import tempfile
+    from pathlib import Path
+
+    from tinytalk import addons
+
+    if addons.PLATFORM_TAG is None:
+        raise RuntimeError(f"no prebuilt tt release for this platform")
+    asset = f"tt-{addons.PLATFORM_TAG}.tar.gz"
+    url = _release_asset_url(asset, version)
+    opener = addons._http_opener
+    expected = addons._fetch_sha256(opener, url + ".sha256")
+    lib_dir = _install_lib_dir()
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    dest = lib_dir / "tt"
+    partial = lib_dir / "tt.partial"
+    old_aside = lib_dir / "tt.old"
+    shutil.rmtree(partial, ignore_errors=True)
+    shutil.rmtree(old_aside, ignore_errors=True)
+
+    tmp: Path | None = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=lib_dir, prefix="tt.", suffix=".tmp")
+        tmp = Path(tmp_path)
+        digest = hashlib.sha256()
+        with os.fdopen(fd, "wb") as fh, opener(url) as (_total, chunks):
+            for chunk in chunks:
+                fh.write(chunk)
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual.lower() != expected.lower():
+            raise RuntimeError(f"{asset}: checksum mismatch (expected {expected}, got {actual})")
+        partial.mkdir()
+        with tarfile.open(tmp) as tf:
+            tf.extractall(partial, filter="data")
+        staged = partial / "tt"
+        launcher = staged / "tt"
+        if not launcher.is_file():
+            raise RuntimeError(f"{asset}: bundle is missing tt/tt")
+        # Swap atomically: move the old install aside first so a failed replace or a
+        # bad new build can be rolled back instead of leaving no install at all.
+        if dest.exists():
+            os.replace(dest, old_aside)
+        try:
+            os.replace(staged, dest)
+            launcher = dest / "tt"
+            os.utime(launcher, None)
+            out = subprocess.check_output([str(launcher), "--version"], text=True).strip()
+        except Exception:
+            shutil.rmtree(dest, ignore_errors=True)
+            if old_aside.exists():
+                os.replace(old_aside, dest)
+            raise
+        new_version = out.split()[-1] if out else "unknown"
+        _prune_stale_addons(new_version)
+        return new_version
+    finally:
+        shutil.rmtree(partial, ignore_errors=True)
+        shutil.rmtree(old_aside, ignore_errors=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
+def _uninstall(args: argparse.Namespace) -> int:
+    if not args.yes and not _confirm("Remove TinyTalk installed files and keyring entries?"):
+        print("tt uninstall: cancelled", file=sys.stderr)
+        return 1
+
+    import os
+    import shutil
+    from pathlib import Path
+
+    from tinytalk import addons
+    from tinytalk.cache import default_cache_dir
+    from tinytalk.config import default_config_path
+
+    config_path = Path(args.config) if args.config else default_config_path()
+    accounts = _configured_keyring_accounts(config_path)
+    deleted_accounts = _delete_keyring_accounts(accounts)
+
+    lib_dir = _install_lib_dir()
+    launcher = lib_dir / "tt" / "tt"
+    bin_path = _installed_bin_path(launcher)
+    if bin_path is not None:
+        bin_path.unlink(missing_ok=True)
+        print(f"removed {bin_path}")
+
+    shutil.rmtree(lib_dir / "tt", ignore_errors=True)
+    shutil.rmtree(default_cache_dir(), ignore_errors=True)
+    shutil.rmtree(addons.default_addons_dir(), ignore_errors=True)
+    print(f"removed {lib_dir / 'tt'}")
+    print(f"removed {default_cache_dir()}")
+    print(f"removed {addons.default_addons_dir()}")
+
+    if args.keep_config:
+        print(f"left config in place: {config_path.parent}")
+    else:
+        shutil.rmtree(config_path.parent, ignore_errors=True)
+        print(f"removed {config_path.parent}")
+
+    if deleted_accounts:
+        print("removed keyring accounts: " + ", ".join(sorted(deleted_accounts)))
+    print("Remove these marked blocks from shell rc files if present:")
+    print("  # tt PATH (added by install.sh)")
+    print("  # tt zsh integration (added by install.sh)")
+    return 0
+
+
+def _install_lib_dir():
+    from pathlib import Path
+
+    return Path(os.environ.get("XDG_DATA_HOME") or "~/.local/share").expanduser() / "tinytalk"
+
+
+def _release_asset_url(asset: str, version: str) -> str:
+    base = os.environ.get("TT_RELEASE_BASE") or "https://github.com/pbkimdev/tinytalk/releases"
+    if version == "latest":
+        return f"{base}/latest/download/{asset}"
+    return f"{base}/download/{version}/{asset}"
+
+
+def _prune_stale_addons(keep_version: str) -> None:
+    from tinytalk import addons
+
+    root = addons.default_addons_dir()
+    if not root.is_dir():
+        return
+    import shutil
+
+    for name_dir in root.iterdir():
+        if not name_dir.is_dir():
+            continue
+        for version_dir in name_dir.iterdir():
+            if version_dir.is_dir() and version_dir.name != keep_version:
+                shutil.rmtree(version_dir, ignore_errors=True)
+
+
+def _confirm(message: str) -> bool:
+    if not sys.stdin.isatty():
+        return False
+    answer = input(f"{message} [y/N] ")
+    return answer in ("y", "Y", "yes")
+
+
+def _installed_bin_path(launcher):
+    import shutil
+    from pathlib import Path
+
+    found = shutil.which("tt")
+    if found:
+        path = Path(found)
+        try:
+            if path.is_symlink() and path.resolve() == launcher.resolve():
+                return path
+        except OSError:
+            return None
+    return None
+
+
+def _configured_keyring_accounts(config_path) -> set[str]:
+    import tomllib
+
+    try:
+        data = tomllib.loads(config_path.read_text("utf-8"))
+    except (FileNotFoundError, OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return set()
+    backends = data.get("backends")
+    if not isinstance(backends, dict):
+        return set()
+    accounts: set[str] = set()
+    for table in backends.values():
+        if isinstance(table, dict) and isinstance(table.get("keyring_account"), str):
+            accounts.add(table["keyring_account"])
+    return accounts
+
+
+def _delete_keyring_accounts(accounts: set[str]) -> set[str]:
+    if not accounts:
+        return set()
+    try:
+        import keyring
+        import keyring.errors
+    except Exception:
+        return set()
+    deleted: set[str] = set()
+    for account in accounts:
+        try:
+            keyring.delete_password("tinytalk", account)
+        except keyring.errors.PasswordDeleteError:
+            pass
+        except Exception:
+            pass
+        else:
+            deleted.add(account)
+    return deleted
 
 
 def _config(args: argparse.Namespace) -> int:

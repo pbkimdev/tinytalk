@@ -59,7 +59,7 @@ def test_no_request_prints_help_and_succeeds(capsys):
 def test_help_lists_every_subcommand(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    for command in ("auth", "eval", "ground", "init zsh", "prompt"):
+    for command in ("auth", "eval", "ground", "init zsh", "prompt", "upgrade", "uninstall"):
         assert command in out
 
 
@@ -111,6 +111,115 @@ def test_auth_subcommand_cancelled(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(auth_mod, "run_auth_wizard", lambda path, io: None)
     assert main(["auth", "--config", str(tmp_path / "config.toml")]) == 1
     assert "cancelled" in capsys.readouterr().err
+
+
+def test_upgrade_subcommand_routes_to_installer(monkeypatch, capsys):
+    import tinytalk.cli as cli
+
+    seen = []
+    monkeypatch.setattr(cli, "_perform_upgrade", lambda version: seen.append(version) or "9.9.9")
+
+    assert main(["upgrade", "--version", "v9.9.9"]) == 0
+
+    assert seen == ["v9.9.9"]
+    assert "upgraded to 9.9.9" in capsys.readouterr().out
+
+
+def _stage_upgrade(tmp_path, monkeypatch):
+    """An existing install (marker file) plus a fake-download seam for `_perform_upgrade`."""
+    from tests.test_addons import _fake_opener, _make_tar
+    from tinytalk import addons
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(addons, "PLATFORM_TAG", "macos-arm64")
+    tar = _make_tar({"tt/tt": b"#!/bin/sh\necho tt 9.9.9\n"}, mode=0o755)
+    monkeypatch.setattr(addons, "_http_opener", _fake_opener(tar))
+    lib_dir = tmp_path / "data" / "tinytalk"
+    (lib_dir / "tt").mkdir(parents=True)
+    (lib_dir / "tt" / "marker").write_text("old install\n")
+    return lib_dir
+
+
+def test_upgrade_failure_restores_old_install(tmp_path, monkeypatch):
+    import subprocess
+
+    import tinytalk.cli as cli
+
+    lib_dir = _stage_upgrade(tmp_path, monkeypatch)
+
+    def boom(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr("subprocess.check_output", boom)  # post-swap sanity check fails
+
+    with pytest.raises(subprocess.CalledProcessError):
+        cli._perform_upgrade("latest")
+
+    assert (lib_dir / "tt" / "marker").read_text() == "old install\n"  # old install survives
+    assert not (lib_dir / "tt.old").exists()
+    assert not (lib_dir / "tt.partial").exists()
+
+
+def test_upgrade_success_swaps_install_and_clears_aside(tmp_path, monkeypatch):
+    import tinytalk.cli as cli
+
+    lib_dir = _stage_upgrade(tmp_path, monkeypatch)
+    monkeypatch.setattr("subprocess.check_output", lambda cmd, **kwargs: "tt 9.9.9")
+
+    assert cli._perform_upgrade("latest") == "9.9.9"
+
+    assert (lib_dir / "tt" / "tt").is_file()
+    assert not (lib_dir / "tt" / "marker").exists()  # old tree fully replaced
+    assert not (lib_dir / "tt.old").exists()
+    assert not (lib_dir / "tt.partial").exists()
+
+
+def test_uninstall_removes_installed_trees_and_keyring_accounts(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    cache = tmp_path / "cache"
+    config_home = tmp_path / "config"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    launcher = data / "tinytalk" / "tt" / "tt"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/sh\n")
+    launcher.chmod(0o755)
+    link = bin_dir / "tt"
+    link.symlink_to(launcher)
+    (data / "tinytalk" / "addons" / "bedrock" / "old").mkdir(parents=True)
+    (cache / "tinytalk" / "suggestions").mkdir(parents=True)
+    config_path = config_home / "tinytalk" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        """\
+[defaults]
+backend = "local"
+
+[backends.local]
+kind = "openai-compat"
+base_url = "http://x/v1"
+model = "m"
+keyring_account = "local"
+"""
+    )
+    deleted = []
+    monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+    monkeypatch.setattr(
+        "keyring.delete_password", lambda service, account: deleted.append((service, account))
+    )
+
+    assert main(["uninstall", "--yes", "--config", str(config_path)]) == 0
+
+    assert not link.exists()
+    assert not (data / "tinytalk" / "tt").exists()
+    assert not (data / "tinytalk" / "addons").exists()
+    assert not (cache / "tinytalk").exists()
+    assert not config_path.parent.exists()
+    assert deleted == [("tinytalk", "local")]
+    assert "tt zsh integration" in capsys.readouterr().out
 
 
 def test_config_explanation_off_then_on(tmp_path, capsys):
