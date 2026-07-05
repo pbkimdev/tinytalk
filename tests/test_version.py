@@ -2,7 +2,7 @@
 
 The version is a literal (not read from package metadata) to keep `import tinytalk` cheap and
 to stay robust inside the PyInstaller binary; this test is what guarantees it stays correct —
-it also feeds the add-on dir stamp and release-asset URLs (docs/agents/addons/)."""
+it also feeds the add-on dir stamp and release-asset URLs."""
 
 from __future__ import annotations
 

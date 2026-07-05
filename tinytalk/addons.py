@@ -1,8 +1,8 @@
 """Runtime resolver for downloadable provider add-ons (Bedrock, Claude Agent SDK).
 
-The release `tt` is a PyInstaller one-file binary. To keep it small, its two heaviest
+The release `tt` is a PyInstaller `--onedir` binary. To keep it small, its two heaviest
 backends live *outside* the bundle and are downloaded by `tt auth` when the user sets that
-backend up (see docs/agents/addons/PLAN.md). This module is the runtime seam that locates
+backend up. This module is the runtime seam that locates
 an installed add-on and makes it usable:
 
 - **Bedrock** ships as a pure-Python tree (`boto3`/`botocore`/…). Prepend the unpacked dir
