@@ -1,10 +1,18 @@
-"""Installer script (#58): sandboxed install, config scaffold, idempotent rc wiring."""
+"""Installer (#58, binary-downloader rewrite): unpack the --onedir bundle, symlink
+its launcher onto PATH, scaffold config, wire PATH + the ? widget.
+
+Hermetic — the download is short-circuited with `TT_BINARY` (a local bundle) or a
+stubbed `curl`, so these tests never touch the network. The bundle mirrors what the
+release workflow ships (`tar -C dist tt`): a `tt/tt` launcher plus `tt/_internal/`.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -13,6 +21,17 @@ REPO = Path(__file__).resolve().parent.parent
 INSTALL = REPO / "install.sh"
 MARKER = "# tt zsh integration (added by install.sh)"
 PATH_MARKER = "# tt PATH (added by install.sh)"
+INSTALLED = "installed: tt 0.0.1"  # the launcher stub reports this version
+
+# A stub `tt` launcher for inside the bundle. It logs every invocation to {log}
+# so a test can assert what the installer called it with. `{log}` is the only
+# brace — the body is filled via str.format, so keep other shell braces out.
+DEFAULT_LAUNCHER = (
+    "#!/bin/sh\n"
+    'echo "$@" >> "{log}"\n'
+    'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\n'
+    "exit 0\n"
+)
 
 
 def make_exe(directory: Path, name: str, body: str) -> Path:
@@ -22,27 +41,55 @@ def make_exe(directory: Path, name: str, body: str) -> Path:
     return path
 
 
+def make_bundle(
+    tmp_path: Path, tt_log: Path, *, tag: str = "base", launcher: str | None = None
+) -> Path:
+    """Build a fake --onedir bundle tarball (tt/tt launcher + tt/_internal/ libs)."""
+    stage = tmp_path / f"stage-{tag}"
+    internal = stage / "tt" / "_internal"
+    internal.mkdir(parents=True)
+    (internal / "payload").write_text("libs\n")
+    make_exe(stage / "tt", "tt", (launcher or DEFAULT_LAUNCHER).format(log=tt_log))
+    bundle = tmp_path / f"tt-{tag}.tar.gz"
+    with tarfile.open(bundle, "w:gz") as tar:
+        tar.add(stage / "tt", arcname="tt")
+    return bundle
+
+
+def serving_curl(bundle: Path, sha: Path) -> str:
+    """A `curl` stub that serves the bundle, or its .sha256 sidecar, from local files."""
+    return (
+        "#!/bin/sh\n"
+        'url=""; out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in\n'
+        '    -o) shift; out="$1" ;;\n'
+        '    http://*|https://*) url="$1" ;;\n'
+        "  esac\n"
+        "  shift\n"
+        "done\n"
+        'case "$url" in\n'
+        f'  *.sha256) cp "{sha}" "$out" ;;\n'
+        f'  *) cp "{bundle}" "$out" ;;\n'
+        "esac\n"
+    )
+
+
 @pytest.fixture
 def sandbox(tmp_path):
-    """Fake HOME plus a bin dir with stub `uv` and `tt` on an isolated PATH."""
+    """Fake HOME with the default bin dir (~/.local/bin) already on PATH, and
+    TT_BINARY pointing at a stub bundle — install runs fully offline and doesn't
+    trigger PATH wiring (that path has its own tests)."""
     home = tmp_path / "home"
     home.mkdir()
-    fakebin = tmp_path / "bin"
-    fakebin.mkdir()
-    uv_log = tmp_path / "uv.log"
-    make_exe(fakebin, "uv", f'#!/bin/sh\necho "$@" >> "{uv_log}"\nexit 0\n')
     tt_log = tmp_path / "tt.log"
-    make_exe(
-        fakebin,
-        "tt",
-        f'#!/bin/sh\necho "$@" >> "{tt_log}"\n'
-        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
-    )
+    bundle = make_bundle(tmp_path, tt_log)
     env = {
         "HOME": str(home),
-        "PATH": f"{fakebin}:/usr/bin:/bin",
+        "PATH": f"{home}/.local/bin:/usr/bin:/bin",
+        "TT_BINARY": str(bundle),
     }
-    return home, env, uv_log
+    return home, env, tt_log
 
 
 def run_install(env: dict, *args: str) -> subprocess.CompletedProcess:
@@ -56,20 +103,25 @@ def test_syntax_is_posix_clean():
     assert proc.returncode == 0, proc.stderr
 
 
-def test_install_scaffolds_and_wires(sandbox):
-    home, env, uv_log = sandbox
+def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
+    home, env, _ = sandbox
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
+    assert INSTALLED in proc.stdout
 
-    # the CLI was installed from the repo clone via uv
-    assert f"tool install --force {REPO}" in uv_log.read_text()
+    # the onedir bundle was unpacked to the lib dir; the launcher was symlinked onto PATH
+    launcher = home / ".local" / "share" / "tinytalk" / "tt" / "tt"
+    link = home / ".local" / "bin" / "tt"
+    assert launcher.is_file()
+    assert link.is_symlink() and os.readlink(link) == str(launcher)
 
     config = home / ".config" / "tinytalk" / "config.toml"
     assert "[defaults]" in config.read_text()
 
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(MARKER) == 1
-    assert 'eval "$(tt init zsh)"' in zshrc
+    assert PATH_MARKER not in zshrc  # the bin dir was already on PATH — no PATH block
+    assert '"$_tt_bin" init zsh' in zshrc  # the cached-init widget block, not a raw eval
 
 
 def test_second_run_changes_nothing(sandbox):
@@ -79,8 +131,7 @@ def test_second_run_changes_nothing(sandbox):
     zshrc = home / ".zshrc"
     config_before, zshrc_before = config.read_text(), zshrc.read_text()
 
-    proc = run_install(env, "--yes")
-    assert proc.returncode == 0
+    assert run_install(env, "--yes").returncode == 0
     assert config.read_text() == config_before
     assert zshrc.read_text() == zshrc_before
     assert zshrc.read_text().count(MARKER) == 1
@@ -100,22 +151,29 @@ def test_existing_config_and_zshrc_content_untouched(sandbox):
     assert zshrc.count(MARKER) == 1  # appended once, nothing replaced
 
 
-def test_install_warms_grounding_cache(sandbox, tmp_path):
-    _, env, _ = sandbox
+def test_install_warms_grounding_cache(sandbox):
+    home, env, tt_log = sandbox
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
-    assert "ground --refresh" in (tmp_path / "tt.log").read_text()
+    assert "ground --refresh" in tt_log.read_text()
     assert "warmed the tool snapshot" in proc.stdout
 
 
-def test_failing_ground_does_not_fail_install(sandbox):
-    home, env, _ = sandbox
-    make_exe(
-        Path(env["PATH"].split(os.pathsep)[0]),
-        "tt",
-        '#!/bin/sh\nif [ "$1" = "ground" ]; then exit 1; fi\n'
-        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n',
+def test_failing_ground_does_not_fail_install(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    launcher = (
+        "#!/bin/sh\n"
+        'echo "$@" >> "{log}"\n'
+        'case "$1" in\n'
+        '  --version) echo "tt 0.0.1" ;;\n'
+        "  ground) exit 1 ;;\n"
+        "esac\n"
+        "exit 0\n"
     )
+    bundle = make_bundle(tmp_path, tt_log, tag="groundfail", launcher=launcher)
+    env = {"HOME": str(home), "PATH": f"{home}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle)}
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
     assert (home / ".zshrc").read_text().count(MARKER) == 1  # later steps still ran
@@ -141,114 +199,119 @@ def test_prompt_defaults_to_no(sandbox):
     assert not (home / ".zshrc").exists()
 
 
-def test_rc_step_self_skips_without_init_zsh(sandbox, tmp_path):
-    home, env, _ = sandbox
-    # a tt build whose `init zsh` fails (pre-#57 skeleton)
-    make_exe(
-        Path(env["PATH"].split(os.pathsep)[0]),
-        "tt",
-        '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; exit 0; fi\nexit 1\n',
+def test_rc_step_self_skips_without_init_zsh(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    # a tt build whose `init zsh` fails (pre-#57 skeleton): only --version works
+    launcher = (
+        "#!/bin/sh\n"
+        'echo "$@" >> "{log}"\n'
+        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; exit 0; fi\n'
+        "exit 1\n"
     )
+    bundle = make_bundle(tmp_path, tt_log, tag="noinit", launcher=launcher)
+    env = {"HOME": str(home), "PATH": f"{home}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle)}
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
     assert not (home / ".zshrc").exists()
-    assert "doesn't support 'init zsh' yet" in proc.stdout
+    assert "doesn't support 'init zsh'" in proc.stdout
 
 
-def test_fails_actionably_without_uv_or_pipx(sandbox, tmp_path):
-    home, env, _ = sandbox
-    emptybin = tmp_path / "emptybin"
-    emptybin.mkdir()
-    env["PATH"] = f"{emptybin}:/usr/bin:/bin"  # no uv, no pipx, no tt
-    proc = subprocess.run(
-        ["sh", str(INSTALL)],
-        env=env,
-        input="n\n",  # decline the uv bootstrap offer
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert proc.returncode == 1
-    assert "uv" in proc.stderr
-    assert "astral.sh" in proc.stderr
-
-
-def test_yes_bootstraps_uv_when_missing(tmp_path):
-    """No uv/pipx anywhere: --yes fetches the (stubbed) uv installer and proceeds."""
+def test_downloads_and_verifies_checksum(tmp_path):
+    """No TT_BINARY: install fetches via (stubbed) curl and verifies the sha256 sidecar."""
     home = tmp_path / "home"
     home.mkdir()
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
-    uv_log = tmp_path / "uv.log"
-    # what the stubbed `curl` serves: an installer that drops uv + tt into ~/.local/bin
-    installer = tmp_path / "fake-uv-install.sh"
-    installer.write_text(
-        'mkdir -p "$HOME/.local/bin"\n'
-        f'printf \'#!/bin/sh\\necho "$@" >> "{uv_log}"\\nexit 0\\n\' > "$HOME/.local/bin/uv"\n'
-        'printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
-        ' > "$HOME/.local/bin/tt"\n'
-        'chmod +x "$HOME/.local/bin/uv" "$HOME/.local/bin/tt"\n'
-    )
-    make_exe(fakebin, "curl", f'#!/bin/sh\ncat "{installer}"\n')
-    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin"}
-
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    sha = tmp_path / "bundle.sha256"
+    sha.write_text(f"{digest}  {bundle.name}\n")
+    make_exe(fakebin, "curl", serving_curl(bundle, sha))
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:{fakebin}:/usr/bin:/bin",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
-    assert f"tool install --force {REPO}" in uv_log.read_text()
-    # ~/.local/bin wasn't on the user's PATH → the PATH block got wired, once,
-    # with $HOME kept symbolic — and before the widget block so its eval resolves tt
-    zshrc = (home / ".zshrc").read_text()
-    assert zshrc.count(PATH_MARKER) == 1
-    assert 'export PATH="$HOME/.local/bin:$PATH"' in zshrc
-    assert zshrc.index(PATH_MARKER) < zshrc.index(MARKER)
+    assert "checksum: ok" in proc.stdout
+    assert INSTALLED in proc.stdout
+    assert (home / ".local" / "share" / "tinytalk" / "tt" / "tt").is_file()
 
-    proc = run_install(env, "--yes")  # second run: nothing duplicated
-    assert proc.returncode == 0, proc.stderr
-    assert (home / ".zshrc").read_text() == zshrc
+
+def test_checksum_mismatch_aborts(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    sha = tmp_path / "bad.sha256"
+    sha.write_text(f"{'0' * 64}  {bundle.name}\n")  # wrong digest
+    make_exe(fakebin, "curl", serving_curl(bundle, sha))
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:{fakebin}:/usr/bin:/bin",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 1
+    assert "checksum mismatch" in proc.stderr
+    assert not (home / ".local" / "bin" / "tt").exists()  # aborted before install
+
+
+def test_download_failure_is_actionable(tmp_path):
+    """A failing download dies non-zero and names the URL it tried."""
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    make_exe(fakebin, "curl", "#!/bin/sh\nexit 22\n")  # curl's code for an HTTP 4xx/5xx
+    env = {
+        "HOME": str(home),
+        "PATH": f"{fakebin}:/usr/bin:/bin",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 1
+    assert "download failed" in proc.stderr
+    assert "example.test" in proc.stderr
 
 
 def test_path_wiring_when_tt_lands_off_path(tmp_path):
-    """uv exists but installs to a dir outside PATH → consented marker block."""
+    """Bundle installs into ~/toolbin (off PATH) → a consented, marker-guarded PATH block."""
     home = tmp_path / "home"
     home.mkdir()
-    fakebin = tmp_path / "bin"
-    fakebin.mkdir()
-    uv_log = tmp_path / "uv.log"
-    make_exe(
-        fakebin,
-        "uv",
-        f'#!/bin/sh\necho "$@" >> "{uv_log}"\n'
-        'if [ "$1" = tool ] && [ "$2" = dir ]; then echo "$HOME/toolbin"; exit 0; fi\n'
-        'if [ "$1" = tool ] && [ "$2" = install ]; then\n'
-        '  mkdir -p "$HOME/toolbin"\n'
-        '  printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
-        ' > "$HOME/toolbin/tt"\n'
-        '  chmod +x "$HOME/toolbin/tt"\nfi\nexit 0\n',
-    )
-    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin"}  # no tt on PATH
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "TT_BINARY": str(bundle)}
 
-    proc = run_install(env, "--yes")
+    proc = run_install(env, "--yes", "--bin-dir", f"{home}/toolbin")
     assert proc.returncode == 0, proc.stderr
-    assert "installed: tt 0.0.1" in proc.stdout
+    assert INSTALLED in proc.stdout
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(PATH_MARKER) == 1
-    assert 'export PATH="$HOME/toolbin:$PATH"' in zshrc
+    assert 'export PATH="$HOME/toolbin:$PATH"' in zshrc  # $HOME kept symbolic
+    assert zshrc.index(PATH_MARKER) < zshrc.index(MARKER)  # PATH block precedes the widget
 
     # --no-rc never touches the rc file, even when tt is off PATH
     home2 = tmp_path / "home2"
     home2.mkdir()
     env2 = dict(env, HOME=str(home2))
-    proc = run_install(env2, "--yes", "--no-rc")
+    proc = run_install(env2, "--yes", "--no-rc", "--bin-dir", f"{home2}/toolbin")
     assert proc.returncode == 0, proc.stderr
     assert not (home2 / ".zshrc").exists()
     assert "add it yourself" in proc.stdout
 
-    # a bash user gets .bashrc (and .bash_profile when it exists), not .zshrc
+    # a bash user gets ~/.bashrc (and ~/.bash_profile when it exists) for PATH, not ~/.zshrc
     home3 = tmp_path / "home3"
     home3.mkdir()
     (home3 / ".bash_profile").write_text("# my precious bash_profile\n")
     env3 = dict(env, HOME=str(home3), SHELL="/bin/bash")
-    proc = run_install(env3, "--yes")
+    proc = run_install(env3, "--yes", "--bin-dir", f"{home3}/toolbin")
     assert proc.returncode == 0, proc.stderr
     bashrc = (home3 / ".bashrc").read_text()
     assert bashrc.count(PATH_MARKER) == 1
@@ -256,68 +319,36 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     profile = (home3 / ".bash_profile").read_text()
     assert profile.startswith("# my precious bash_profile\n")
     assert profile.count(PATH_MARKER) == 1
-    zshrc3 = (home3 / ".zshrc").read_text()  # widget still wires zshrc, no PATH block
+    zshrc3 = (home3 / ".zshrc").read_text()  # widget still wires zshrc, but no PATH block
     assert PATH_MARKER not in zshrc3
     assert zshrc3.count(MARKER) == 1
 
-    proc = run_install(env3, "--yes")  # idempotent for bash rc files too
+    proc = run_install(env3, "--yes", "--bin-dir", f"{home3}/toolbin")  # idempotent
     assert proc.returncode == 0, proc.stderr
     assert (home3 / ".bashrc").read_text() == bashrc
     assert (home3 / ".bash_profile").read_text() == profile
 
 
-def _uv_installs_to_toolbin(fakebin: Path, uv_log: Path) -> None:
-    """Stub uv that installs tt into $HOME/toolbin — off the sandbox PATH."""
-    make_exe(
-        fakebin,
-        "uv",
-        f'#!/bin/sh\necho "$@" >> "{uv_log}"\n'
-        'if [ "$1" = tool ] && [ "$2" = dir ]; then echo "$HOME/toolbin"; exit 0; fi\n'
-        'if [ "$1" = tool ] && [ "$2" = install ]; then\n'
-        '  mkdir -p "$HOME/toolbin"\n'
-        '  printf \'#!/bin/sh\\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\\nexit 0\\n\''
-        ' > "$HOME/toolbin/tt"\n'
-        '  chmod +x "$HOME/toolbin/tt"\nfi\nexit 0\n',
-    )
-
-
-def test_path_wired_for_both_shells_when_both_rc_exist(tmp_path):
-    """A zsh user who also keeps a ~/.bashrc gets PATH wired into both files."""
+def test_zsh_user_path_lands_only_in_the_primary_shell(tmp_path):
+    """A zsh user who also keeps a ~/.bashrc gets PATH only in ~/.zshrc — the
+    installer wires the primary shell, not both. ~/.bashrc is left untouched and
+    ~/.bash_profile is never created."""
     home = tmp_path / "home"
     home.mkdir()
-    fakebin = tmp_path / "bin"
-    fakebin.mkdir()
     (home / ".bashrc").write_text("# my precious bashrc\n")  # they use bash too
-    _uv_installs_to_toolbin(fakebin, tmp_path / "uv.log")
-    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin", "SHELL": "/bin/zsh"}
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    env = {
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "TT_BINARY": str(bundle),
+        "SHELL": "/bin/zsh",
+    }
 
-    proc = run_install(env, "--yes")
-    assert proc.returncode == 0, proc.stderr
-    zshrc = (home / ".zshrc").read_text()
-    bashrc = (home / ".bashrc").read_text()
-    assert zshrc.count(PATH_MARKER) == 1  # primary shell (zsh)
-    assert bashrc.count(PATH_MARKER) == 1  # other shell, rc already existed
-    assert bashrc.startswith("# my precious bashrc\n")  # appended, not clobbered
-    assert 'export PATH="$HOME/toolbin:$PATH"' in bashrc
-
-    proc = run_install(env, "--yes")  # idempotent across both files
-    assert proc.returncode == 0, proc.stderr
-    assert (home / ".zshrc").read_text() == zshrc
-    assert (home / ".bashrc").read_text() == bashrc
-
-
-def test_other_shell_rc_not_created_when_absent(tmp_path):
-    """No ~/.bashrc → a zsh user's PATH lands only in ~/.zshrc; bash isn't created."""
-    home = tmp_path / "home"
-    home.mkdir()
-    fakebin = tmp_path / "bin"
-    fakebin.mkdir()
-    _uv_installs_to_toolbin(fakebin, tmp_path / "uv.log")
-    env = {"HOME": str(home), "PATH": f"{fakebin}:/usr/bin:/bin", "SHELL": "/bin/zsh"}
-
-    assert run_install(env, "--yes").returncode == 0
+    assert run_install(env, "--yes", "--bin-dir", f"{home}/toolbin").returncode == 0
     assert (home / ".zshrc").read_text().count(PATH_MARKER) == 1
-    assert not (home / ".bashrc").exists()  # never created for an unused shell
+    assert (home / ".bashrc").read_text() == "# my precious bashrc\n"  # not wired
+    assert not (home / ".bash_profile").exists()  # never created for an unused shell
 
 
 def test_unknown_flag_fails(sandbox):
