@@ -202,18 +202,21 @@ def test_analyze_real_export():
     a = analyze(reports, run_date="2026-07-05")
     by = {b.backend: b for b in a.backends}
 
+    # Snapshot of the published 2026-07-05 run. The intent layer reads each row's
+    # execution-oracle verdict, so these counts track the re-scored oracle grades
+    # (18 covered targets) in that run's results.json.
     g = by["local-gemma4-12b-qat"]
     assert g.delivery.rate == 90.0
     assert g.delivery.faults == {"unescaped_backslash": 4, "malformed_json": 1}
     assert g.delivery.escape_fault_pct == 8.0
-    assert g.slices.escape_heavy["delivery"] == pytest.approx(37.5)
-    assert g.layers.first_failing.get("intent") == 1
+    assert g.slices.escape_heavy["delivery"] == pytest.approx(50.0)
+    assert g.layers.first_failing.get("intent") == 13
     assert "loop-backup-copies-en" in g.layers.intent_failures
 
     s = by["sonnet5-low"]
     assert s.delivery.rate == 100.0
-    assert s.layers.first_failing == {"pass": 49, "intent": 1}
-    assert "k8s-restart-count-ko" in s.layers.intent_failures
+    assert s.layers.first_failing == {"pass": 46, "intent": 4}
+    assert "yaml-image-policy-en" in s.layers.intent_failures
 
 
 def test_analysis_json_serializable():
