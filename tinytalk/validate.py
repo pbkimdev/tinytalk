@@ -384,6 +384,7 @@ def _segments(tokens: list[str]) -> list[_Segment]:
                 or _ASSIGNMENT.match(word)
                 or word.startswith("-")
                 or word.isdigit()  # a wrapper's numeric flag argument (e.g. `xargs -P 4`)
+                or word == "{}"  # find/xargs replace-string (e.g. `xargs -I {} cmd`) — never a command
                 or word in _KEYWORDS
             ):
                 continue  # still looking for the command word

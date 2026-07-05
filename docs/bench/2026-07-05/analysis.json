@@ -1,0 +1,1074 @@
+{
+  "run_date": "2026-07-05",
+  "backends": [
+    {
+      "backend": "local-gemma4-12b-qat",
+      "model": "gemma-4-12B-it-qat-4bit",
+      "n": 50,
+      "delivery": {
+        "rate": 90.0,
+        "faults": {
+          "malformed_json": 1,
+          "unescaped_backslash": 4
+        },
+        "fault_ids": {
+          "malformed_json": [
+            "count-lines-code-ko"
+          ],
+          "unescaped_backslash": [
+            "k8s-restart-count-en",
+            "extract-ips-ko",
+            "ini-section-en",
+            "ini-section-ko"
+          ]
+        },
+        "escape_fault_pct": 8.0
+      },
+      "layers": {
+        "delivered_pct": 90.0,
+        "runs_given_delivered_pct": 100.0,
+        "intent_given_runs_pct": 97.77777777777777,
+        "first_failing": {
+          "pass": 44,
+          "delivered": 5,
+          "intent": 1
+        },
+        "intent_failures": {
+          "loop-backup-copies-en": [
+            "regex:\\bfor\\b|\\bwhile\\b"
+          ]
+        },
+        "per_assertion": {
+          "uses_any:wc|awk": [
+            1,
+            1
+          ],
+          "regex:\\.py\\b|\\bpy\\b": [
+            1,
+            1
+          ],
+          "uses_any:awk|cut": [
+            2,
+            2
+          ],
+          "contains:access.log": [
+            5,
+            5
+          ],
+          "uses_any:sed|perl": [
+            2,
+            2
+          ],
+          "contains:foo": [
+            2,
+            2
+          ],
+          "contains:bar": [
+            2,
+            2
+          ],
+          "uses_any:sort|awk": [
+            2,
+            2
+          ],
+          "pipes_to:uniq": [
+            2,
+            2
+          ],
+          "uses:tail": [
+            2,
+            2
+          ],
+          "regex:-[0-9]*[fF]": [
+            2,
+            2
+          ],
+          "contains:/var/log/system.log": [
+            2,
+            2
+          ],
+          "uses_any:grep|rg": [
+            2,
+            2
+          ],
+          "contains:connect_timeout": [
+            2,
+            2
+          ],
+          "uses_any:find|fd": [
+            2,
+            2
+          ],
+          "contains:100": [
+            2,
+            2
+          ],
+          "uses:tar": [
+            2,
+            2
+          ],
+          "contains:backup.tar.gz": [
+            2,
+            2
+          ],
+          "regex:(--exclude|\\.git)": [
+            2,
+            2
+          ],
+          "uses:git": [
+            4,
+            4
+          ],
+          "contains:branch": [
+            2,
+            2
+          ],
+          "regex:-[dD]": [
+            2,
+            2
+          ],
+          "contains:old-feature": [
+            2,
+            2
+          ],
+          "uses_any:rm|trash": [
+            2,
+            2
+          ],
+          "contains:node_modules": [
+            2,
+            2
+          ],
+          "contains:500": [
+            2,
+            2
+          ],
+          "pipes_to:sort": [
+            4,
+            4
+          ],
+          "regex:(uniq -c|awk)": [
+            2,
+            2
+          ],
+          "contains:data.csv": [
+            2,
+            2
+          ],
+          "uses_any:cut|awk": [
+            2,
+            2
+          ],
+          "regex:(tail -n \\+2|1d|NR ?> ?1)": [
+            2,
+            2
+          ],
+          "uses:kubectl": [
+            3,
+            3
+          ],
+          "regex:(-A|--all-namespaces)": [
+            3,
+            3
+          ],
+          "regex:(?i)crashloop": [
+            2,
+            2
+          ],
+          "regex:(log|rev-list)": [
+            2,
+            2
+          ],
+          "contains:config.yaml": [
+            2,
+            2
+          ],
+          "regex:\\bfor\\b|\\bwhile\\b": [
+            1,
+            2
+          ],
+          "contains:cp": [
+            2,
+            2
+          ],
+          "contains:.bak": [
+            2,
+            2
+          ],
+          "contains:.conf": [
+            2,
+            2
+          ],
+          "contains:example.com": [
+            4,
+            4
+          ],
+          "regex:(s_client|x509|enddate|curl -[a-zA-Z]*v)": [
+            2,
+            2
+          ],
+          "uses:dig": [
+            2,
+            2
+          ],
+          "contains:+trace": [
+            2,
+            2
+          ],
+          "regex:(tar[^|]*\\| *ssh|rsync|scp -r)": [
+            2,
+            2
+          ],
+          "contains:web01": [
+            2,
+            2
+          ],
+          "contains:data": [
+            2,
+            2
+          ],
+          "regex:(?i)restart": [
+            1,
+            1
+          ],
+          "contains:5": [
+            1,
+            1
+          ],
+          "contains:response.json": [
+            2,
+            2
+          ],
+          "regex:(jq|python)": [
+            2,
+            2
+          ],
+          "regex:items": [
+            2,
+            2
+          ],
+          "regex:name": [
+            2,
+            2
+          ],
+          "regex:(?i)(grep|rg|sed|awk|perl)": [
+            1,
+            1
+          ],
+          "regex:(sort -u|uniq)": [
+            1,
+            1
+          ],
+          "regex:(\\{1,3\\}|\\\\d)": [
+            1,
+            1
+          ],
+          "uses:awk": [
+            2,
+            2
+          ],
+          "contains:sales.csv": [
+            2,
+            2
+          ],
+          "regex:END": [
+            2,
+            2
+          ],
+          "uses_any:diff|comm": [
+            2,
+            2
+          ],
+          "regex:<\\(": [
+            2,
+            2
+          ],
+          "contains:allow.txt": [
+            2,
+            2
+          ],
+          "contains:deny.txt": [
+            2,
+            2
+          ],
+          "contains:gzip": [
+            2,
+            2
+          ],
+          "regex:(-P ?4|parallel|-j ?4)": [
+            2,
+            2
+          ],
+          "contains:.log": [
+            2,
+            2
+          ]
+        }
+      },
+      "slices": {
+        "strict_en": 88.0,
+        "strict_ko": 88.0,
+        "ko_minus_en": 0.0,
+        "per_target": [
+          [
+            "count-lines-code",
+            true,
+            false,
+            -1
+          ],
+          [
+            "extract-columns",
+            true,
+            true,
+            0
+          ],
+          [
+            "replace-in-files",
+            true,
+            true,
+            0
+          ],
+          [
+            "unique-frequency",
+            true,
+            true,
+            0
+          ],
+          [
+            "watch-log",
+            true,
+            true,
+            0
+          ],
+          [
+            "grep-recursive-ext",
+            true,
+            true,
+            0
+          ],
+          [
+            "find-large-files",
+            true,
+            true,
+            0
+          ],
+          [
+            "archive-create",
+            true,
+            true,
+            0
+          ],
+          [
+            "git-delete-branch",
+            true,
+            true,
+            0
+          ],
+          [
+            "delete-node-modules",
+            true,
+            true,
+            0
+          ],
+          [
+            "log-top-errors",
+            true,
+            true,
+            0
+          ],
+          [
+            "csv-columns-transform",
+            true,
+            true,
+            0
+          ],
+          [
+            "k8s-crashloop",
+            true,
+            true,
+            0
+          ],
+          [
+            "git-find-deleted",
+            true,
+            true,
+            0
+          ],
+          [
+            "loop-backup-copies",
+            false,
+            true,
+            1
+          ],
+          [
+            "cert-expiry",
+            true,
+            true,
+            0
+          ],
+          [
+            "dns-trace",
+            true,
+            true,
+            0
+          ],
+          [
+            "ssh-stream-copy",
+            true,
+            true,
+            0
+          ],
+          [
+            "k8s-restart-count",
+            false,
+            true,
+            1
+          ],
+          [
+            "json-extract",
+            true,
+            true,
+            0
+          ],
+          [
+            "extract-ips",
+            true,
+            false,
+            -1
+          ],
+          [
+            "ini-section",
+            false,
+            false,
+            0
+          ],
+          [
+            "awk-group-sum",
+            true,
+            true,
+            0
+          ],
+          [
+            "diff-sorted",
+            true,
+            true,
+            0
+          ],
+          [
+            "parallel-compress",
+            true,
+            true,
+            0
+          ]
+        ],
+        "by_category": {
+          "git-and-fs": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "kubernetes": {
+            "delivery": 75.0,
+            "strict": 75.0,
+            "ko_minus_en": 50.0
+          },
+          "networking": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "pipelines": {
+            "delivery": 100.0,
+            "strict": 90.0,
+            "ko_minus_en": 20.0
+          },
+          "structured-parsing": {
+            "delivery": 62.5,
+            "strict": 62.5,
+            "ko_minus_en": -25.0
+          },
+          "text-processing": {
+            "delivery": 92.85714285714286,
+            "strict": 92.85714285714286,
+            "ko_minus_en": -14.285714285714292
+          }
+        },
+        "escape_heavy": {
+          "delivery": 37.5,
+          "strict": 37.5
+        },
+        "rest": {
+          "delivery": 100.0,
+          "strict": 97.61904761904762
+        }
+      }
+    },
+    {
+      "backend": "sonnet5-low",
+      "model": "claude-sonnet-5",
+      "n": 50,
+      "delivery": {
+        "rate": 100.0,
+        "faults": {},
+        "fault_ids": {},
+        "escape_fault_pct": 0.0
+      },
+      "layers": {
+        "delivered_pct": 100.0,
+        "runs_given_delivered_pct": 100.0,
+        "intent_given_runs_pct": 98.0,
+        "first_failing": {
+          "pass": 49,
+          "intent": 1
+        },
+        "intent_failures": {
+          "k8s-restart-count-ko": [
+            "regex:(?i)restart"
+          ]
+        },
+        "per_assertion": {
+          "uses_any:wc|awk": [
+            2,
+            2
+          ],
+          "regex:\\.py\\b|\\bpy\\b": [
+            2,
+            2
+          ],
+          "uses_any:awk|cut": [
+            2,
+            2
+          ],
+          "contains:access.log": [
+            6,
+            6
+          ],
+          "uses_any:sed|perl": [
+            2,
+            2
+          ],
+          "contains:foo": [
+            2,
+            2
+          ],
+          "contains:bar": [
+            2,
+            2
+          ],
+          "uses_any:sort|awk": [
+            2,
+            2
+          ],
+          "pipes_to:uniq": [
+            2,
+            2
+          ],
+          "uses:tail": [
+            2,
+            2
+          ],
+          "regex:-[0-9]*[fF]": [
+            2,
+            2
+          ],
+          "contains:/var/log/system.log": [
+            2,
+            2
+          ],
+          "uses_any:grep|rg": [
+            2,
+            2
+          ],
+          "contains:connect_timeout": [
+            2,
+            2
+          ],
+          "uses_any:find|fd": [
+            2,
+            2
+          ],
+          "contains:100": [
+            2,
+            2
+          ],
+          "uses:tar": [
+            2,
+            2
+          ],
+          "contains:backup.tar.gz": [
+            2,
+            2
+          ],
+          "regex:(--exclude|\\.git)": [
+            2,
+            2
+          ],
+          "uses:git": [
+            4,
+            4
+          ],
+          "contains:branch": [
+            2,
+            2
+          ],
+          "regex:-[dD]": [
+            2,
+            2
+          ],
+          "contains:old-feature": [
+            2,
+            2
+          ],
+          "uses_any:rm|trash": [
+            2,
+            2
+          ],
+          "contains:node_modules": [
+            2,
+            2
+          ],
+          "contains:500": [
+            2,
+            2
+          ],
+          "pipes_to:sort": [
+            4,
+            4
+          ],
+          "regex:(uniq -c|awk)": [
+            2,
+            2
+          ],
+          "contains:data.csv": [
+            2,
+            2
+          ],
+          "uses_any:cut|awk": [
+            2,
+            2
+          ],
+          "regex:(tail -n \\+2|1d|NR ?> ?1)": [
+            2,
+            2
+          ],
+          "uses:kubectl": [
+            4,
+            4
+          ],
+          "regex:(-A|--all-namespaces)": [
+            4,
+            4
+          ],
+          "regex:(?i)crashloop": [
+            2,
+            2
+          ],
+          "regex:(log|rev-list)": [
+            2,
+            2
+          ],
+          "contains:config.yaml": [
+            2,
+            2
+          ],
+          "regex:\\bfor\\b|\\bwhile\\b": [
+            2,
+            2
+          ],
+          "contains:cp": [
+            2,
+            2
+          ],
+          "contains:.bak": [
+            2,
+            2
+          ],
+          "contains:.conf": [
+            2,
+            2
+          ],
+          "contains:example.com": [
+            4,
+            4
+          ],
+          "regex:(s_client|x509|enddate|curl -[a-zA-Z]*v)": [
+            2,
+            2
+          ],
+          "uses:dig": [
+            2,
+            2
+          ],
+          "contains:+trace": [
+            2,
+            2
+          ],
+          "regex:(tar[^|]*\\| *ssh|rsync|scp -r)": [
+            2,
+            2
+          ],
+          "contains:web01": [
+            2,
+            2
+          ],
+          "contains:data": [
+            2,
+            2
+          ],
+          "regex:(?i)restart": [
+            1,
+            2
+          ],
+          "contains:5": [
+            2,
+            2
+          ],
+          "contains:response.json": [
+            2,
+            2
+          ],
+          "regex:(jq|python)": [
+            2,
+            2
+          ],
+          "regex:items": [
+            2,
+            2
+          ],
+          "regex:name": [
+            2,
+            2
+          ],
+          "regex:(?i)(grep|rg|sed|awk|perl)": [
+            2,
+            2
+          ],
+          "regex:(sort -u|uniq)": [
+            2,
+            2
+          ],
+          "regex:(\\{1,3\\}|\\\\d)": [
+            2,
+            2
+          ],
+          "uses_any:sed|awk": [
+            2,
+            2
+          ],
+          "contains:config.ini": [
+            2,
+            2
+          ],
+          "contains:database": [
+            2,
+            2
+          ],
+          "uses:awk": [
+            2,
+            2
+          ],
+          "contains:sales.csv": [
+            2,
+            2
+          ],
+          "regex:END": [
+            2,
+            2
+          ],
+          "uses_any:diff|comm": [
+            2,
+            2
+          ],
+          "regex:<\\(": [
+            2,
+            2
+          ],
+          "contains:allow.txt": [
+            2,
+            2
+          ],
+          "contains:deny.txt": [
+            2,
+            2
+          ],
+          "contains:gzip": [
+            2,
+            2
+          ],
+          "regex:(-P ?4|parallel|-j ?4)": [
+            2,
+            2
+          ],
+          "contains:.log": [
+            2,
+            2
+          ]
+        }
+      },
+      "slices": {
+        "strict_en": 100.0,
+        "strict_ko": 96.0,
+        "ko_minus_en": -4.0,
+        "per_target": [
+          [
+            "count-lines-code",
+            true,
+            true,
+            0
+          ],
+          [
+            "extract-columns",
+            true,
+            true,
+            0
+          ],
+          [
+            "replace-in-files",
+            true,
+            true,
+            0
+          ],
+          [
+            "unique-frequency",
+            true,
+            true,
+            0
+          ],
+          [
+            "watch-log",
+            true,
+            true,
+            0
+          ],
+          [
+            "grep-recursive-ext",
+            true,
+            true,
+            0
+          ],
+          [
+            "find-large-files",
+            true,
+            true,
+            0
+          ],
+          [
+            "archive-create",
+            true,
+            true,
+            0
+          ],
+          [
+            "git-delete-branch",
+            true,
+            true,
+            0
+          ],
+          [
+            "delete-node-modules",
+            true,
+            true,
+            0
+          ],
+          [
+            "log-top-errors",
+            true,
+            true,
+            0
+          ],
+          [
+            "csv-columns-transform",
+            true,
+            true,
+            0
+          ],
+          [
+            "k8s-crashloop",
+            true,
+            true,
+            0
+          ],
+          [
+            "git-find-deleted",
+            true,
+            true,
+            0
+          ],
+          [
+            "loop-backup-copies",
+            true,
+            true,
+            0
+          ],
+          [
+            "cert-expiry",
+            true,
+            true,
+            0
+          ],
+          [
+            "dns-trace",
+            true,
+            true,
+            0
+          ],
+          [
+            "ssh-stream-copy",
+            true,
+            true,
+            0
+          ],
+          [
+            "k8s-restart-count",
+            true,
+            false,
+            -1
+          ],
+          [
+            "json-extract",
+            true,
+            true,
+            0
+          ],
+          [
+            "extract-ips",
+            true,
+            true,
+            0
+          ],
+          [
+            "ini-section",
+            true,
+            true,
+            0
+          ],
+          [
+            "awk-group-sum",
+            true,
+            true,
+            0
+          ],
+          [
+            "diff-sorted",
+            true,
+            true,
+            0
+          ],
+          [
+            "parallel-compress",
+            true,
+            true,
+            0
+          ]
+        ],
+        "by_category": {
+          "git-and-fs": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "kubernetes": {
+            "delivery": 100.0,
+            "strict": 75.0,
+            "ko_minus_en": -50.0
+          },
+          "networking": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "pipelines": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "structured-parsing": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          },
+          "text-processing": {
+            "delivery": 100.0,
+            "strict": 100.0,
+            "ko_minus_en": 0.0
+          }
+        },
+        "escape_heavy": {
+          "delivery": 100.0,
+          "strict": 87.5
+        },
+        "rest": {
+          "delivery": 100.0,
+          "strict": 100.0
+        }
+      }
+    }
+  ],
+  "stability": [
+    {
+      "backend": "local-gemma4-12b-qat",
+      "n_runs": 5,
+      "per_run_strict": [
+        86.0,
+        86.0,
+        86.0,
+        86.0,
+        86.0
+      ],
+      "median_strict": 86.0,
+      "min_strict": 86.0,
+      "max_strict": 86.0,
+      "flip_rate": 0.0,
+      "command_flip_rate": 0.0,
+      "flipped": [],
+      "command_flipped": []
+    },
+    {
+      "backend": "sonnet5-low",
+      "n_runs": 3,
+      "per_run_strict": [
+        96.0,
+        100.0,
+        96.0
+      ],
+      "median_strict": 96.0,
+      "min_strict": 96.0,
+      "max_strict": 100.0,
+      "flip_rate": 6.0,
+      "command_flip_rate": 52.0,
+      "flipped": [
+        "git-find-deleted-ko",
+        "log-top-errors-en",
+        "parallel-compress-en"
+      ],
+      "command_flipped": [
+        "archive-create-en",
+        "awk-group-sum-ko",
+        "cert-expiry-ko",
+        "count-lines-code-en",
+        "count-lines-code-ko",
+        "csv-columns-transform-en",
+        "delete-node-modules-ko",
+        "find-large-files-en",
+        "find-large-files-ko",
+        "git-find-deleted-ko",
+        "grep-recursive-ext-en",
+        "grep-recursive-ext-ko",
+        "ini-section-en",
+        "ini-section-ko",
+        "k8s-crashloop-en",
+        "k8s-crashloop-ko",
+        "k8s-restart-count-en",
+        "k8s-restart-count-ko",
+        "log-top-errors-en",
+        "log-top-errors-ko",
+        "loop-backup-copies-en",
+        "loop-backup-copies-ko",
+        "parallel-compress-en",
+        "parallel-compress-ko",
+        "replace-in-files-ko",
+        "ssh-stream-copy-en"
+      ]
+    }
+  ]
+}

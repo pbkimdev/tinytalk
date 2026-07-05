@@ -157,6 +157,14 @@ def test_missing_binary_inside_pipeline_is_rejected():
     assert any("notreal" in p for p in result.problems)
 
 
+def test_xargs_replace_string_is_not_a_missing_binary():
+    v = validator()
+    v._grounding.binaries = BINARIES | {"find", "gzip"}  # type: ignore[misc]
+    result = v(suggest(r'find . -name "*.log" -print0 | xargs -0 -P 4 -I {} gzip "{}"'))
+    assert result.ok
+    assert not any("{}" in p for p in result.problems)
+
+
 def test_unknown_long_flag_is_rejected_when_help_is_known():
     help_texts = {"ls": "usage: ls [-lhS] [--color=when] [--all]"}
     v = validator(help_texts=help_texts)
@@ -283,6 +291,8 @@ def test_native_dry_run_off_skips_execution_entirely(monkeypatch):
         ("diff <(sort allow.txt) <(sort deny.txt)", ["diff", "sort", "sort"]),
         # xargs with flag arguments: `4` is -P's argument, not the command
         ("find . -name '*.log' -print0 | xargs -0 -P 4 -n 1 gzip", ["find", "gzip"]),
+        # xargs -I replace-string: `{}` is -I's argument, not the command (never a binary)
+        (r'find . -name "*.log" -print0 | xargs -0 -P 4 -I {} gzip "{}"', ["find", "gzip"]),
         # find -exec hands its next word to the shell — descend into it
         (r"find . -name '*.txt' -exec sed -i '' 's/foo/bar/g' {} \;", ["find", "sed"]),
         ("find . -name '*.yaml' -type f -exec rg -n 'connect_timeout' {} +", ["find", "rg"]),

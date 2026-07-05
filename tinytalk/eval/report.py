@@ -29,6 +29,7 @@ _BACKEND_COLORS: dict[str, str] = {
     "local-qwen36-35b": _LOCAL_COLORS[1],
     "local-gemma4-26b": _LOCAL_COLORS[0],
     "local-gemma4-e4b": _LOCAL_COLORS[2],
+    "local-gemma4-12b-qat": _LOCAL_COLORS[3],
 }
 
 _PAPER = "#FAF9F5"
@@ -239,6 +240,7 @@ _KNOWN_LABELS: dict[str, tuple[str, str]] = {
     "local-gemma4-26b": ("Gemma 4 26B A4B", "local · oMLX 8-bit"),
     "local-gemma4-e4b": ("Gemma 4 E4B", "local · MLX 4-bit"),
     "local-qwen36-35b": ("Qwen 3.6 35B A3B", "local · MTP"),
+    "local-gemma4-12b-qat": ("Gemma 4 12B QAT", "local · oMLX 4-bit · MTP"),
 }
 
 

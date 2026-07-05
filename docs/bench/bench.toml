@@ -18,6 +18,13 @@ kind = "openai-compat"
 base_url = "http://localhost:3334/v1"
 model = "lmstudio-community--gemma-4-E4B-it-MLX-4bit"
 
+# Added 2026-07-05: Gemma 4 12B QAT (4-bit) with an assistant MTP drafter, served by the same
+# managed oMLX server on :3333 (omlx.local resolves to 127.0.0.1 — localhost keeps local=True).
+[backends.local-gemma4-12b-qat]
+kind = "openai-compat"
+base_url = "http://localhost:3333/v1"
+model = "gemma-4-12B-it-qat-4bit"
+
 [backends.local-qwen36-35b]
 kind = "openai-compat"
 base_url = "http://localhost:18080/v1"

@@ -1,0 +1,10 @@
+{
+  "run_date": "2026-07-05",
+  "machine": "Apple M5 Max, 128 GB",
+  "pricing_notes": [
+    "Two-model focus run (suite v3, 25 targets × EN/KO = 50 prompts): Claude Sonnet 5 (low effort) vs Gemma 4 12B QAT (4-bit). All prompts were generated fresh the same day (no merge with a prior run). Scores were then re-derived from the recorded commands (no new model calls) under two harness fixes: (1) an extractor fix so the `xargs -I {}` replace-string is no longer read as a missing binary, and (2) a broadened count-lines-code assertion that accepts any correct Python-file selection (`.py` glob, `fd -e py`, `rg --type py`) instead of the literal `.py`. Together these flipped parallel-compress EN/KO and count-lines-code for both models: Sonnet 90→98 (EN 100 / KO 96), 12B QAT 82→88 (EN 88 / KO 88). The scoring principle is intent-satisfaction, not a fixed spelling — a command passes when it runs, is a sensible approach, and produces exactly what the request asked for. The 2026-07-03 field (Gemma 4 26B A4B, E4B, Qwen 3.6 35B A3B, GPT-5.5) is the comparison baseline (see docs/bench/2026-07-03/); those numbers predate both fixes, so parallel-compress and count-lines-code are understated there.",
+    "Gemma 4 12B QAT is served by the managed oMLX server on :3333 (omlx.local → 127.0.0.1) with an assistant MTP drafter (gemma-4-12B-it-assistant-4bit) attached for speculative decoding — counted as a local, on-device backend at $0 marginal cost.",
+    "Sonnet 5 runs through the Claude Agent SDK (local Claude Code login, no API key): each request carries the CLI's own system context (~20-28k input tokens) and latency includes SDK startup — that overhead is part of TinyTalk-as-shipped on that backend. Its charted cost uses standard Anthropic rates ($3/$15 per MTok, cache-read $0.30); per-prompt exports carry intro rates ($2/$10) through 2026-08-31.",
+    "Local quote unset for Gemma 4 12B QAT (no hosted proxy quote captured); it is plotted at $0 marginal cost."
+  ]
+}

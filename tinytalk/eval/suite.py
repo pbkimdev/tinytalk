@@ -61,7 +61,8 @@ _TARGETS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
         "count-lines-code",
         "How many lines of code do I have in total across the Python files under here?",
         "이 디렉토리 아래 파이썬(.py) 파일 전부 합쳐서 몇 줄인지 세어줘",
-        ("uses_any:wc|awk", "contains:.py"),
+        # Python-file selection, any correct spelling: `.py` glob/--include, `fd -e py`, `rg --type py`.
+        ("uses_any:wc|awk", r"regex:\.py\b|\bpy\b"),
         "safe",
     ),
     (
