@@ -341,6 +341,63 @@ def test_eval_export_records_model_io(config, monkeypatch, tmp_path):
     assert saved_attempt["response"]["raw"] == raw
 
 
+def test_eval_data_preview_flag_threads_fixture_context(config, monkeypatch):
+    seen: list[str] = []
+
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: (
+                seen.append(request.messages[1].content)
+                or Completion(
+                    text=payload(
+                        "awk -F, 'NR>1 {sum[$1]+=$3} END {for (r in sum) print r, sum[r]}' sales.csv"
+                    ),
+                    usage=Usage(100, 50, 150),
+                )
+            ),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    run_eval(
+        config,
+        ["alpha"],
+        prompt_ids=["awk-group-sum-en"],
+        progress=False,
+        warmup=False,
+        data_preview=True,
+    )
+
+    assert len(seen) == 1
+    assert "Working-directory file previews (read-only context):" in seen[0]
+    assert "--- sales.csv | CSV, comma-delimited, 3 cols, header: region,product,amount" in seen[0]
+
+
+def test_eval_data_preview_default_omits_fixture_context(config, monkeypatch):
+    seen: list[str] = []
+
+    def fake_make_provider(cfg):
+        return StubProvider(
+            Capabilities(),
+            lambda request, i: (
+                seen.append(request.messages[1].content)
+                or Completion(text=payload("awk '{print $1}' sales.csv"), usage=Usage(100, 50, 150))
+            ),
+        )
+
+    monkeypatch.setattr(runner_mod, "make_provider", fake_make_provider)
+    run_eval(
+        config,
+        ["alpha"],
+        prompt_ids=["awk-group-sum-en"],
+        progress=False,
+        warmup=False,
+    )
+
+    assert len(seen) == 1
+    assert "Working-directory file previews" not in seen[0]
+
+
 def test_unknown_prompt_id_fails_fast(config, stub_backends):
     with pytest.raises(ValueError, match="unknown prompt ids"):
         run_eval(config, ["alpha"], prompt_ids=["nope"], progress=False)
