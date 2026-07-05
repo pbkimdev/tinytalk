@@ -9,6 +9,7 @@
 # (or `?` again) leaves AI mode.
 
 typeset -g _TT_AI_MODE=0
+typeset -gi _TT_EXPL_ACTIVE=0
 typeset -g _TT_SAVED_HISTCHARS=""
 typeset -g _TT_BADGE="TinyTalk"
 typeset -g _TT_WAVE_FD=""
@@ -16,14 +17,13 @@ typeset -gi _TT_WAVE_PHASE=0
 # 256-color spectrum for the badge, palindromic so the cycle has no seam.
 typeset -ga _TT_SPECTRA=(51 45 39 33 63 99 135 171 207 213 207 171 135 99 63 39 45)
 
-# Prompt-mode ↑/↓ recall (#D1). Inside AI mode the arrows walk past commands from
-# `tt history --porcelain` (NUL-delimited, newest-first, already deduped by `tt`)
-# into BUFFER — the Atuin model. Loaded once per AI session; index 0 = the live
-# prompt, 1 = newest command, N = oldest.
-typeset -gi _TT_RECALL_LOADED=0
 typeset -gi _TT_RECALL_IDX=0
 typeset -g _TT_RECALL_SAVED_BUFFER=""
 typeset -ga _TT_RECALL_ITEMS=()
+typeset -g _TT_RECALL_STATE="idle"
+typeset -g _TT_RECALL_FD=""
+typeset -g _TT_RECALL_DIR=""
+typeset -g _TT_RECALL_LOAD_BUFFER=""
 # The arrow escape sequences we take over (normal + application cursor modes) and the
 # widget each maps to; `_TT_RECALL_SAVED_BINDINGS` holds the defaults to restore on leave.
 typeset -ga _TT_RECALL_KEYS=('^[[A' '^[OA' '^[[B' '^[OB')
@@ -76,33 +76,93 @@ _tt_wave_tick() {
 }
 zle -N _tt_wave_tick
 
-# Shell out to the porcelain ONCE per AI session and cache the array; every later
-# ↑/↓ walks the cache, so navigating costs no subprocess. Best-effort: a missing or
-# failing `tt` just yields an empty list and the arrows become no-ops.
-_tt_recall_load() {
-  (( _TT_RECALL_LOADED )) && return 0
-  _TT_RECALL_LOADED=1
-  _TT_RECALL_ITEMS=()
-  local item
-  while IFS= read -r -d '' item; do
-    _TT_RECALL_ITEMS+=("$item")
-  done < <(command tt history --porcelain 2>/dev/null)
-  return 0
+_tt_recall_note() {
+  case "$_TT_RECALL_STATE" in
+    loading) zle -M "tt: loading history…" ;;
+    empty)   zle -M "tt: no history yet" ;;
+    error)   zle -M "tt: history unavailable — run \`tt history\` to check" ;;
+  esac
 }
 
-# ↑: stash the in-progress prompt on the first step, then walk toward older commands.
+_tt_recall_start_load() {
+  setopt localoptions nomonitor nonotify
+  _TT_RECALL_DIR="$(mktemp -d 2>/dev/null)"
+  if [[ -z "$_TT_RECALL_DIR" ]]; then
+    _TT_RECALL_STATE="error"
+    _tt_recall_note
+    return 0
+  fi
+  _TT_RECALL_STATE="loading"
+  _TT_RECALL_LOAD_BUFFER="$BUFFER"
+  local dir="$_TT_RECALL_DIR"
+  exec {_TT_RECALL_FD}< <(
+    { command tt history --porcelain >"$dir/items"; print -n $? >"$dir/rc" } 2>/dev/null
+  )
+  zle -F -w "$_TT_RECALL_FD" _tt_recall_ready
+  _tt_recall_note
+}
+
+_tt_recall_ready() {
+  zle -F "$_TT_RECALL_FD" 2>/dev/null
+  exec {_TT_RECALL_FD}<&-
+  _TT_RECALL_FD=""
+  local dir="$_TT_RECALL_DIR"
+  local rc="$(<"$dir/rc")"
+  _TT_RECALL_ITEMS=()
+  local item
+  while IFS= read -r -d '' item; do _TT_RECALL_ITEMS+=("$item"); done <"$dir/items"
+  rm -rf "$dir"
+  _TT_RECALL_DIR=""
+  (( _TT_AI_MODE )) || { _TT_RECALL_STATE="idle"; return 0; }
+  if [[ "$rc" != 0 ]]; then
+    _TT_RECALL_STATE="error"
+    _tt_recall_note
+  elif (( ! $#_TT_RECALL_ITEMS )); then
+    _TT_RECALL_STATE="empty"
+    _tt_recall_note
+  else
+    _TT_RECALL_STATE="ready"
+    if [[ "$BUFFER" == "$_TT_RECALL_LOAD_BUFFER" ]]; then
+      _TT_RECALL_SAVED_BUFFER="$BUFFER"
+      _TT_RECALL_IDX=1
+      BUFFER="$_TT_RECALL_ITEMS[1]"
+      CURSOR=$#BUFFER
+    fi
+    zle -M ""
+  fi
+  zle -R
+}
+zle -N _tt_recall_ready
+
+_tt_recall_cancel_load() {
+  if [[ -n "$_TT_RECALL_FD" ]]; then
+    zle -F "$_TT_RECALL_FD" 2>/dev/null
+    exec {_TT_RECALL_FD}<&-
+    _TT_RECALL_FD=""
+  fi
+  [[ -n "$_TT_RECALL_DIR" ]] && rm -rf "$_TT_RECALL_DIR"
+  _TT_RECALL_DIR=""
+  _TT_RECALL_STATE="idle"
+}
+
 _tt_recall_up() {
-  _tt_recall_load
-  (( $#_TT_RECALL_ITEMS )) || return 0
-  (( _TT_RECALL_IDX == 0 )) && _TT_RECALL_SAVED_BUFFER="$BUFFER"
-  (( _TT_RECALL_IDX < $#_TT_RECALL_ITEMS )) && (( _TT_RECALL_IDX++ ))
-  BUFFER="$_TT_RECALL_ITEMS[_TT_RECALL_IDX]"
-  CURSOR=$#BUFFER
+  case "$_TT_RECALL_STATE" in
+    ready)
+      (( $#_TT_RECALL_ITEMS )) || return 0
+      (( _TT_RECALL_IDX == 0 )) && _TT_RECALL_SAVED_BUFFER="$BUFFER"
+      (( _TT_RECALL_IDX < $#_TT_RECALL_ITEMS )) && (( _TT_RECALL_IDX++ ))
+      BUFFER="$_TT_RECALL_ITEMS[_TT_RECALL_IDX]"
+      CURSOR=$#BUFFER
+      ;;
+    idle) _tt_recall_start_load ;;
+    *)    _tt_recall_note ;;
+  esac
 }
 zle -N _tt_recall_up
 
 # ↓: walk toward newer commands; stepping past the newest restores the stashed prompt.
 _tt_recall_down() {
+  [[ "$_TT_RECALL_STATE" == ready ]] || return 0
   (( _TT_RECALL_IDX == 0 )) && return 0
   (( _TT_RECALL_IDX-- ))
   if (( _TT_RECALL_IDX == 0 )); then
@@ -142,7 +202,7 @@ _tt_recall_unbind() {
 
 _tt_ai_on() {
   _TT_AI_MODE=1
-  _TT_RECALL_LOADED=0   # re-query the porcelain once on this session's first ↑ (freshness)
+  _TT_RECALL_STATE="idle"   # re-query the porcelain on this session's first ↑ (freshness)
   _TT_RECALL_IDX=0
   _tt_recall_bind
   PREDISPLAY="$_TT_BADGE "
@@ -153,6 +213,7 @@ _tt_ai_on() {
 _tt_ai_off() {
   _TT_AI_MODE=0
   _TT_RECALL_IDX=0
+  _tt_recall_cancel_load
   _tt_recall_unbind
   _tt_wave_stop
   PREDISPLAY=""
@@ -185,7 +246,26 @@ zle -N _tt_backspace
 bindkey '^?' _tt_backspace
 bindkey '^H' _tt_backspace
 
+# Once a validated command lands in BUFFER, its explanation rides below in
+# POSTDISPLAY — a dimmed, non-editable trailer one blank line down (POSTDISPLAY,
+# not `zle -M`, because region_highlight can dim it and `zle -M` renders ANSI
+# literally). `paint` recomputes the span offset from the live BUFFER so it tracks
+# edits and re-asserts after syntax highlighters; `clear` drops it before the line
+# is accepted so it never freezes into scrollback.
+_tt_expl_paint() {
+  region_highlight=("${(@)region_highlight:#*memo=ttexpl*}")
+  local -i estart=$(( $#PREDISPLAY + $#BUFFER ))
+  region_highlight+=("P$estart $(( estart + $#POSTDISPLAY )) fg=8 memo=ttexpl")
+}
+_tt_expl_clear() {
+  (( _TT_EXPL_ACTIVE )) || return 0
+  _TT_EXPL_ACTIVE=0
+  POSTDISPLAY=""
+  region_highlight=("${(@)region_highlight:#*memo=ttexpl*}")
+}
+
 _tt_accept_line() {
+  _tt_expl_clear
   if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )); then
     # A past command was walked into BUFFER verbatim — the user reviewed it while
     # stepping through the recall, so Enter runs it directly, not as a new NL prompt.
@@ -197,6 +277,7 @@ _tt_accept_line() {
     zle .accept-line
     return
   fi
+  _tt_recall_cancel_load
   if (( _TT_AI_MODE )) && [[ -n "$BUFFER" ]]; then
     # The spinner lives in PREDISPLAY (inside the edit region): a mid-widget
     # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
@@ -268,7 +349,9 @@ _tt_accept_line() {
       BUFFER="$tt_command"
     fi
     CURSOR=${#BUFFER}
-    zle -M "[$tt_danger]${tt_explanation:+ $tt_explanation}"
+    POSTDISPLAY=$'\n\n'"[$tt_danger]${tt_explanation:+ $tt_explanation}"
+    _TT_EXPL_ACTIVE=1
+    _tt_expl_paint
     return 0
   fi
   zle .accept-line
@@ -278,6 +361,7 @@ zle -N accept-line _tt_accept_line
 # A fresh prompt never starts in AI mode (covers Ctrl-C mid-request).
 autoload -Uz add-zle-hook-widget
 _tt_line_init() {
+  _tt_expl_clear
   (( _TT_AI_MODE )) && _tt_ai_off
   if [[ -n "$_TT_SAVED_HISTCHARS" ]]; then
     histchars=$_TT_SAVED_HISTCHARS
@@ -293,6 +377,7 @@ add-zle-hook-widget line-init _tt_line_init
 # the widget and before redisplay, so repainting here always wins.
 _tt_line_pre_redraw() {
   (( _TT_AI_MODE )) && _tt_wave_paint
+  (( _TT_EXPL_ACTIVE )) && _tt_expl_paint
   return 0
 }
 add-zle-hook-widget line-pre-redraw _tt_line_pre_redraw

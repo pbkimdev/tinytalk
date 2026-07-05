@@ -32,6 +32,16 @@ commands from `tt history --porcelain` (the stub answers it — see below) into 
 leaving AI mode restores the default arrow bindings. Run it under the real config too —
 that catches restoration against a real third-party binding (e.g. atuin's `atuin-up-search`).
 
+```sh
+.claude/skills/test-shell-ui/scripts/recall-async.zsh   # slow/failing/empty porcelain (#D1)
+```
+
+`recall-async.zsh` proves the async load: the first ↑ shells out to `tt` in the background
+(the frozen binary can cold-start for seconds), so it must return at once with a
+`tt: loading history…` note and auto-fill the buffer when the data lands — never freezing
+the line. It also asserts the `history unavailable` (failing `tt`) and `no history yet`
+(empty store) feedback, driven by the stub's `TT_HISTORY_DELAY` / `_FAIL` / `_EMPTY` knobs.
+
 To test other flows (destructive commands, backend failure), point `TT_STUB_RESPONSES`
 at a directory of files `1`, `2`, … — each is printed verbatim as that call's
 `tt --widget` output; a missing file makes the stub exit 1 (the widget's error path).
@@ -43,9 +53,14 @@ Copy the scenario section of `drive.zsh` and adapt the keystrokes/checks.
   captures screens, asserts nothing was overdrawn.
 - `scripts/recall.zsh` — tmux driver for the ↑/↓ recall widget (#D1): asserts the arrows
   walk the stubbed history into BUFFER and that leaving AI mode restores the default arrows.
+- `scripts/recall-async.zsh` — tmux driver for the async porcelain load (#D1): asserts a
+  slow `tt` shows `loading history…` and auto-fills without freezing, and that a failing /
+  empty store surface the `history unavailable` / `no history yet` notes.
 - `scripts/tt-stub` — fake `tt`: emits canned `tt_command=…` / `tt_danger=…` /
   `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency,
-  and answers `history --porcelain` with a canned NUL-delimited newest-first command list.
+  and answers `history --porcelain` with a canned NUL-delimited newest-first command list
+  (delay it with `TT_HISTORY_DELAY`, fail it with `TT_HISTORY_FAIL`, empty it with
+  `TT_HISTORY_EMPTY` to drive the recall widget's async load / error / empty paths).
 
 ## The strategy (reuse these rules when writing new scenarios)
 

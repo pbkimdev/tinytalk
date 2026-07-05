@@ -19,6 +19,9 @@
 # recent commands NUL-delimited, newest-first and already deduped. It is not a --widget
 # call, so it bumps no counter and takes no delay.
 if [ "${1:-}" = "history" ]; then
+  [ -n "${TT_HISTORY_DELAY:-}" ] && sleep "$TT_HISTORY_DELAY"
+  [ -n "${TT_HISTORY_FAIL:-}" ] && exit 1
+  [ -n "${TT_HISTORY_EMPTY:-}" ] && exit 0
   printf '%s\0' 'git status --short' 'ls -la /var/log' 'grep -rn TODO tinytalk/'
   exit 0
 fi
