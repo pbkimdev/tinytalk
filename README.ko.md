@@ -68,7 +68,15 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 ![install.sh](docs/assets/install.png)
 
 `--yes`를 붙이면 모든 확인을 자동으로 넘기고(스크립트·CI용), `--no-rc`를 붙이면 셸 설정을
-건드리지 않으며, `--version <tag>`으로 특정 릴리스를 고정할 수 있습니다.
+건드리지 않으며, 릴리스를 고정할 수 있습니다:
+
+```sh
+# 환경 변수 — curl | sh 만으로 동작
+TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+
+# 플래그 — 파이프 설치 시 -s 필요 (-s 없이 --version 을 쓰면 sh 가 파일명으로 해석함)
+curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc4
+```
 
 대화형 `?` 프롬프트는 **zsh** 위젯이라 zsh를 권장합니다. macOS는 기본 셸이고, Linux에서도
 `apt install zsh` 한 번이면 됩니다. `tt "..."`로 직접 부르는 명령은 bash를 포함한 모든 셸에서
@@ -86,9 +94,9 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 
 ![생성된 명령](docs/assets/run.png)
 
-스타터 설정은 `local` 백엔드를 가리킵니다. 답을 받으려면 클라우드 백엔드나 로컬 서버가 하나는
-떠 있어야 하는데, 둘 다 아래에서 다룹니다. 어느 쪽이 연결됐는지 확인하려면 CLI에서
-`tt "list files by size"`를 한 번 실행하는 게 가장 빠릅니다.
+설치 직후에는 `tt auth`로 백엔드를 하나 설정하세요. 클라우드 API나 로컬 OpenAI 호환 서버
+중 하나가 연결되어 있어야 답을 받을 수 있습니다. 연결 확인은 `tt "list files by size"`가
+가장 빠릅니다.
 
 ---
 

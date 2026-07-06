@@ -71,7 +71,15 @@ shell config without asking. In one pass it:
 ![install.sh](docs/assets/install.png)
 
 Pass `--yes` to accept every prompt (handy for scripts/CI), `--no-rc` to leave your shell
-config untouched, or `--version <tag>` to pin a release.
+config untouched, or pin a release:
+
+```sh
+# env var — works with plain curl | sh
+TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+
+# flag — requires -s when piping into sh (without -s, sh treats --version as a filename)
+curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc4
+```
 
 The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**
 and the **Claude Agent SDK** download a one-time add-on the first time you set them up with
@@ -95,10 +103,9 @@ one-line explanation beneath it. Read it, edit it if you like, and run it yourse
 
 ![a generated command](docs/assets/run.png)
 
-Out of the box the starter config points at a `local` backend. Before it can answer
-you'll want either a cloud backend or a local server running — both are covered next.
-Not sure which? `tt "list files by size"` from the CLI is the fastest way to confirm
-your backend is wired up.
+Run `tt auth` right after install to set up a backend — a cloud API or a local
+OpenAI-compatible server, both covered next. `tt "list files by size"` from the CLI
+is the fastest way to confirm it's wired up.
 
 ---
 
