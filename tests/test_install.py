@@ -361,3 +361,94 @@ def test_unknown_flag_fails(sandbox):
     proc = run_install(env, "--frobnicate")
     assert proc.returncode == 2
     assert "unknown option" in proc.stderr
+
+
+def test_version_flag_pins_release_tag(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    make_exe(
+        fakebin,
+        "curl",
+        "#!/bin/sh\n"
+        'url=""; out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in -o) shift; out="$1" ;; http://*|https://*) url="$1" ;; esac; shift; done\n'
+        "case \"$url\" in\n"
+        "  *.sha256) exit 22 ;;\n"
+        f'  *v0.2.0rc3*) cp "{bundle}" "$out" ;;\n'
+        "  *) exit 22 ;;\n"
+        "esac\n",
+    )
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:{fakebin}:/usr/bin:/bin",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
+    proc = run_install(env, "--yes", "--version", "0.2.0rc3")
+    assert proc.returncode == 0, proc.stderr
+    assert "downloading tt-linux-x86_64.tar.gz (v0.2.0rc3)" in proc.stdout
+
+
+def test_tt_version_env_pins_release_without_flag(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    make_exe(
+        fakebin,
+        "curl",
+        "#!/bin/sh\n"
+        'url=""; out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in -o) shift; out="$1" ;; http://*|https://*) url="$1" ;; esac; shift; done\n'
+        "case \"$url\" in\n"
+        "  *.sha256) exit 22 ;;\n"
+        f'  *v0.2.0rc3*) cp "{bundle}" "$out" ;;\n'
+        "  *) exit 22 ;;\n"
+        "esac\n",
+    )
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:{fakebin}:/usr/bin:/bin",
+        "TT_VERSION": "v0.2.0rc3",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "downloading tt-linux-x86_64.tar.gz (v0.2.0rc3)" in proc.stdout
+
+
+def test_version_equals_form_pins_release_tag(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    make_exe(
+        fakebin,
+        "curl",
+        "#!/bin/sh\n"
+        'url=""; out=""\n'
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in -o) shift; out="$1" ;; http://*|https://*) url="$1" ;; esac; shift; done\n'
+        "case \"$url\" in\n"
+        "  *.sha256) exit 22 ;;\n"
+        f'  *v0.2.0rc3*) cp "{bundle}" "$out" ;;\n'
+        "  *) exit 22 ;;\n"
+        "esac\n",
+    )
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:{fakebin}:/usr/bin:/bin",
+        "TT_RELEASE_BASE": "https://example.test/releases",
+    }
+    proc = run_install(env, "--yes", "--version=v0.2.0rc3")
+    assert proc.returncode == 0, proc.stderr
+    assert "(v0.2.0rc3)" in proc.stdout

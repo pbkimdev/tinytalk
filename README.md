@@ -74,7 +74,15 @@ walks you through OS-specific local defaults (oMLX on macOS, llama.cpp on Linux/
 ![install.sh](docs/assets/install.png)
 
 Pass `--yes` to accept every prompt (handy for scripts/CI), `--no-rc` to leave your shell
-config untouched, or `--version <tag>` to pin a release.
+config untouched, or pin a release:
+
+```sh
+# env var — works with plain curl | sh
+TT_VERSION=v0.2.0rc3 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+
+# flag — requires -s when piping into sh (without -s, sh treats --version as a filename)
+curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc3
+```
 
 The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**
 and the **Claude Agent SDK** download a one-time add-on the first time you set them up with

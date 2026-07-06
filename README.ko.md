@@ -70,7 +70,15 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 ![install.sh](docs/assets/install.png)
 
 `--yes`를 붙이면 모든 확인을 자동으로 넘기고(스크립트·CI용), `--no-rc`를 붙이면 셸 설정을
-건드리지 않으며, `--version <tag>`으로 특정 릴리스를 고정할 수 있습니다.
+건드리지 않으며, 릴리스를 고정할 수 있습니다:
+
+```sh
+# 환경 변수 — curl | sh 만으로 동작
+TT_VERSION=v0.2.0rc3 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+
+# 플래그 — 파이프 설치 시 -s 필요 (-s 없이 --version 을 쓰면 sh 가 파일명으로 해석함)
+curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc3
+```
 
 대화형 `?` 프롬프트는 **zsh** 위젯이라 zsh를 권장합니다. macOS는 기본 셸이고, Linux에서도
 `apt install zsh` 한 번이면 됩니다. `tt "..."`로 직접 부르는 명령은 bash를 포함한 모든 셸에서

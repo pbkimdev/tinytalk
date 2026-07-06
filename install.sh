@@ -3,10 +3,14 @@
 #
 #   curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/install.sh | sh
 #
+#   Pin a release tag (either form works):
+#     curl ... | sh -s -- --version v0.2.0rc3     # -s is required when piping into sh
+#     TT_VERSION=v0.2.0rc3 curl ... | sh          # env var, no -s needed
+#
 #   --yes         don't prompt (auto-accepts PATH + ~/.zshrc edits; for scripts/CI)
 #   --no-rc       never touch your shell rc files
 #   --bin-dir DIR install the binary here (default: ~/.local/bin)
-#   --version TAG install a specific release tag (default: latest)
+#   --version TAG install a specific release tag (default: latest; v-prefix optional)
 #
 # The binary is self-contained: no Python, no uv, nothing to build. This script
 # installs and configures only — it never runs a generated command, and never
@@ -18,7 +22,7 @@ REPO="pbkimdev/tinytalk"
 YES=0
 NO_RC=0
 BIN_DIR=""
-VERSION="latest"
+VERSION="${TT_VERSION:-latest}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,11 +33,20 @@ while [ $# -gt 0 ]; do
     --version) shift; VERSION="${1:-latest}" ;;
     --version=*) VERSION="${1#*=}" ;;
     -h|--help)
-      echo "usage: install.sh [--yes] [--no-rc] [--bin-dir DIR] [--version TAG]"; exit 0 ;;
+      echo "usage: install.sh [--yes] [--no-rc] [--bin-dir DIR] [--version TAG]"
+      echo "  TT_VERSION=TAG   pin a release when piping: curl ... | sh   (no -s needed)"
+      echo "  curl ... | sh -s -- --version TAG   pin a release via flag"
+      exit 0
+      ;;
     *) echo "install.sh: unknown option: $1" >&2; exit 2 ;;
   esac
   shift
 done
+
+# GitHub release tags are v-prefixed; accept 0.2.0rc3 or v0.2.0rc3.
+if [ "$VERSION" != "latest" ]; then
+  case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac
+fi
 
 say() { printf '%s\n' "$*"; }
 die() { printf '%s\n' "install.sh: $*" >&2; exit 1; }
