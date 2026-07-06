@@ -151,7 +151,7 @@ def build_history_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--porcelain",
         action="store_true",
-        help="emit recent (deduped) commands NUL-delimited for the zsh recall widget",
+        help="emit recent (deduped) records as `<danger>\\t<command>` NUL-delimited for the zsh recall widget",
     )
     parser.add_argument(
         "--preview",
@@ -399,8 +399,8 @@ def _prompt(args: argparse.Namespace) -> int:
 
 
 def _history(args: argparse.Namespace) -> int:
-    """`tt history` — browse and reuse past commands. `--porcelain` feeds the zsh widget the
-    deduped recent commands NUL-delimited (newest-first). The human viewer is **fzf-first**: an
+    """`tt history` — browse and reuse past commands. `--porcelain` feeds the zsh widget one
+    `<danger>\\t<command>` record per deduped recent command, NUL-delimited (newest-first). The human viewer is **fzf-first**: an
     interactive picker with a full-record preview pane, whose selection prints the command. When
     fzf is absent (or output is not a terminal) it falls back to a numbered plaintext listing
     (id, time, prompt→command, cost). `--preview N` renders the record at view index N for the
@@ -415,7 +415,10 @@ def _history(args: argparse.Namespace) -> int:
         return 0
     if args.porcelain:
         for record in records:
-            sys.stdout.write(record.command + "\0")  # NUL-terminated: `read -r -d ''` safe
+            # The widget gates destructive recalls on the field before the FIRST tab; a
+            # record with no classifier verdict over-warns as caution rather than run unguarded.
+            danger = record.danger_final or "caution"
+            sys.stdout.write(f"{danger}\t{record.command}\0")  # NUL-terminated: `read -r -d ''` safe
         return 0
     if not records:
         print("tt: no history yet", file=sys.stderr)  # friendly empty state (spec-C1)

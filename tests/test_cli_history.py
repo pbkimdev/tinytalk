@@ -345,11 +345,17 @@ def test_porcelain_empty_store_prints_nothing(state_dir, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
+def test_porcelain_emits_deduped_danger_and_command_nul_delimited(state_dir, capsys):
     store = HistoryStore()
     store.append(HistoryRecord(command="git status", ts="2026-07-04T10:00:00-07:00"))
     store.append(HistoryRecord(command="", ts="2026-07-04T10:01:00-07:00"))  # failed run
-    store.append(HistoryRecord(command="ls -la", ts="2026-07-04T10:02:00-07:00"))
+    store.append(
+        HistoryRecord(
+            command="rm -f 'a\tb'",  # a tab INSIDE the command rides verbatim after the first tab
+            danger_final="destructive",
+            ts="2026-07-04T10:02:00-07:00",
+        )
+    )
     store.append(
         HistoryRecord(command="GIT   status", ts="2026-07-04T10:03:00-07:00")
     )  # newest dup
@@ -357,9 +363,10 @@ def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
     assert main(["history", "--porcelain"]) == 0
     out = capsys.readouterr().out
     assert "\0" in out
-    commands = [c for c in out.split("\0") if c]
+    entries = [e for e in out.split("\0") if e]
     # newest-first, exact-normalized dedup keeps the newest "GIT   status", empty skipped.
-    assert commands == ["GIT   status", "ls -la"]
+    # Each entry is `<danger>\t<command>`; no classifier verdict over-warns as caution.
+    assert entries == ["caution\tGIT   status", "destructive\trm -f 'a\tb'"]
 
 
 def test_history_plain_empty_store_prints_nothing(state_dir, capsys, monkeypatch):

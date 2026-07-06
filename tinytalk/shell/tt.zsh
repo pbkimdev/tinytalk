@@ -12,6 +12,9 @@ typeset -g _TT_AI_MODE=0
 typeset -gi _TT_EXPL_ACTIVE=0
 typeset -g _TT_SAVED_HISTCHARS=""
 typeset -g _TT_BADGE="TinyTalk"
+# Banner prefixed to a destructive command (generate and recall paths both use it): following
+# the instruction literally — delete through the colon and space — leaves the runnable command.
+typeset -g _TT_DESTRUCTIVE_PREFIX="# DESTRUCTIVE — review, then delete everything up to and including this colon and space: "
 typeset -g _TT_WAVE_FD=""
 typeset -gi _TT_WAVE_PHASE=0
 # 256-color spectrum for the badge, palindromic so the cycle has no seam.
@@ -20,6 +23,7 @@ typeset -ga _TT_SPECTRA=(51 45 39 33 63 99 135 171 207 213 207 171 135 99 63 39 
 typeset -gi _TT_RECALL_IDX=0
 typeset -g _TT_RECALL_SAVED_BUFFER=""
 typeset -ga _TT_RECALL_ITEMS=()
+typeset -ga _TT_RECALL_DANGERS=()  # parallel to _TT_RECALL_ITEMS: safe|caution|destructive
 typeset -g _TT_RECALL_STATE="idle"
 typeset -g _TT_RECALL_FD=""
 typeset -g _TT_RECALL_DIR=""
@@ -109,8 +113,14 @@ _tt_recall_ready() {
   local dir="$_TT_RECALL_DIR"
   local rc="$(<"$dir/rc")"
   _TT_RECALL_ITEMS=()
+  _TT_RECALL_DANGERS=()
   local item
-  while IFS= read -r -d '' item; do _TT_RECALL_ITEMS+=("$item"); done <"$dir/items"
+  # Each record is `<danger>\t<command>`; split on the FIRST tab only — the command
+  # itself may contain tabs and must land in the buffer verbatim.
+  while IFS= read -r -d '' item; do
+    _TT_RECALL_DANGERS+=("${item%%$'\t'*}")
+    _TT_RECALL_ITEMS+=("${item#*$'\t'}")
+  done <"$dir/items"
   rm -rf "$dir"
   _TT_RECALL_DIR=""
   (( _TT_AI_MODE )) || { _TT_RECALL_STATE="idle"; return 0; }
@@ -264,13 +274,25 @@ _tt_expl_clear() {
 
 _tt_accept_line() {
   _tt_expl_clear
-  if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )); then
+  if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )) \
+      && [[ "$BUFFER" == "$_TT_RECALL_ITEMS[_TT_RECALL_IDX]" ]]; then
     # A past command was walked into BUFFER verbatim — the user reviewed it while
     # stepping through the recall, so Enter runs it directly, not as a new NL prompt.
+    # If BUFFER diverged from the selected item, the user edited after recalling
+    # (e.g. cleared the line and typed fresh English) — fall through to generate.
     # Neutralize any `!` exactly like the generated-command path (#62); line-init
     # restores histchars at the next prompt.
     [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
     histchars=$'\x01'"${histchars[2,3]}"
+    if [[ "$_TT_RECALL_DANGERS[_TT_RECALL_IDX]" == "destructive" ]]; then
+      # History stores every *suggestion* — including destructive ones the user never
+      # ran — so a recalled destructive command gets the same commented-out review
+      # gate as a freshly generated one instead of executing on a single Enter.
+      BUFFER="$_TT_DESTRUCTIVE_PREFIX$BUFFER"
+      CURSOR=$#BUFFER
+      _tt_ai_off
+      return 0
+    fi
     _tt_ai_off
     zle .accept-line
     return
@@ -342,7 +364,7 @@ _tt_accept_line() {
     [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
     histchars=$'\x01'"${histchars[2,3]}"
     if [[ "$tt_danger" == "destructive" ]]; then
-      BUFFER="# DESTRUCTIVE — review, then remove the #: $tt_command"
+      BUFFER="$_TT_DESTRUCTIVE_PREFIX$tt_command"
     else
       BUFFER="$tt_command"
     fi

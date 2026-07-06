@@ -16,13 +16,16 @@
 # exit-1 are unchanged whether or not TT_WIDGET_PARTIAL was set.
 #
 # `tt history --porcelain` (the prompt-mode recall widget, #D1) is answered separately:
-# recent commands NUL-delimited, newest-first and already deduped. It is not a --widget
-# call, so it bumps no counter and takes no delay.
+# one `<danger>\t<command>` record per NUL, newest-first and already deduped. When
+# TT_HISTORY_DESTRUCTIVE is set, its value is prepended as a newest destructive record
+# (lets a scenario prove the recall danger gate). It is not a --widget call, so it bumps
+# no counter and takes no delay.
 if [ "${1:-}" = "history" ]; then
   [ -n "${TT_HISTORY_DELAY:-}" ] && sleep "$TT_HISTORY_DELAY"
   [ -n "${TT_HISTORY_FAIL:-}" ] && exit 1
   [ -n "${TT_HISTORY_EMPTY:-}" ] && exit 0
-  printf '%s\0' 'git status --short' 'ls -la /var/log' 'grep -rn TODO tinytalk/'
+  [ -n "${TT_HISTORY_DESTRUCTIVE:-}" ] && printf 'destructive\t%s\0' "$TT_HISTORY_DESTRUCTIVE"
+  printf 'safe\t%s\0' 'git status --short' 'ls -la /var/log' 'grep -rn TODO tinytalk/'
   exit 0
 fi
 
