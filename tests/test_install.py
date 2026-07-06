@@ -124,6 +124,28 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert '"$_tt_bin" init zsh' in zshrc  # the cached-init widget block, not a raw eval
 
 
+def test_linux_scaffold_uses_llama_cpp_defaults(sandbox):
+    home, env, _ = sandbox
+    env = {**env, "TT_INSTALL_OS": "linux"}
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    text = (home / ".config" / "tinytalk" / "config.toml").read_text()
+    assert "localhost:8080" in text
+    assert "unsloth/gemma-4-12b-it-GGUF:Q4_K_M" in text
+    assert "llama-server" in proc.stdout
+
+
+def test_macos_scaffold_uses_omlx_defaults(sandbox):
+    home, env, _ = sandbox
+    env = {**env, "TT_INSTALL_OS": "macos"}
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    text = (home / ".config" / "tinytalk" / "config.toml").read_text()
+    assert "localhost:8000" in text
+    assert "gemma-4-26B-A4B-it-MLX-8bit" in text
+    assert "omlx serve" in proc.stdout
+
+
 def test_second_run_changes_nothing(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes").returncode == 0

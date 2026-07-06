@@ -64,6 +64,11 @@ case "$arch" in
 esac
 ASSET="tt-$OS-$ARCH.tar.gz"   # a --onedir bundle (launcher + _internal/), tarred
 
+# Test hook: TT_INSTALL_OS=macos|linux forces the config scaffold (see tests/test_install.py).
+case "${TT_INSTALL_OS:-}" in
+  macos|linux) OS="$TT_INSTALL_OS" ;;
+esac
+
 # 2. Resolve the download URL. `TT_RELEASE_BASE` overrides the host (mirrors/testing);
 # `TT_BINARY` short-circuits the download to a local file (used by CI/self-tests).
 BASE="${TT_RELEASE_BASE:-https://github.com/$REPO/releases}"
@@ -167,23 +172,42 @@ if [ -f "$CONFIG" ]; then
   say "config: $CONFIG already exists — left untouched"
 else
   mkdir -p "$CONFIG_DIR"
-  cat > "$CONFIG" <<'EOF'
+  if [ "$OS" = macos ]; then
+    cat > "$CONFIG" <<'EOF'
 # TinyTalk config — backends, posture, cache, prices. Run `tt auth` to set up a
 # cloud backend, or point the local backend below at your own server.
 [defaults]
 backend = "local"
 posture = "local"
 
-# Local backend via an OpenAI-compatible server (oMLX, llama.cpp, Ollama, ...).
-# Start your server, then adjust base_url/model to match. No API key needed.
+# Local backend via oMLX (Apple Silicon). Start your server, then adjust model to match.
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:8000/v1"   # llama.cpp defaults to 8080
+base_url = "http://localhost:8000/v1"
 model = "gemma-4-26B-A4B-it-MLX-8bit"
 
 [cache]
 enabled = true
 EOF
+  else
+    cat > "$CONFIG" <<'EOF'
+# TinyTalk config — backends, posture, cache, prices. Run `tt auth` to set up a
+# cloud backend, or point the local backend below at your own server.
+[defaults]
+backend = "local"
+posture = "local"
+
+# Local backend via llama.cpp (GGUF on Linux / WSL). The MTP assistant drafter is
+# configured in llama-server, not here — see README "Using a local model".
+[backends.local]
+kind = "openai-compat"
+base_url = "http://localhost:8080/v1"
+model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
+
+[cache]
+enabled = true
+EOF
+  fi
   say "config: wrote starter $CONFIG (edit backends to taste)"
 fi
 
@@ -221,5 +245,13 @@ fi
 
 say ""
 say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my disk usage'
+if [ "$OS" = linux ]; then
+  say "local model (llama.cpp): needs a recent build with Gemma 4 MTP (see README):"
+  say '  llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M --spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja'
+  say '  curl -s localhost:8080/v1/models    # confirm the model id matches config.toml'
+  say "WSL: same as Linux — localhost works; tt \"...\" works in bash; ? widget needs zsh."
+else
+  say "local model: omlx serve --model-dir ~/models  (see README)"
+fi
 say "set up a cloud model:   tt auth"
 say "uninstall:   rm $TT && rm -rf $LIB_DIR/tt   (and remove the 'added by install.sh' blocks from your rc files)"

@@ -28,11 +28,14 @@ VALID_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 _EXAMPLE = """\
 [defaults]
 backend = "local"
+posture = "local"
 
+# Linux (llama.cpp): :8080 and the GGUF id below. macOS (oMLX): :8000, gemma-4-26B-A4B-it-MLX-8bit.
+# The MTP assistant drafter is configured in llama-server, not in TinyTalk — see README.
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:11434/v1"
-model = "qwen3:8b"
+base_url = "http://localhost:8080/v1"
+model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
 """
 
 

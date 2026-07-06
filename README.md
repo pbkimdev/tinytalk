@@ -283,9 +283,10 @@ a frontier model. A few things to weigh:
 - **Tool-calling / structured output.** Nice to have, not required — TinyTalk degrades to
   a universal fenced-JSON path on any server, so even a bare model works.
 
-Our running example is **Google's Gemma 4 26B-A4B** — the MoE build used in the
-[benchmark](#benchmark). It's fast (only ~4B parameters fire per token), fits comfortably
-on a modern laptop in a quantized build (~15 GB at QAT Q4), and holds up well on the eval.
+Our running example is **Google's Gemma 4** family — the models used in the
+[benchmark](#benchmark). On macOS we default to the **26B-A4B** MoE build (fast, ~4B active
+per token, ~15 GB quantized). On Linux and WSL we default to **12B QAT GGUF** via llama.cpp
+(~7 GB, fits tighter RAM) with an MTP assistant drafter for speed.
 
 ### macOS — oMLX
 
@@ -328,7 +329,8 @@ and `OMLX_PORT` (or run `omlx serve --model-dir …` once to persist settings) t
 
 [llama.cpp](https://github.com/ggml-org/llama.cpp) is the C/C++ engine under much of the
 local-LLM world. It loads GGUF weights and its `llama-server` speaks the OpenAI API. The
-quickest install is Homebrew (it works on Linux too); otherwise build from source:
+quickest install is Homebrew (it works on Linux too); otherwise build from source. You need a
+build from **2026-06-07 or later** for Gemma 4 MTP (`--spec-type draft-mtp`).
 
 ```sh
 brew install llama.cpp
@@ -337,25 +339,33 @@ brew install llama.cpp
 #   cmake -B build && cmake --build build -j --config Release
 ```
 
-`llama-server` can pull a GGUF straight from Hugging Face with `-hf`. Point it at a Gemma
-4 26B-A4B GGUF (pick a QAT `Q4_K_M` build) and serve on port 8080:
+The default Linux tier is **Gemma 4 12B QAT GGUF** with an MTP assistant drafter. Unsloth
+ships both in [`unsloth/gemma-4-12b-it-GGUF`](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF);
+recent `llama-server` builds auto-discover the sibling `mtp-gemma-4-12b-it.gguf` when you
+pass `-hf` (see their [MTP guide](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/blob/main/MTP/README.md)):
 
 ```sh
-llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
+llama-server \
+  -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M \
+  --spec-type draft-mtp --spec-draft-n-max 4 \
+  --port 8080 -c 8192 --jinja
 ```
 
-The OpenAI-compatible endpoint is then at `http://localhost:8080/v1`.
+The OpenAI-compatible endpoint is then at `http://localhost:8080/v1`. The `model` id TinyTalk
+needs is the same `-hf` string (`unsloth/gemma-4-12b-it-GGUF:Q4_K_M`) — confirm with
+`curl -s localhost:8080/v1/models`. The assistant drafter is **server-side only**; TinyTalk's
+config names the main model, exactly like the bench roster in `docs/bench/bench.toml`.
 
 **Run it as a daemon** with a systemd *user* service. Create
 `~/.config/systemd/user/llama-server.service`:
 
 ```ini
 [Unit]
-Description=llama.cpp server
+Description=llama.cpp server (Gemma 4 12B + MTP)
 After=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
+ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M --spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja
 Restart=on-failure
 
 [Install]
@@ -370,23 +380,39 @@ systemctl --user enable --now llama-server
 sudo loginctl enable-linger "$USER"
 ```
 
+If your build is too old to auto-discover the MTP sibling, download the drafter explicitly
+(`MTP/gemma-4-12b-it-Q8_0-MTP.gguf` from the same repo) and pass `--model-draft` — see the
+Unsloth MTP README. Draft flags vary by `llama-server` version; check `llama-server --help`.
+
+### Running under WSL
+
+WSL is Linux to TinyTalk — you get the Linux binary and the Linux scaffold (`:8080`, Gemma 4
+12B GGUF). `localhost` reaches services inside your distro on modern WSL2. You need ~10 GB
+free RAM for the 12B QAT build. The `?` widget is zsh-only, but `tt "..."` works in bash
+out of the box.
+
 ### Point TinyTalk at it
 
 A keyless local server needs no `tt auth` — just an `openai-compat` backend with the
-right `base_url`. The installer already scaffolds one; edit it to match your server:
+right `base_url` and `model`. The installer scaffolds one per OS; edit it if your server
+registers a different model id:
 
 ```toml
-[defaults]
-backend = "local"
-
+# macOS (oMLX)
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:8000/v1"    # 8080 for llama.cpp
+base_url = "http://localhost:8000/v1"
 model = "gemma-4-26B-A4B-it-MLX-8bit"
+
+# Linux / WSL (llama.cpp)
+[backends.local]
+kind = "openai-compat"
+base_url = "http://localhost:8080/v1"
+model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
 ```
 
-Confirm the model is visible (`curl -s localhost:8000/v1/models`), then take it for a
-spin. Here's the local model writing a small weather one-liner:
+Confirm the model is visible (`curl -s localhost:8080/v1/models` on Linux, `:8000` on macOS),
+then take it for a spin. Here's the local model writing a small weather one-liner:
 
 ![tt — local weather](docs/assets/weather.png)
 

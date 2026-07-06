@@ -211,9 +211,9 @@ escalation_backend = "claude"  # fallback 슬롯
 - **툴 콜링·구조화 출력.** 있으면 좋지만 필수는 아닙니다. TinyTalk은 어떤 서버에서든 범용
   fenced JSON 방식으로 물러설 수 있어서, 이 기능이 없는 모델도 잘 돕니다.
 
-예시로는 **구글의 Gemma 4 26B-A4B**를 씁니다. [벤치마크](#벤치마크)에서 쓴 MoE 빌드입니다.
-토큰마다 약 4B만 켜지므로 빠르고, 양자화 빌드는 요즘 노트북에 넉넉히 들어가며(QAT Q4 기준 약
-15GB), 평가 성적도 준수합니다.
+예시로는 **구글 Gemma 4** 계열을 씁니다. [벤치마크](#벤치마크)에서 쓴 모델들입니다. macOS는
+**26B-A4B** MoE(토큰당 약 4B 활성, 양자화 시 약 15GB)를 기본으로 하고, Linux·WSL은 **12B QAT
+GGUF**(약 7GB, llama.cpp)에 MTP assistant drafter를 붙인 구성을 기본으로 합니다.
 
 ### macOS — oMLX
 
@@ -255,7 +255,8 @@ brew services info omlx      # 상태 확인
 
 [llama.cpp](https://github.com/ggml-org/llama.cpp)는 로컬 LLM 생태계 상당수를 떠받치는 C/C++
 엔진입니다. GGUF 가중치를 읽고, `llama-server`가 OpenAI API를 제공합니다. 설치는 Homebrew가 가장
-간단하고(Linux에서도 됩니다), 아니면 소스에서 빌드합니다.
+간단하고(Linux에서도 됩니다), 아니면 소스에서 빌드합니다. Gemma 4 MTP(`--spec-type draft-mtp`)는
+**2026-06-07 이후** 빌드가 필요합니다.
 
 ```sh
 brew install llama.cpp
@@ -264,25 +265,33 @@ brew install llama.cpp
 #   cmake -B build && cmake --build build -j --config Release
 ```
 
-`llama-server`는 `-hf`로 GGUF를 Hugging Face에서 바로 내려받습니다. Gemma 4 26B-A4B GGUF(QAT
-`Q4_K_M` 빌드 권장)를 지정해 8080 포트에 띄웁니다.
+Linux 기본 티어는 **Gemma 4 12B QAT GGUF**와 MTP assistant drafter입니다. Unsloth가
+[`unsloth/gemma-4-12b-it-GGUF`](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF)에 둘 다
+올려 두었고, 최근 `llama-server`는 `-hf`만 주면 형제 파일 `mtp-gemma-4-12b-it.gguf`를 자동으로
+찾습니다([MTP 가이드](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/blob/main/MTP/README.md)):
 
 ```sh
-llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
+llama-server \
+  -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M \
+  --spec-type draft-mtp --spec-draft-n-max 4 \
+  --port 8080 -c 8192 --jinja
 ```
 
-OpenAI 호환 엔드포인트가 `http://localhost:8080/v1`에 열립니다.
+OpenAI 호환 엔드포인트가 `http://localhost:8080/v1`에 열립니다. TinyTalk `model` 값은 `-hf`와
+같은 문자열(`unsloth/gemma-4-12b-it-GGUF:Q4_K_M`)입니다 — `curl -s localhost:8080/v1/models`로
+확인하세요. assistant drafter는 **서버 쪽 설정**이며 TinyTalk config에는 넣지 않습니다(`docs/bench/bench.toml`과
+동일한 분리).
 
 **데몬으로 실행**하려면 systemd *user* 서비스를 씁니다. `~/.config/systemd/user/llama-server.service`를
 만듭니다.
 
 ```ini
 [Unit]
-Description=llama.cpp server
+Description=llama.cpp server (Gemma 4 12B + MTP)
 After=network-online.target
 
 [Service]
-ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
+ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M --spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja
 Restart=on-failure
 
 [Install]
@@ -297,23 +306,37 @@ systemctl --user enable --now llama-server
 sudo loginctl enable-linger "$USER"
 ```
 
+빌드가 MTP 형제 파일을 자동으로 못 찾으면 같은 repo에서 drafter(`MTP/gemma-4-12b-it-Q8_0-MTP.gguf`)를
+받아 `--model-draft`로 넘기세요 — Unsloth MTP README를 따릅니다. draft 플래그는 `llama-server`
+버전마다 다를 수 있으니 `llama-server --help`를 확인하세요.
+
+### WSL에서 실행
+
+WSL은 TinyTalk 입장에서 Linux입니다 — Linux 바이너리와 Linux 스캐폴드(`:8080`, Gemma 4 12B GGUF)를
+받습니다. 최신 WSL2에서는 `localhost`가 distro 안의 서비스에 그대로 닿습니다. 12B QAT에는 여유
+RAM 약 10GB가 필요합니다. `?` 위젯은 zsh 전용이지만 `tt "..."`는 bash에서도 됩니다.
+
 ### TinyTalk을 로컬 서버에 연결
 
-키가 필요 없는 로컬 서버는 `tt auth`도 필요 없습니다. `base_url`만 맞춘 `openai-compat` 백엔드면
-됩니다. 설치 스크립트가 이미 하나 만들어 두므로, 서버에 맞게 고칩니다.
+키가 필요 없는 로컬 서버는 `tt auth`도 필요 없습니다. `base_url`과 `model`만 맞춘 `openai-compat`
+백엔드면 됩니다. 설치 스크립트가 OS별로 하나씩 만들어 두므로, 서버가 다른 id를 쓰면 고칩니다.
 
 ```toml
-[defaults]
-backend = "local"
-
+# macOS (oMLX)
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:8000/v1"    # llama.cpp는 8080
+base_url = "http://localhost:8000/v1"
 model = "gemma-4-26B-A4B-it-MLX-8bit"
+
+# Linux / WSL (llama.cpp)
+[backends.local]
+kind = "openai-compat"
+base_url = "http://localhost:8080/v1"
+model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
 ```
 
-모델이 보이는지 확인하고(`curl -s localhost:8000/v1/models`) 실행해 봅니다. 아래는 로컬 모델이
-간단한 날씨 원라이너를 만든 결과입니다.
+모델이 보이는지 확인하고(Linux는 `curl -s localhost:8080/v1/models`, macOS는 `:8000`) 실행해 봅니다.
+아래는 로컬 모델이 간단한 날씨 원라이너를 만든 결과입니다.
 
 ![tt — 로컬 날씨](docs/assets/weather.png)
 
