@@ -446,6 +446,19 @@ def _use_fzf() -> bool:
     return sys.stdout.isatty() and shutil.which("fzf") is not None
 
 
+def _self_invocation() -> str:
+    """The shell-quoted command the fzf preview pane uses to call back into `tt`. When argv[0]
+    is a `.py` file (`python -m tinytalk`, direct-script runs) the preview shell can't execute
+    it, so re-invoke via the interpreter; otherwise argv[0] is the installed `tt` script or the
+    frozen binary, both of which self-invoke as-is (the frozen build has no importable runner,
+    so it must NOT go through `-m`)."""
+    import shlex
+
+    if sys.argv[0].endswith(".py"):
+        return shlex.join([sys.executable, "-m", "tinytalk"])
+    return shlex.quote(sys.argv[0])
+
+
 def _fzf_pick(records) -> str | None:
     """Run the fzf picker over `records`; return the selected command verbatim, or `None` if the
     user aborted. Raises `OSError` if fzf can't be executed so the caller can fall back.
@@ -456,14 +469,13 @@ def _fzf_pick(records) -> str | None:
     stay one line. Keying on the view index (not the record `id`, which history.py documents as
     NON-unique) keeps selection and preview from cross-mapping to another record's command. The
     preview pane shells back to `tt history --preview <index>`."""
-    import shlex
     import subprocess
 
     by_index = {index: record for index, record in enumerate(records)}
     lines = "".join(
         f"{index}\t{_history_fzf_row(record)}\n" for index, record in enumerate(records)
     )
-    prog = shlex.quote(sys.argv[0])
+    prog = _self_invocation()
     proc = subprocess.run(
         [
             "fzf",
