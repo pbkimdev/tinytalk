@@ -445,14 +445,15 @@ def _use_fzf() -> bool:
 
 def _self_invocation() -> str:
     """The shell-quoted command the fzf preview pane uses to call back into `tt`. When argv[0]
-    is a `.py` file (`python -m tinytalk`, direct-script runs) the preview shell can't execute
-    it, so re-invoke via the interpreter; otherwise argv[0] is the installed `tt` script or the
-    frozen binary, both of which self-invoke as-is (the frozen build has no importable runner,
-    so it must NOT go through `-m`)."""
+    is a `.py` file (`python -m tinytalk.cli`, direct-script runs) the preview shell can't
+    execute it, so re-invoke via the interpreter — `-m tinytalk.cli`, since the package has no
+    `__main__.py`; otherwise argv[0] is the installed `tt` script or the frozen binary, both of
+    which self-invoke as-is (the frozen build has no importable runner, so it must NOT go
+    through `-m`)."""
     import shlex
 
     if sys.argv[0].endswith(".py"):
-        return shlex.join([sys.executable, "-m", "tinytalk"])
+        return shlex.join([sys.executable, "-m", "tinytalk.cli"])
     return shlex.quote(sys.argv[0])
 
 
