@@ -546,6 +546,7 @@ def test_setup_openai_compat_suggest_local_uses_platform_defaults(monkeypatch):
         io,
         prober=lambda base_url, api_key: (["qwen3:8b"], None),
         suggest_local=True,
+        setup_linux_llama=lambda _io: True,
     )
     assert draft.fields["base_url"] == auth._LINUX_LLAMA_BASE
     assert draft.fields["model"] == "qwen3:8b"
@@ -591,8 +592,8 @@ def test_no_auth_slot_configured_ignores_legacy_installer_scaffold():
     backends = {
         "local": {
             "kind": "openai-compat",
-            "base_url": "http://localhost:8080/v1",
-            "model": "unsloth/gemma-4-12b-it-GGUF:Q4_K_M",
+            "base_url": "http://localhost:11434/v1",
+            "model": "llama3.2",
         }
     }
     assert auth._no_auth_slot_configured(defaults, backends) is True
@@ -605,6 +606,7 @@ def test_no_auth_slot_configured_false_when_primary_slot_set():
 
 def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(auth.sys, "platform", "linux")
+    monkeypatch.setattr(auth, "_setup_linux_ollama_default", lambda io: True)
     monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["local-model"], None))
     config_path = tmp_path / "config.toml"
     io = ScriptedIO(
@@ -620,9 +622,6 @@ def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatc
         ]
     )
     assert auth.run_auth_wizard(config_path, io) == "primary"
-    out = capsys.readouterr().out
-    assert "llama-server" in out
-    assert "brew install llama.cpp" in out
     assert _read(config_path)["backends"]["primary"]["base_url"] == auth._LINUX_LLAMA_BASE
 
 
@@ -631,6 +630,7 @@ def test_run_auth_wizard_openai_compat_legacy_scaffold_still_suggests_local(
 ):
     """Installer-scaffolded [backends.local] must not suppress the first-time local guide."""
     monkeypatch.setattr(auth.sys, "platform", "linux")
+    monkeypatch.setattr(auth, "_setup_linux_ollama_default", lambda io: True)
     monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["local-model"], None))
     config_path = tmp_path / "config.toml"
     config_path.write_text(
@@ -641,8 +641,8 @@ posture = "local"
 
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:8080/v1"
-model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"
 """
     )
     io = ScriptedIO(
@@ -659,8 +659,7 @@ model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
         ]
     )
     assert auth.run_auth_wizard(config_path, io) == "primary"
-    out = capsys.readouterr().out
-    assert "brew install llama.cpp" in out
+    assert _read(config_path)["backends"]["primary"]["base_url"] == auth._LINUX_LLAMA_BASE
 
 
 def test_run_auth_wizard_openai_compat_existing_primary_skips_local_guide(
@@ -693,8 +692,7 @@ model = "gpt-5.4"
     )
     assert auth.run_auth_wizard(config_path, io) == "fallback"
     out = capsys.readouterr().out
-    assert "llama-server" not in out
-    assert "oMLX" not in out
+    assert "Ollama" not in out
 
 
 # --- anthropic-compat setup ----------------------------------------------------------

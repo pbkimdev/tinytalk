@@ -27,6 +27,11 @@ from pathlib import Path
 from typing import Protocol
 
 from tinytalk.config import env_language
+from tinytalk.local_llm import (
+    LINUX_LLAMA_BASE as _LINUX_LLAMA_BASE,
+    LINUX_LLAMA_MODEL as _LINUX_LLAMA_MODEL,
+    print_manual_linux_guide,
+)
 
 KIND_CHOICES = [
     ("openai-compat", "OpenAI-compatible HTTP API (OpenAI itself, Ollama, llama.cpp, ...)"),
@@ -45,14 +50,8 @@ _CONNECT_LOCAL = "local"
 _CONNECT_REMOTE = "remote"
 
 # First-time local defaults when openai-compat is chosen with no slot configured yet.
-_LINUX_LLAMA_BASE = "http://localhost:8080/v1"
-_LINUX_LLAMA_MODEL = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
 _MAC_OMLX_BASE = "http://localhost:8000/v1"
 _MAC_OMLX_MODEL = "gemma-4-26B-A4B-it-MLX-8bit"
-_LLAMA_SERVER_CMD = (
-    "llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M "
-    "--spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja"
-)
 
 
 class WizardIO(Protocol):
@@ -290,6 +289,12 @@ def _local_openai_compat_defaults() -> tuple[str, str]:
     return _LINUX_LLAMA_BASE, _LINUX_LLAMA_MODEL
 
 
+def _setup_linux_ollama_default(io: WizardIO) -> bool:
+    from tinytalk.local_llm import ensure_linux_ollama
+
+    return ensure_linux_ollama(io)
+
+
 def _print_local_llm_setup_guide() -> None:
     if sys.platform == "darwin":
         print(
@@ -299,16 +304,7 @@ def _print_local_llm_setup_guide() -> None:
             "See README — Using a local model."
         )
         return
-    print(
-        "Local model (llama.cpp): install a recent build (Gemma 4 MTP needs 2026-06-07+), "
-        "then start a server:\n"
-        "  brew install llama.cpp\n"
-        "  # or: git clone https://github.com/ggml-org/llama.cpp && cmake -B build && "
-        "cmake --build build -j\n"
-        f"  {_LLAMA_SERVER_CMD}\n"
-        "Then confirm: curl -s localhost:8080/v1/models\n"
-        "The MTP assistant drafter is configured in llama-server, not in TinyTalk config."
-    )
+    print_manual_linux_guide()
 
 
 def _setup_kind(kind: str, io: WizardIO, *, suggest_local: bool = False) -> BackendDraft | None:
@@ -318,23 +314,33 @@ def _setup_kind(kind: str, io: WizardIO, *, suggest_local: bool = False) -> Back
 
 
 def _setup_openai_compat(
-    io: WizardIO, *, prober=None, suggest_local: bool = False
+    io: WizardIO,
+    *,
+    prober=None,
+    suggest_local: bool = False,
+    setup_linux_llama=None,
 ) -> BackendDraft | None:
     probe = prober or _probe_openai_compat
+    setup_linux = (
+        setup_linux_llama if setup_linux_llama is not None else _setup_linux_ollama_default
+    )
     local_setup = False
     if suggest_local:
         connect = io.select(
             "Connect to:",
             [
-                (_CONNECT_LOCAL, "Local model on this machine (llama.cpp / oMLX)"),
-                (_CONNECT_REMOTE, "Other OpenAI-compatible API (Ollama, cloud, ...)"),
+                (_CONNECT_LOCAL, "Local model on this machine (Ollama / oMLX)"),
+                (_CONNECT_REMOTE, "Other OpenAI-compatible API (cloud, llama.cpp, ...)"),
             ],
         )
         if connect is None:
             return None
         if connect == _CONNECT_LOCAL:
             local_setup = True
-            _print_local_llm_setup_guide()
+            if sys.platform == "darwin":
+                _print_local_llm_setup_guide()
+            elif not setup_linux(io):
+                return None
             base_url_default, _ = _local_openai_compat_defaults()
         else:
             base_url_default = "http://localhost:11434/v1"
@@ -354,8 +360,8 @@ def _setup_openai_compat(
         print(f"tt auth: credential test against {base_url} failed: {err}")
         if local_setup:
             print(
-                "Start your local server in another terminal (see the install steps above), "
-                "then retry."
+                "Start Ollama if needed (`sudo systemctl start ollama`), pull your model "
+                "(`ollama pull`), then retry."
             )
         if not _retry(io):
             return None

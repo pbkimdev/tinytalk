@@ -69,7 +69,7 @@ shell config without asking. In one pass it:
 
 Run `tt auth` to configure your first backend — cloud API or a local OpenAI-compatible
 server. On a fresh install with no primary or fallback yet, choosing **openai-compat**
-walks you through OS-specific local defaults (oMLX on macOS, llama.cpp on Linux/WSL).
+walks you through OS-specific local defaults (Ollama on Linux/WSL, oMLX on macOS).
 
 ![install.sh](docs/assets/install.png)
 
@@ -276,7 +276,7 @@ chmod +x "$dir/claude/<version>/claude"
 
 No cloud, no API key, nothing leaving your machine. TinyTalk talks to any local server
 that speaks the OpenAI-compatible HTTP API, which is to say: almost all of them. The two
-we'll set up are **oMLX** on macOS (built on Apple's MLX) and **llama.cpp** on Linux —
+we'll set up are **oMLX** on macOS (built on Apple's MLX) and **Ollama** on Linux —
 pick whichever matches your box.
 
 ### Choosing a model
@@ -296,8 +296,8 @@ a frontier model. A few things to weigh:
 
 Our running example is **Google's Gemma 4** family — the models used in the
 [benchmark](#benchmark). On macOS we default to the **26B-A4B** MoE build (fast, ~4B active
-per token, ~15 GB quantized). On Linux and WSL we default to **12B QAT GGUF** via llama.cpp
-(~7 GB, fits tighter RAM) with an MTP assistant drafter for speed.
+per token, ~15 GB quantized). On Linux and WSL we default to **Ollama** with `llama3.2`
+(easy install, runs as a background service).
 
 ### macOS — oMLX
 
@@ -336,76 +336,35 @@ brew services info omlx      # check status
 By default the service serves from `~/.omlx/models` on port `8000`; set `OMLX_MODEL_DIR`
 and `OMLX_PORT` (or run `omlx serve --model-dir …` once to persist settings) to change that.
 
-### Linux — llama.cpp
+### Linux — Ollama
 
-[llama.cpp](https://github.com/ggml-org/llama.cpp) is the C/C++ engine under much of the
-local-LLM world. It loads GGUF weights and its `llama-server` speaks the OpenAI API. The
-quickest install is Homebrew (it works on Linux too); otherwise build from source. You need a
-build from **2026-06-07 or later** for Gemma 4 MTP (`--spec-type draft-mtp`).
-
-```sh
-brew install llama.cpp
-# or from source:
-#   git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
-#   cmake -B build && cmake --build build -j --config Release
-```
-
-The default Linux tier is **Gemma 4 12B QAT GGUF** with an MTP assistant drafter. Unsloth
-ships both in [`unsloth/gemma-4-12b-it-GGUF`](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF);
-recent `llama-server` builds auto-discover the sibling `mtp-gemma-4-12b-it.gguf` when you
-pass `-hf` (see their [MTP guide](https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/blob/main/MTP/README.md)):
+[Ollama](https://ollama.com) is the easiest path on Linux and WSL: one install script, a
+background service, and `ollama pull` for models. TinyTalk talks to its OpenAI-compatible
+API at `http://localhost:11434/v1`.
 
 ```sh
-llama-server \
-  -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M \
-  --spec-type draft-mtp --spec-draft-n-max 4 \
-  --port 8080 -c 8192 --jinja
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.2
+curl -s localhost:11434/v1/models
 ```
 
-The OpenAI-compatible endpoint is then at `http://localhost:8080/v1`. The `model` id TinyTalk
-needs is the same `-hf` string (`unsloth/gemma-4-12b-it-GGUF:Q4_K_M`) — confirm with
-`curl -s localhost:8080/v1/models`. The assistant drafter is **server-side only**; TinyTalk's
-config names the main model, exactly like the bench roster in `docs/bench/bench.toml`.
+The install script registers a **systemd service** (`ollama.service`) — it starts on boot
+after `sudo systemctl enable --now ollama`.
 
-**Run it as a daemon** with a systemd *user* service. Create
-`~/.config/systemd/user/llama-server.service`:
-
-```ini
-[Unit]
-Description=llama.cpp server (Gemma 4 12B + MTP)
-After=network-online.target
-
-[Service]
-ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M --spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-Then enable it — and `enable-linger` so it starts at boot without you logging in:
-
-```sh
-systemctl --user daemon-reload
-systemctl --user enable --now llama-server
-sudo loginctl enable-linger "$USER"
-```
-
-If your build is too old to auto-discover the MTP sibling, download the drafter explicitly
-(`MTP/gemma-4-12b-it-Q8_0-MTP.gguf` from the same repo) and pass `--model-draft` — see the
-Unsloth MTP README. Draft flags vary by `llama-server` version; check `llama-server --help`.
+`tt auth` can run the install, start the service, and pull the default model for you when
+you pick **Local model on this machine (Ollama / oMLX)** on a fresh setup.
 
 ### Running under WSL
 
-WSL is Linux to TinyTalk — you get the Linux binary. `localhost` reaches services inside
-your distro on modern WSL2. You need ~10 GB free RAM for the 12B QAT build. The `?`
-widget is zsh-only, but `tt "..."` works in bash out of the box.
+WSL is Linux to TinyTalk — you get the Linux binary. `localhost` reaches Ollama inside
+your distro on modern WSL2. The `?` widget is zsh-only, but `tt "..."` works in bash out
+of the box.
 
 ### Point TinyTalk at it
 
 Run `tt auth`, choose **OpenAI-compatible HTTP API**, and follow the prompts. On a fresh
-install with no backend configured yet, the wizard prints OS-specific setup steps and
-pre-fills the local `base_url` (oMLX `:8000` on macOS, llama.cpp `:8080` on Linux/WSL).
+install with no backend configured yet, the wizard can install Ollama (Linux/WSL) or guide
+you through oMLX (macOS), and pre-fills the local `base_url`.
 A keyless local server needs no API key — leave that blank.
 
 You can also hand-write an `openai-compat` backend:
@@ -417,14 +376,14 @@ kind = "openai-compat"
 base_url = "http://localhost:8000/v1"
 model = "gemma-4-26B-A4B-it-MLX-8bit"
 
-# Linux / WSL (llama.cpp)
+# Linux / WSL (Ollama)
 [backends.local]
 kind = "openai-compat"
-base_url = "http://localhost:8080/v1"
-model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
+base_url = "http://localhost:11434/v1"
+model = "llama3.2"
 ```
 
-Confirm the model is visible (`curl -s localhost:8080/v1/models` on Linux, `:8000` on macOS),
+Confirm the model is visible (`curl -s localhost:11434/v1/models` on Linux, `:8000` on macOS),
 then take it for a spin. Here's the local model writing a small weather one-liner:
 
 ![tt — local weather](docs/assets/weather.png)
