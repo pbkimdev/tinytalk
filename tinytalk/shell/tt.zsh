@@ -315,9 +315,11 @@ _tt_accept_line() {
     local pid=$!
     local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     local -i i=1
-    region_highlight+=("0 $#BUFFER fg=8")
+    region_highlight+=("0 $#BUFFER fg=8 memo=ttdim")
     {
-      while [[ ! -e "$tmp.rc" ]]; do
+      # -s, not -e: the redirection creates the rc file before the status byte
+      # lands; an empty read would make a failed run look like success.
+      while [[ ! -s "$tmp.rc" ]]; do
         (( _TT_WAVE_PHASE++ ))
         PREDISPLAY="$_TT_BADGE ${frames[i]} "
         POSTDISPLAY=""
@@ -332,7 +334,7 @@ _tt_accept_line() {
       rm -f "$tmp" "$tmp.rc"
       PREDISPLAY="$_TT_BADGE "
       POSTDISPLAY=""
-      region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
+      region_highlight=("${(@)region_highlight:#*memo=ttdim*}")
     }
     local tt_command tt_danger tt_explanation tt_error_kind tt_error_message tt_backend
     if [[ $rc -ne 0 ]]; then
