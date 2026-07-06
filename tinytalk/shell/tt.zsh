@@ -12,6 +12,9 @@ typeset -g _TT_AI_MODE=0
 typeset -gi _TT_EXPL_ACTIVE=0
 typeset -g _TT_SAVED_HISTCHARS=""
 typeset -g _TT_BADGE="TinyTalk"
+# Banner prefixed to a destructive command (generate and recall paths both use it): following
+# the instruction literally — delete through the colon and space — leaves the runnable command.
+typeset -g _TT_DESTRUCTIVE_PREFIX="# DESTRUCTIVE — review, then delete everything up to and including this colon and space: "
 typeset -g _TT_WAVE_FD=""
 typeset -gi _TT_WAVE_PHASE=0
 # 256-color spectrum for the badge, palindromic so the cycle has no seam.
@@ -20,6 +23,7 @@ typeset -ga _TT_SPECTRA=(51 45 39 33 63 99 135 171 207 213 207 171 135 99 63 39 
 typeset -gi _TT_RECALL_IDX=0
 typeset -g _TT_RECALL_SAVED_BUFFER=""
 typeset -ga _TT_RECALL_ITEMS=()
+typeset -ga _TT_RECALL_DANGERS=()  # parallel to _TT_RECALL_ITEMS: safe|caution|destructive
 typeset -g _TT_RECALL_STATE="idle"
 typeset -g _TT_RECALL_FD=""
 typeset -g _TT_RECALL_DIR=""
@@ -33,11 +37,12 @@ typeset -ga _TT_RECALL_SAVED_BINDINGS=()
 # One region_highlight span per badge letter (P = PREDISPLAY offsets), colors
 # shifted by the phase so the spectrum travels through the text.
 _tt_wave_paint() {
+  emulate -L zsh
   local -i i idx n=$#_TT_SPECTRA
-  region_highlight=("${(@)region_highlight:#P<0-7> <1-8> *}")  # the 8 letter spans below
+  region_highlight=("${(@)region_highlight:#*memo=ttbadge*}")
   for (( i = 0; i < $#_TT_BADGE; i++ )); do
     (( idx = ((i - _TT_WAVE_PHASE) % n + n) % n + 1 ))
-    region_highlight+=("P$i $((i + 1)) fg=${_TT_SPECTRA[idx]},bold")
+    region_highlight+=("P$i $((i + 1)) fg=${_TT_SPECTRA[idx]},bold memo=ttbadge")
   done
 }
 
@@ -45,6 +50,7 @@ _tt_wave_paint() {
 # widget handler advances the wave on each. The ticker dies on SIGPIPE as
 # soon as _tt_wave_stop closes the fd — no pid to track.
 _tt_wave_start() {
+  emulate -L zsh
   [[ -n "$_TT_WAVE_FD" ]] && return 0
   exec {_TT_WAVE_FD}< <(
     typeset -i have_zselect=0
@@ -57,6 +63,7 @@ _tt_wave_start() {
 }
 
 _tt_wave_stop() {
+  emulate -L zsh
   [[ -n "$_TT_WAVE_FD" ]] || return 0
   zle -F "$_TT_WAVE_FD" 2>/dev/null
   exec {_TT_WAVE_FD}<&-
@@ -65,6 +72,7 @@ _tt_wave_stop() {
 }
 
 _tt_wave_tick() {
+  emulate -L zsh
   local _junk
   IFS= read -r -u "$_TT_WAVE_FD" _junk || { _tt_wave_stop; return 0; }
   # Drain frames that queued while a widget (e.g. the thinking spinner) ran,
@@ -77,6 +85,7 @@ _tt_wave_tick() {
 zle -N _tt_wave_tick
 
 _tt_recall_note() {
+  emulate -L zsh
   case "$_TT_RECALL_STATE" in
     loading) zle -M "tt: loading history…" ;;
     empty)   zle -M "tt: no history yet" ;;
@@ -85,7 +94,8 @@ _tt_recall_note() {
 }
 
 _tt_recall_start_load() {
-  setopt localoptions nomonitor nonotify
+  emulate -L zsh
+  setopt nomonitor nonotify
   _TT_RECALL_DIR="$(mktemp -d 2>/dev/null)"
   if [[ -z "$_TT_RECALL_DIR" ]]; then
     _TT_RECALL_STATE="error"
@@ -103,14 +113,21 @@ _tt_recall_start_load() {
 }
 
 _tt_recall_ready() {
+  emulate -L zsh
   zle -F "$_TT_RECALL_FD" 2>/dev/null
   exec {_TT_RECALL_FD}<&-
   _TT_RECALL_FD=""
   local dir="$_TT_RECALL_DIR"
   local rc="$(<"$dir/rc")"
   _TT_RECALL_ITEMS=()
+  _TT_RECALL_DANGERS=()
   local item
-  while IFS= read -r -d '' item; do _TT_RECALL_ITEMS+=("$item"); done <"$dir/items"
+  # Each record is `<danger>\t<command>`; split on the FIRST tab only — the command
+  # itself may contain tabs and must land in the buffer verbatim.
+  while IFS= read -r -d '' item; do
+    _TT_RECALL_DANGERS+=("${item%%$'\t'*}")
+    _TT_RECALL_ITEMS+=("${item#*$'\t'}")
+  done <"$dir/items"
   rm -rf "$dir"
   _TT_RECALL_DIR=""
   (( _TT_AI_MODE )) || { _TT_RECALL_STATE="idle"; return 0; }
@@ -133,6 +150,7 @@ _tt_recall_ready() {
 zle -N _tt_recall_ready
 
 _tt_recall_cancel_load() {
+  emulate -L zsh
   if [[ -n "$_TT_RECALL_FD" ]]; then
     zle -F "$_TT_RECALL_FD" 2>/dev/null
     exec {_TT_RECALL_FD}<&-
@@ -144,6 +162,7 @@ _tt_recall_cancel_load() {
 }
 
 _tt_recall_up() {
+  emulate -L zsh
   case "$_TT_RECALL_STATE" in
     ready)
       (( $#_TT_RECALL_ITEMS )) || return 0
@@ -160,6 +179,7 @@ zle -N _tt_recall_up
 
 # ↓: walk toward newer commands; stepping past the newest restores the stashed prompt.
 _tt_recall_down() {
+  emulate -L zsh
   [[ "$_TT_RECALL_STATE" == ready ]] || return 0
   (( _TT_RECALL_IDX == 0 )) && return 0
   (( _TT_RECALL_IDX-- ))
@@ -175,6 +195,7 @@ zle -N _tt_recall_down
 # Take over the arrow keys for recall, remembering each key's default widget so leaving
 # AI mode can put it back exactly (unbound keys restore to unbound).
 _tt_recall_bind() {
+  emulate -L zsh
   (( $#_TT_RECALL_SAVED_BINDINGS )) && return 0  # already active — don't clobber the saved defaults
   local -i i
   for (( i = 1; i <= $#_TT_RECALL_KEYS; i++ )); do
@@ -185,6 +206,7 @@ _tt_recall_bind() {
 }
 
 _tt_recall_unbind() {
+  emulate -L zsh
   (( $#_TT_RECALL_SAVED_BINDINGS )) || return 0
   local -i i
   for (( i = 1; i <= $#_TT_RECALL_KEYS; i++ )); do
@@ -199,6 +221,7 @@ _tt_recall_unbind() {
 }
 
 _tt_ai_on() {
+  emulate -L zsh
   _TT_AI_MODE=1
   _TT_RECALL_STATE="idle"   # re-query the porcelain on this session's first ↑ (freshness)
   _TT_RECALL_IDX=0
@@ -209,6 +232,7 @@ _tt_ai_on() {
 }
 
 _tt_ai_off() {
+  emulate -L zsh
   _TT_AI_MODE=0
   _TT_RECALL_IDX=0
   _tt_recall_cancel_load
@@ -216,12 +240,13 @@ _tt_ai_off() {
   _tt_wave_stop
   PREDISPLAY=""
   POSTDISPLAY=""
-  region_highlight=("${(@)region_highlight:#P<0-7> <1-8> *}")
+  region_highlight=("${(@)region_highlight:#*memo=ttbadge*}")
 }
 
 # `?` at the start of an empty line toggles AI mode; anywhere else it is a
 # literal `?`.
 _tt_question() {
+  emulate -L zsh
   if [[ -z "$BUFFER" ]]; then
     if (( _TT_AI_MODE )); then _tt_ai_off; else _tt_ai_on; fi
   else
@@ -232,6 +257,7 @@ zle -N _tt_question
 bindkey '?' _tt_question
 
 _tt_backspace() {
+  emulate -L zsh
   if (( _TT_AI_MODE )) && [[ -z "$BUFFER" ]]; then
     _tt_ai_off
   else
@@ -251,11 +277,13 @@ bindkey '^H' _tt_backspace
 # edits and re-asserts after syntax highlighters; `clear` drops it before the line
 # is accepted so it never freezes into scrollback.
 _tt_expl_paint() {
+  emulate -L zsh
   region_highlight=("${(@)region_highlight:#*memo=ttexpl*}")
   local -i estart=$(( $#PREDISPLAY + $#BUFFER ))
   region_highlight+=("P$estart $(( estart + $#POSTDISPLAY )) fg=8 memo=ttexpl")
 }
 _tt_expl_clear() {
+  emulate -L zsh
   (( _TT_EXPL_ACTIVE )) || return 0
   _TT_EXPL_ACTIVE=0
   POSTDISPLAY=""
@@ -263,14 +291,27 @@ _tt_expl_clear() {
 }
 
 _tt_accept_line() {
+  emulate -L zsh
   _tt_expl_clear
-  if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )); then
+  if (( _TT_AI_MODE && _TT_RECALL_IDX > 0 )) \
+      && [[ "$BUFFER" == "$_TT_RECALL_ITEMS[_TT_RECALL_IDX]" ]]; then
     # A past command was walked into BUFFER verbatim — the user reviewed it while
     # stepping through the recall, so Enter runs it directly, not as a new NL prompt.
+    # If BUFFER diverged from the selected item, the user edited after recalling
+    # (e.g. cleared the line and typed fresh English) — fall through to generate.
     # Neutralize any `!` exactly like the generated-command path (#62); line-init
     # restores histchars at the next prompt.
     [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
     histchars=$'\x01'"${histchars[2,3]}"
+    if [[ "$_TT_RECALL_DANGERS[_TT_RECALL_IDX]" == "destructive" ]]; then
+      # History stores every *suggestion* — including destructive ones the user never
+      # ran — so a recalled destructive command gets the same commented-out review
+      # gate as a freshly generated one instead of executing on a single Enter.
+      BUFFER="$_TT_DESTRUCTIVE_PREFIX$BUFFER"
+      CURSOR=$#BUFFER
+      _tt_ai_off
+      return 0
+    fi
     _tt_ai_off
     zle .accept-line
     return
@@ -281,7 +322,7 @@ _tt_accept_line() {
     # `zle -M` message can force a scroll that leaves zle's redraw anchor stale by
     # one row, so the replaced buffer overdraws the previous line. `zle -M` is only
     # safe at the very end of the widget, as part of one final redisplay.
-    setopt localoptions nomonitor nonotify
+    setopt nomonitor nonotify
     local -i have_zselect=0
     zmodload zsh/zselect 2>/dev/null && have_zselect=1
     local tmp="$(mktemp)" out rc=1
@@ -293,9 +334,11 @@ _tt_accept_line() {
     local pid=$!
     local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
     local -i i=1
-    region_highlight+=("0 $#BUFFER fg=8")
+    region_highlight+=("0 $#BUFFER fg=8 memo=ttdim")
     {
-      while [[ ! -e "$tmp.rc" ]]; do
+      # -s, not -e: the redirection creates the rc file before the status byte
+      # lands; an empty read would make a failed run look like success.
+      while [[ ! -s "$tmp.rc" ]]; do
         (( _TT_WAVE_PHASE++ ))
         PREDISPLAY="$_TT_BADGE ${frames[i]} "
         POSTDISPLAY=""
@@ -310,7 +353,7 @@ _tt_accept_line() {
       rm -f "$tmp" "$tmp.rc"
       PREDISPLAY="$_TT_BADGE "
       POSTDISPLAY=""
-      region_highlight=("${(@)region_highlight:#0 $#BUFFER *}")
+      region_highlight=("${(@)region_highlight:#*memo=ttdim*}")
     }
     local tt_command tt_danger tt_explanation tt_error_kind tt_error_message tt_backend
     if [[ $rc -ne 0 ]]; then
@@ -342,7 +385,7 @@ _tt_accept_line() {
     [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
     histchars=$'\x01'"${histchars[2,3]}"
     if [[ "$tt_danger" == "destructive" ]]; then
-      BUFFER="# DESTRUCTIVE — review, then remove the #: $tt_command"
+      BUFFER="$_TT_DESTRUCTIVE_PREFIX$tt_command"
     else
       BUFFER="$tt_command"
     fi
@@ -359,6 +402,7 @@ zle -N accept-line _tt_accept_line
 # A fresh prompt never starts in AI mode (covers Ctrl-C mid-request).
 autoload -Uz add-zle-hook-widget
 _tt_line_init() {
+  emulate -L zsh
   _tt_expl_clear
   (( _TT_AI_MODE )) && _tt_ai_off
   if [[ -n "$_TT_SAVED_HISTCHARS" ]]; then
@@ -374,6 +418,7 @@ add-zle-hook-widget line-init _tt_line_init
 # ~100ms tick — the wave blinks on each keystroke (#84). This hook runs after
 # the widget and before redisplay, so repainting here always wins.
 _tt_line_pre_redraw() {
+  emulate -L zsh
   (( _TT_AI_MODE )) && _tt_wave_paint
   (( _TT_EXPL_ACTIVE )) && _tt_expl_paint
   return 0

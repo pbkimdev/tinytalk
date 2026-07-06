@@ -9,6 +9,7 @@ feeds the widget deduped recent commands NUL-delimited.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 
@@ -345,11 +346,17 @@ def test_porcelain_empty_store_prints_nothing(state_dir, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
+def test_porcelain_emits_deduped_danger_and_command_nul_delimited(state_dir, capsys):
     store = HistoryStore()
     store.append(HistoryRecord(command="git status", ts="2026-07-04T10:00:00-07:00"))
     store.append(HistoryRecord(command="", ts="2026-07-04T10:01:00-07:00"))  # failed run
-    store.append(HistoryRecord(command="ls -la", ts="2026-07-04T10:02:00-07:00"))
+    store.append(
+        HistoryRecord(
+            command="rm -f 'a\tb'",  # a tab INSIDE the command rides verbatim after the first tab
+            danger_final="destructive",
+            ts="2026-07-04T10:02:00-07:00",
+        )
+    )
     store.append(
         HistoryRecord(command="GIT   status", ts="2026-07-04T10:03:00-07:00")
     )  # newest dup
@@ -357,9 +364,10 @@ def test_porcelain_emits_deduped_commands_nul_delimited(state_dir, capsys):
     assert main(["history", "--porcelain"]) == 0
     out = capsys.readouterr().out
     assert "\0" in out
-    commands = [c for c in out.split("\0") if c]
+    entries = [e for e in out.split("\0") if e]
     # newest-first, exact-normalized dedup keeps the newest "GIT   status", empty skipped.
-    assert commands == ["GIT   status", "ls -la"]
+    # Each entry is `<danger>\t<command>`; no classifier verdict over-warns as caution.
+    assert entries == ["caution\tGIT   status", "destructive\trm -f 'a\tb'"]
 
 
 def test_history_plain_empty_store_prints_nothing(state_dir, capsys, monkeypatch):
@@ -440,6 +448,32 @@ def test_use_fzf_requires_a_terminal_and_installed_fzf(monkeypatch):
     monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/fzf")
     assert cli._use_fzf() is False  # piped/redirected output → plaintext fallback
+
+
+def test_self_invocation_py_argv0_reinvokes_via_interpreter(monkeypatch):
+    # `python -m tinytalk.cli` puts cli.py in argv[0] — not executable by the preview shell,
+    # so the preview command must go through the interpreter instead.
+    monkeypatch.setattr(sys, "argv", ["/site-packages/tinytalk/cli.py"])
+    assert cli._self_invocation() == shlex.join([sys.executable, "-m", "tinytalk.cli"])
+
+
+def test_self_invocation_module_path_is_executable():
+    # Proves `-m tinytalk.cli` is a real runnable entry point (the package has no __main__.py,
+    # so `-m tinytalk` would fail) — the preview command must actually run, not just look right.
+    proc = subprocess.run(
+        [sys.executable, "-m", "tinytalk.cli", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.strip()
+
+
+def test_self_invocation_installed_script_uses_argv0(monkeypatch):
+    # The installed `tt` script (and the frozen binary) self-invoke directly; a space in the
+    # path proves it stays shell-quoted.
+    monkeypatch.setattr(sys, "argv", ["/opt/my tools/bin/tt"])
+    assert cli._self_invocation() == shlex.quote("/opt/my tools/bin/tt")
 
 
 def test_history_fzf_picker_prints_selected_command_verbatim(state_dir, monkeypatch, capsys):

@@ -52,15 +52,17 @@ Copy the scenario section of `drive.zsh` and adapt the keystrokes/checks.
 - `scripts/drive.zsh` — tmux driver: spawns the shell, stubs PATH, sends keystrokes,
   captures screens, asserts nothing was overdrawn.
 - `scripts/recall.zsh` — tmux driver for the ↑/↓ recall widget (#D1): asserts the arrows
-  walk the stubbed history into BUFFER and that leaving AI mode restores the default arrows.
+  walk the stubbed history into BUFFER, that leaving AI mode restores the default arrows,
+  and that Enter on a recalled destructive item leaves the commented banner instead of running.
 - `scripts/recall-async.zsh` — tmux driver for the async porcelain load (#D1): asserts a
   slow `tt` shows `loading history…` and auto-fills without freezing, and that a failing /
   empty store surface the `history unavailable` / `no history yet` notes.
 - `scripts/tt-stub` — fake `tt`: emits canned `tt_command=…` / `tt_danger=…` /
   `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency,
-  and answers `history --porcelain` with a canned NUL-delimited newest-first command list
-  (delay it with `TT_HISTORY_DELAY`, fail it with `TT_HISTORY_FAIL`, empty it with
-  `TT_HISTORY_EMPTY` to drive the recall widget's async load / error / empty paths).
+  and answers `history --porcelain` with a canned NUL-delimited newest-first list of
+  `<danger>\t<command>` records (delay it with `TT_HISTORY_DELAY`, fail it with
+  `TT_HISTORY_FAIL`, empty it with `TT_HISTORY_EMPTY`, prepend a destructive record with
+  `TT_HISTORY_DESTRUCTIVE=<command>` to drive the recall widget's async / error / danger paths).
 
 ## The strategy (reuse these rules when writing new scenarios)
 
