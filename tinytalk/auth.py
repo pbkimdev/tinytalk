@@ -41,6 +41,8 @@ _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _CLAUDE_CURATED_MODELS = ("claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5")
 _CUSTOM_MODEL = "__custom__"
 _NO_EFFORT = "__none__"
+_CONNECT_LOCAL = "local"
+_CONNECT_REMOTE = "remote"
 
 # First-time local defaults when openai-compat is chosen with no slot configured yet.
 _LINUX_LLAMA_BASE = "http://localhost:8080/v1"
@@ -272,16 +274,14 @@ def _retry(io: WizardIO) -> bool:
 
 
 def _no_auth_slot_configured(defaults, backends) -> bool:
-    """True when neither primary nor fallback has a backend table yet."""
-    if not isinstance(defaults, dict):
-        defaults = {}
+    """True when the auth wizard's primary/fallback slots are still empty.
+
+    Legacy installer scaffolds (e.g. ``[backends.local]``) do not count — only the
+    wizard slots ``primary`` and ``fallback`` block the first-time local guide.
+    """
     if not isinstance(backends, dict):
         backends = {}
-    primary = defaults.get("backend")
-    has_primary = bool(primary and primary in backends)
-    fallback = defaults.get("escalation_backend")
-    has_fallback = bool(fallback and fallback in backends) or "fallback" in backends
-    return not has_primary and not has_fallback
+    return "primary" not in backends and "fallback" not in backends
 
 
 def _local_openai_compat_defaults() -> tuple[str, str]:
@@ -294,12 +294,17 @@ def _print_local_llm_setup_guide() -> None:
     if sys.platform == "darwin":
         print(
             "Local model (oMLX): install omlx, download a Gemma 4 MLX build, then run:\n"
+            "  brew tap jundot/omlx https://github.com/jundot/omlx && brew install omlx\n"
             "  omlx serve --model-dir ~/models\n"
             "See README — Using a local model."
         )
         return
     print(
-        "Local model (llama.cpp): needs a recent build with Gemma 4 MTP. Start a server:\n"
+        "Local model (llama.cpp): install a recent build (Gemma 4 MTP needs 2026-06-07+), "
+        "then start a server:\n"
+        "  brew install llama.cpp\n"
+        "  # or: git clone https://github.com/ggml-org/llama.cpp && cmake -B build && "
+        "cmake --build build -j\n"
         f"  {_LLAMA_SERVER_CMD}\n"
         "Then confirm: curl -s localhost:8080/v1/models\n"
         "The MTP assistant drafter is configured in llama-server, not in TinyTalk config."
@@ -316,9 +321,23 @@ def _setup_openai_compat(
     io: WizardIO, *, prober=None, suggest_local: bool = False
 ) -> BackendDraft | None:
     probe = prober or _probe_openai_compat
+    local_setup = False
     if suggest_local:
-        _print_local_llm_setup_guide()
-        base_url_default, _ = _local_openai_compat_defaults()
+        connect = io.select(
+            "Connect to:",
+            [
+                (_CONNECT_LOCAL, "Local model on this machine (llama.cpp / oMLX)"),
+                (_CONNECT_REMOTE, "Other OpenAI-compatible API (Ollama, cloud, ...)"),
+            ],
+        )
+        if connect is None:
+            return None
+        if connect == _CONNECT_LOCAL:
+            local_setup = True
+            _print_local_llm_setup_guide()
+            base_url_default, _ = _local_openai_compat_defaults()
+        else:
+            base_url_default = "http://localhost:11434/v1"
     else:
         base_url_default = "http://localhost:11434/v1"
     while True:
@@ -333,6 +352,11 @@ def _setup_openai_compat(
         if err is None:
             break
         print(f"tt auth: credential test against {base_url} failed: {err}")
+        if local_setup:
+            print(
+                "Start your local server in another terminal (see the install steps above), "
+                "then retry."
+            )
         if not _retry(io):
             return None
         base_url_default = base_url

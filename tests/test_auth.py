@@ -541,7 +541,7 @@ def test_setup_openai_compat_probe_failure_abort():
 
 def test_setup_openai_compat_suggest_local_uses_platform_defaults(monkeypatch):
     monkeypatch.setattr(auth.sys, "platform", "linux")
-    io = ScriptedIO([auth._LINUX_LLAMA_BASE, "", "qwen3:8b", auth._NO_EFFORT])
+    io = ScriptedIO([auth._CONNECT_LOCAL, auth._LINUX_LLAMA_BASE, "", "qwen3:8b", auth._NO_EFFORT])
     draft = auth._setup_openai_compat(
         io,
         prober=lambda base_url, api_key: (["qwen3:8b"], None),
@@ -553,7 +553,7 @@ def test_setup_openai_compat_suggest_local_uses_platform_defaults(monkeypatch):
 
 def test_setup_openai_compat_suggest_local_macos_defaults(monkeypatch):
     monkeypatch.setattr(auth.sys, "platform", "darwin")
-    io = ScriptedIO([auth._MAC_OMLX_BASE, "", "gemma", auth._NO_EFFORT])
+    io = ScriptedIO([auth._CONNECT_LOCAL, auth._MAC_OMLX_BASE, "", "gemma", auth._NO_EFFORT])
     draft = auth._setup_openai_compat(
         io,
         prober=lambda base_url, api_key: (["gemma"], None),
@@ -570,6 +570,39 @@ def test_setup_openai_compat_without_suggest_local_defaults_to_ollama():
     assert draft.fields["base_url"] == "http://localhost:11434/v1"
 
 
+def test_setup_openai_compat_suggest_local_remote_picks_ollama():
+    io = ScriptedIO(
+        [
+            auth._CONNECT_REMOTE,
+            "http://localhost:11434/v1",
+            "",
+            "qwen3:8b",
+            auth._NO_EFFORT,
+        ]
+    )
+    draft = auth._setup_openai_compat(
+        io, prober=lambda base_url, api_key: (["qwen3:8b"], None), suggest_local=True
+    )
+    assert draft.fields["base_url"] == "http://localhost:11434/v1"
+
+
+def test_no_auth_slot_configured_ignores_legacy_installer_scaffold():
+    defaults = {"backend": "local", "posture": "local"}
+    backends = {
+        "local": {
+            "kind": "openai-compat",
+            "base_url": "http://localhost:8080/v1",
+            "model": "unsloth/gemma-4-12b-it-GGUF:Q4_K_M",
+        }
+    }
+    assert auth._no_auth_slot_configured(defaults, backends) is True
+
+
+def test_no_auth_slot_configured_false_when_primary_slot_set():
+    backends = {"primary": {"kind": "openai-compat", "base_url": "https://api.openai.com/v1"}}
+    assert auth._no_auth_slot_configured({}, backends) is False
+
+
 def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(auth.sys, "platform", "linux")
     monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["local-model"], None))
@@ -577,6 +610,7 @@ def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatc
     io = ScriptedIO(
         [
             "openai-compat",
+            auth._CONNECT_LOCAL,
             auth._LINUX_LLAMA_BASE,
             "",
             "local-model",
@@ -588,7 +622,45 @@ def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatc
     assert auth.run_auth_wizard(config_path, io) == "primary"
     out = capsys.readouterr().out
     assert "llama-server" in out
+    assert "brew install llama.cpp" in out
     assert _read(config_path)["backends"]["primary"]["base_url"] == auth._LINUX_LLAMA_BASE
+
+
+def test_run_auth_wizard_openai_compat_legacy_scaffold_still_suggests_local(
+    tmp_path, monkeypatch, capsys
+):
+    """Installer-scaffolded [backends.local] must not suppress the first-time local guide."""
+    monkeypatch.setattr(auth.sys, "platform", "linux")
+    monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["local-model"], None))
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """\
+[defaults]
+backend = "local"
+posture = "local"
+
+[backends.local]
+kind = "openai-compat"
+base_url = "http://localhost:8080/v1"
+model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
+"""
+    )
+    io = ScriptedIO(
+        [
+            "primary",
+            "openai-compat",
+            auth._CONNECT_LOCAL,
+            auth._LINUX_LLAMA_BASE,
+            "",
+            "local-model",
+            auth._NO_EFFORT,
+            "en",
+            True,
+        ]
+    )
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    out = capsys.readouterr().out
+    assert "brew install llama.cpp" in out
 
 
 def test_run_auth_wizard_openai_compat_existing_primary_skips_local_guide(
@@ -930,6 +1002,7 @@ def test_secret_stored_via_keyring_and_referenced_by_account(tmp_path, monkeypat
     io = ScriptedIO(
         [
             "openai-compat",
+            auth._CONNECT_REMOTE,
             "https://api.openai.com/v1",
             "sk-real",
             "gpt-5.4",
@@ -958,6 +1031,7 @@ def test_secret_not_stored_when_confirm_declined(tmp_path, monkeypatch):
     io = ScriptedIO(
         [
             "openai-compat",
+            auth._CONNECT_REMOTE,
             "https://api.openai.com/v1",
             "sk-real",
             "gpt-5.4",
