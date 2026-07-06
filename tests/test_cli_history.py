@@ -9,6 +9,7 @@ feeds the widget deduped recent commands NUL-delimited.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 
@@ -440,6 +441,20 @@ def test_use_fzf_requires_a_terminal_and_installed_fzf(monkeypatch):
     monkeypatch.setattr(sys, "stdout", _FakeStdout(False))
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/fzf")
     assert cli._use_fzf() is False  # piped/redirected output → plaintext fallback
+
+
+def test_self_invocation_py_argv0_reinvokes_via_interpreter(monkeypatch):
+    # `python -m tinytalk` puts __main__.py in argv[0] — not executable by the preview shell,
+    # so the preview command must go through the interpreter instead.
+    monkeypatch.setattr(sys, "argv", ["/site-packages/tinytalk/__main__.py"])
+    assert cli._self_invocation() == shlex.join([sys.executable, "-m", "tinytalk"])
+
+
+def test_self_invocation_installed_script_uses_argv0(monkeypatch):
+    # The installed `tt` script (and the frozen binary) self-invoke directly; a space in the
+    # path proves it stays shell-quoted.
+    monkeypatch.setattr(sys, "argv", ["/opt/my tools/bin/tt"])
+    assert cli._self_invocation() == shlex.quote("/opt/my tools/bin/tt")
 
 
 def test_history_fzf_picker_prints_selected_command_verbatim(state_dir, monkeypatch, capsys):
