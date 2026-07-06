@@ -8,12 +8,23 @@ name: install
 on:
   push:
     branches: [main]
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
   pull_request:
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
   workflow_dispatch:
 
 jobs:
+  unit:
+    name: install unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run installer unit tests
+        run: |
+          uv sync --frozen --group dev
+          uv run pytest tests/test_install.py -q
+
   install:
     strategy:
       fail-fast: false
