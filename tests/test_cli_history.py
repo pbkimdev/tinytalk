@@ -451,10 +451,22 @@ def test_use_fzf_requires_a_terminal_and_installed_fzf(monkeypatch):
 
 
 def test_self_invocation_py_argv0_reinvokes_via_interpreter(monkeypatch):
-    # `python -m tinytalk` puts __main__.py in argv[0] — not executable by the preview shell,
+    # `python -m tinytalk.cli` puts cli.py in argv[0] — not executable by the preview shell,
     # so the preview command must go through the interpreter instead.
-    monkeypatch.setattr(sys, "argv", ["/site-packages/tinytalk/__main__.py"])
-    assert cli._self_invocation() == shlex.join([sys.executable, "-m", "tinytalk"])
+    monkeypatch.setattr(sys, "argv", ["/site-packages/tinytalk/cli.py"])
+    assert cli._self_invocation() == shlex.join([sys.executable, "-m", "tinytalk.cli"])
+
+
+def test_self_invocation_module_path_is_executable():
+    # Proves `-m tinytalk.cli` is a real runnable entry point (the package has no __main__.py,
+    # so `-m tinytalk` would fail) — the preview command must actually run, not just look right.
+    proc = subprocess.run(
+        [sys.executable, "-m", "tinytalk.cli", "--version"],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.strip()
 
 
 def test_self_invocation_installed_script_uses_argv0(monkeypatch):
