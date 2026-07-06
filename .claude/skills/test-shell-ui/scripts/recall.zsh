@@ -90,13 +90,19 @@ t send-keys -t ui Enter
 sleep 1
 t send-keys -t ui -l '?'; sleep 0.5
 t send-keys -t ui Up;    sleep 0.8   # first ↑ loads the porcelain, then auto-fills the newest
+# The setup line on screen already contains `DESTRUCTIVE` and `date > $DOOM`, so grep only
+# for text the banner alone produces — and prove it is absent BEFORE Enter, so the
+# post-Enter assertions cannot pass on needle leakage from setup/scrollback.
+pre=$(t capture-pane -t ui -p -J)
+print -r -- "$pre" | grep -qF 'review, then delete' \
+  && { print "FAIL: banner needle already on screen before Enter (vacuous assertion)"; fail=1; }
 t send-keys -t ui Enter; sleep 0.8
 guard=$(t capture-pane -t ui -p -J)  # -J: the banner line wraps at $COLS
 print "\n=== destructive recall + Enter (banner expected) ==="
 print -r -- "$guard" | grep -v '^ *$' | tail -2
-print -r -- "$guard" | grep -qF 'DESTRUCTIVE' \
+print -r -- "$guard" | grep -qF 'review, then delete' \
   || { print "FAIL: destructive recall did not leave the commented banner in the buffer"; fail=1; }
-print -r -- "$guard" | grep -qF "date > $DOOM" \
+print -r -- "$guard" | grep -qF "colon and space: date > $DOOM" \
   || { print "FAIL: banner does not carry the recalled command for review"; fail=1; }
 [[ -e $DOOM ]] \
   && { print "FAIL: destructive recalled command EXECUTED on Enter"; fail=1; }
