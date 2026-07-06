@@ -2,7 +2,7 @@
 # Build: `uv build`   Run: `uv run tt ...`   Install: `uv tool install .`
 [project]
 name = "tinytalk"
-version = "0.2.0rc2"
+version = "0.2.0rc3"
 description = "Turn plain English at the shell into a real, validated command."
 readme = "README.md"
 requires-python = ">=3.11"
