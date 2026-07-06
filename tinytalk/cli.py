@@ -418,7 +418,9 @@ def _history(args: argparse.Namespace) -> int:
             # The widget gates destructive recalls on the field before the FIRST tab; a
             # record with no classifier verdict over-warns as caution rather than run unguarded.
             danger = record.danger_final or "caution"
-            sys.stdout.write(f"{danger}\t{record.command}\0")  # NUL-terminated: `read -r -d ''` safe
+            sys.stdout.write(
+                f"{danger}\t{record.command}\0"
+            )  # NUL-terminated: `read -r -d ''` safe
         return 0
     if not records:
         print("tt: no history yet", file=sys.stderr)  # friendly empty state (spec-C1)
