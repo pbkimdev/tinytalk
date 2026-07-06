@@ -184,5 +184,3 @@ jobs:
           files: artifacts/*
           fail_on_unmatched_files: true
           generate_release_notes: true
-          # An rc tag must not become "Latest" — the unpinned installer serves latest.
-          prerelease: ${{ contains(inputs.tag || github.ref_name, 'rc') }}
