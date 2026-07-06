@@ -309,7 +309,14 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     home.mkdir()
     tt_log = tmp_path / "tt.log"
     bundle = make_bundle(tmp_path, tt_log)
-    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "TT_BINARY": str(bundle)}
+    # SHELL must be explicit: macOS ships /usr/bin/tt (teletype) and the installer
+    # picks PATH_RC from SHELL; an inherited bash SHELL would wire ~/.bashrc instead.
+    env = {
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "TT_BINARY": str(bundle),
+        "SHELL": "/bin/zsh",
+    }
 
     proc = run_install(env, "--yes", "--bin-dir", f"{home}/toolbin")
     assert proc.returncode == 0, proc.stderr

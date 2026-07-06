@@ -14,6 +14,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  unit:
+    name: install unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Run installer unit tests
+        run: |
+          uv sync --frozen --group dev
+          uv run pytest tests/test_install.py -q
+
   install:
     strategy:
       fail-fast: false
@@ -75,10 +86,6 @@ jobs:
           fi
           [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/${{ matrix.rcfile }}")" -eq 1 ]
           [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
-      - name: Run installer unit tests
-        run: |
-          uv sync --frozen --group dev
-          uv run pytest tests/test_install.py -q
       - name: Re-run installer — must change nothing
         run: |
           cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
