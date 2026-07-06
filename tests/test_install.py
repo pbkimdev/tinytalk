@@ -1,5 +1,5 @@
 """Installer (#58, binary-downloader rewrite): unpack the --onedir bundle, symlink
-its launcher onto PATH, scaffold config, wire PATH + the ? widget.
+its launcher onto PATH, wire PATH + the ? widget.
 
 Hermetic — the download is short-circuited with `TT_BINARY` (a local bundle) or a
 stubbed `curl`, so these tests never touch the network. The bundle mirrors what the
@@ -103,7 +103,7 @@ def test_syntax_is_posix_clean():
     assert proc.returncode == 0, proc.stderr
 
 
-def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
+def test_install_unpacks_symlinks_and_wires(sandbox):
     home, env, _ = sandbox
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
@@ -115,8 +115,8 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert launcher.is_file()
     assert link.is_symlink() and os.readlink(link) == str(launcher)
 
-    config = home / ".config" / "tinytalk" / "config.toml"
-    assert "[defaults]" in config.read_text()
+    assert not (home / ".config" / "tinytalk" / "config.toml").exists()
+    assert "tt auth" in proc.stdout
 
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(MARKER) == 1
@@ -124,37 +124,13 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert '"$_tt_bin" init zsh' in zshrc  # the cached-init widget block, not a raw eval
 
 
-def test_linux_scaffold_uses_llama_cpp_defaults(sandbox):
-    home, env, _ = sandbox
-    env = {**env, "TT_INSTALL_OS": "linux"}
-    proc = run_install(env, "--yes")
-    assert proc.returncode == 0, proc.stderr
-    text = (home / ".config" / "tinytalk" / "config.toml").read_text()
-    assert "localhost:8080" in text
-    assert "unsloth/gemma-4-12b-it-GGUF:Q4_K_M" in text
-    assert "llama-server" in proc.stdout
-
-
-def test_macos_scaffold_uses_omlx_defaults(sandbox):
-    home, env, _ = sandbox
-    env = {**env, "TT_INSTALL_OS": "macos"}
-    proc = run_install(env, "--yes")
-    assert proc.returncode == 0, proc.stderr
-    text = (home / ".config" / "tinytalk" / "config.toml").read_text()
-    assert "localhost:8000" in text
-    assert "gemma-4-26B-A4B-it-MLX-8bit" in text
-    assert "omlx serve" in proc.stdout
-
-
 def test_second_run_changes_nothing(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes").returncode == 0
-    config = home / ".config" / "tinytalk" / "config.toml"
     zshrc = home / ".zshrc"
-    config_before, zshrc_before = config.read_text(), zshrc.read_text()
+    zshrc_before = zshrc.read_text()
 
     assert run_install(env, "--yes").returncode == 0
-    assert config.read_text() == config_before
     assert zshrc.read_text() == zshrc_before
     assert zshrc.read_text().count(MARKER) == 1
 

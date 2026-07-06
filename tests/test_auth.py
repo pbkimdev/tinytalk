@@ -539,6 +539,92 @@ def test_setup_openai_compat_probe_failure_abort():
     assert draft is None
 
 
+def test_setup_openai_compat_suggest_local_uses_platform_defaults(monkeypatch):
+    monkeypatch.setattr(auth.sys, "platform", "linux")
+    io = ScriptedIO([auth._LINUX_LLAMA_BASE, "", "qwen3:8b", auth._NO_EFFORT])
+    draft = auth._setup_openai_compat(
+        io,
+        prober=lambda base_url, api_key: (["qwen3:8b"], None),
+        suggest_local=True,
+    )
+    assert draft.fields["base_url"] == auth._LINUX_LLAMA_BASE
+    assert draft.fields["model"] == "qwen3:8b"
+
+
+def test_setup_openai_compat_suggest_local_macos_defaults(monkeypatch):
+    monkeypatch.setattr(auth.sys, "platform", "darwin")
+    io = ScriptedIO([auth._MAC_OMLX_BASE, "", "gemma", auth._NO_EFFORT])
+    draft = auth._setup_openai_compat(
+        io,
+        prober=lambda base_url, api_key: (["gemma"], None),
+        suggest_local=True,
+    )
+    assert draft.fields["base_url"] == auth._MAC_OMLX_BASE
+
+
+def test_setup_openai_compat_without_suggest_local_defaults_to_ollama():
+    io = ScriptedIO(["http://localhost:11434/v1", "", "qwen3:8b", auth._NO_EFFORT])
+    draft = auth._setup_openai_compat(
+        io, prober=lambda base_url, api_key: (["qwen3:8b"], None), suggest_local=False
+    )
+    assert draft.fields["base_url"] == "http://localhost:11434/v1"
+
+
+def test_run_auth_wizard_openai_compat_fresh_suggests_local(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(auth.sys, "platform", "linux")
+    monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["local-model"], None))
+    config_path = tmp_path / "config.toml"
+    io = ScriptedIO(
+        [
+            "openai-compat",
+            auth._LINUX_LLAMA_BASE,
+            "",
+            "local-model",
+            auth._NO_EFFORT,
+            "en",
+            True,
+        ]
+    )
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    out = capsys.readouterr().out
+    assert "llama-server" in out
+    assert _read(config_path)["backends"]["primary"]["base_url"] == auth._LINUX_LLAMA_BASE
+
+
+def test_run_auth_wizard_openai_compat_existing_primary_skips_local_guide(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr("keyring.set_password", lambda service, account, value: None)
+    monkeypatch.setattr(auth, "_probe_openai_compat", lambda b, k: (["gpt-5.4"], None))
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """\
+[defaults]
+backend = "primary"
+
+[backends.primary]
+kind = "openai-compat"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.4"
+"""
+    )
+    io = ScriptedIO(
+        [
+            "fallback",
+            "openai-compat",
+            "https://api.openai.com/v1",
+            "sk-real",
+            "gpt-5.4",
+            auth._NO_EFFORT,
+            True,
+        ]
+    )
+    assert auth.run_auth_wizard(config_path, io) == "fallback"
+    out = capsys.readouterr().out
+    assert "llama-server" not in out
+    assert "oMLX" not in out
+
+
 # --- anthropic-compat setup ----------------------------------------------------------
 
 

@@ -64,9 +64,12 @@ shell config without asking. In one pass it:
 
 1. downloads the `tt` binary and drops it in `~/.local/bin`,
 2. adds that to your `PATH` (with your consent),
-3. writes a starter `~/.config/tinytalk/config.toml` — only if one doesn't exist,
-4. warms the grounding snapshot so your first request is instant, and
-5. wires the `?` widget into `~/.zshrc` (with your consent).
+3. warms the grounding snapshot when you already have a config, and
+4. wires the `?` widget into `~/.zshrc` (with your consent).
+
+Run `tt auth` to configure your first backend — cloud API or a local OpenAI-compatible
+server. On a fresh install with no primary or fallback yet, choosing **openai-compat**
+walks you through OS-specific local defaults (oMLX on macOS, llama.cpp on Linux/WSL).
 
 ![install.sh](docs/assets/install.png)
 
@@ -386,16 +389,18 @@ Unsloth MTP README. Draft flags vary by `llama-server` version; check `llama-ser
 
 ### Running under WSL
 
-WSL is Linux to TinyTalk — you get the Linux binary and the Linux scaffold (`:8080`, Gemma 4
-12B GGUF). `localhost` reaches services inside your distro on modern WSL2. You need ~10 GB
-free RAM for the 12B QAT build. The `?` widget is zsh-only, but `tt "..."` works in bash
-out of the box.
+WSL is Linux to TinyTalk — you get the Linux binary. `localhost` reaches services inside
+your distro on modern WSL2. You need ~10 GB free RAM for the 12B QAT build. The `?`
+widget is zsh-only, but `tt "..."` works in bash out of the box.
 
 ### Point TinyTalk at it
 
-A keyless local server needs no `tt auth` — just an `openai-compat` backend with the
-right `base_url` and `model`. The installer scaffolds one per OS; edit it if your server
-registers a different model id:
+Run `tt auth`, choose **OpenAI-compatible HTTP API**, and follow the prompts. On a fresh
+install with no backend configured yet, the wizard prints OS-specific setup steps and
+pre-fills the local `base_url` (oMLX `:8000` on macOS, llama.cpp `:8080` on Linux/WSL).
+A keyless local server needs no API key — leave that blank.
+
+You can also hand-write an `openai-compat` backend:
 
 ```toml
 # macOS (oMLX)

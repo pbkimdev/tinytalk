@@ -72,18 +72,10 @@ jobs:
           echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
             SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./install.sh --yes
-      - name: Assert config scaffold and rc wiring (each block exactly once)
+      - name: Assert rc wiring (each block exactly once)
         run: |
           cat "$FAKEHOME/${{ matrix.rcfile }}"
-          CONFIG="$FAKEHOME/.config/tinytalk/config.toml"
-          test -f "$CONFIG"
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            grep -qF 'localhost:8080' "$CONFIG"
-            grep -qF 'unsloth/gemma-4-12b-it-GGUF:Q4_K_M' "$CONFIG"
-          else
-            grep -qF 'localhost:8000' "$CONFIG"
-            grep -qF 'gemma-4-26B-A4B-it-MLX-8bit' "$CONFIG"
-          fi
+          test ! -f "$FAKEHOME/.config/tinytalk/config.toml"
           [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/${{ matrix.rcfile }}")" -eq 1 ]
           [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
       - name: Re-run installer — must change nothing

@@ -64,7 +64,7 @@ case "$arch" in
 esac
 ASSET="tt-$OS-$ARCH.tar.gz"   # a --onedir bundle (launcher + _internal/), tarred
 
-# Test hook: TT_INSTALL_OS=macos|linux forces the config scaffold (see tests/test_install.py).
+# Test hook: TT_INSTALL_OS=macos|linux (reserved for installer tests).
 case "${TT_INSTALL_OS:-}" in
   macos|linux) OS="$TT_INSTALL_OS" ;;
 esac
@@ -165,57 +165,12 @@ else
   say "PATH: skipped; add it yourself:  $BIN_LINE"
 fi
 
-# 5. Scaffold the config — only if missing, never overwrite.
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tinytalk"
-CONFIG="$CONFIG_DIR/config.toml"
-if [ -f "$CONFIG" ]; then
-  say "config: $CONFIG already exists — left untouched"
-else
-  mkdir -p "$CONFIG_DIR"
-  if [ "$OS" = macos ]; then
-    cat > "$CONFIG" <<'EOF'
-# TinyTalk config — backends, posture, cache, prices. Run `tt auth` to set up a
-# cloud backend, or point the local backend below at your own server.
-[defaults]
-backend = "local"
-posture = "local"
-
-# Local backend via oMLX (Apple Silicon). Start your server, then adjust model to match.
-[backends.local]
-kind = "openai-compat"
-base_url = "http://localhost:8000/v1"
-model = "gemma-4-26B-A4B-it-MLX-8bit"
-
-[cache]
-enabled = true
-EOF
-  else
-    cat > "$CONFIG" <<'EOF'
-# TinyTalk config — backends, posture, cache, prices. Run `tt auth` to set up a
-# cloud backend, or point the local backend below at your own server.
-[defaults]
-backend = "local"
-posture = "local"
-
-# Local backend via llama.cpp (GGUF on Linux / WSL). The MTP assistant drafter is
-# configured in llama-server, not here — see README "Using a local model".
-[backends.local]
-kind = "openai-compat"
-base_url = "http://localhost:8080/v1"
-model = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
-
-[cache]
-enabled = true
-EOF
-  fi
-  say "config: wrote starter $CONFIG (edit backends to taste)"
-fi
-
-# 6. Warm the grounding snapshot (best-effort) so the first request skips the scan.
+# 5. Warm the grounding snapshot (best-effort) so the first request skips the scan.
+# Needs a valid config — skipped quietly on a fresh install until `tt auth`.
 "$TT" ground --refresh >/dev/null 2>&1 || true
-say "grounding: warmed the tool snapshot (tt ground --refresh)"
+say "grounding: warmed the tool snapshot when config exists (tt ground --refresh)"
 
-# 7. Wire the ? widget into ~/.zshrc — consent-gated, marker-guarded, idempotent.
+# 6. Wire the ? widget into ~/.zshrc — consent-gated, marker-guarded, idempotent.
 MARKER="# tt zsh integration (added by install.sh)"
 if [ "$NO_RC" = 1 ]; then
   say "zsh: skipped (--no-rc); enable any time with: eval \"\$(tt init zsh)\""
@@ -245,13 +200,5 @@ fi
 
 say ""
 say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my disk usage'
-if [ "$OS" = linux ]; then
-  say "local model (llama.cpp): needs a recent build with Gemma 4 MTP (see README):"
-  say '  llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M --spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja'
-  say '  curl -s localhost:8080/v1/models    # confirm the model id matches config.toml'
-  say "WSL: same as Linux — localhost works; tt \"...\" works in bash; ? widget needs zsh."
-else
-  say "local model: omlx serve --model-dir ~/models  (see README)"
-fi
-say "set up a cloud model:   tt auth"
+say "configure a backend (cloud or local):   tt auth"
 say "uninstall:   rm $TT && rm -rf $LIB_DIR/tt   (and remove the 'added by install.sh' blocks from your rc files)"

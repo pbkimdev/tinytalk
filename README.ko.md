@@ -61,9 +61,11 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 
 1. `tt` 바이너리를 내려받아 `~/.local/bin`에 둡니다.
 2. 동의를 받아 그 경로를 `PATH`에 추가합니다.
-3. `~/.config/tinytalk/config.toml`이 없을 때만 스타터 설정을 만듭니다.
-4. 첫 요청이 바로 뜨도록 grounding 스냅샷을 미리 만들어 둡니다.
-5. 동의를 받아 `?` 위젯을 `~/.zshrc`에 연결합니다.
+3. 설정이 이미 있으면 grounding 스냅샷을 미리 만들어 둡니다.
+4. 동의를 받아 `?` 위젯을 `~/.zshrc`에 연결합니다.
+
+`tt auth`로 첫 백엔드를 설정합니다(클라우드 API 또는 로컬 OpenAI 호환 서버). primary·fallback이
+아직 없는 새 설치에서 **openai-compat**을 고르면 OS별 로컬 기본값(oMLX·llama.cpp) 안내가 나옵니다.
 
 ![install.sh](docs/assets/install.png)
 
@@ -86,9 +88,9 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 
 ![생성된 명령](docs/assets/run.png)
 
-스타터 설정은 `local` 백엔드를 가리킵니다. 답을 받으려면 클라우드 백엔드나 로컬 서버가 하나는
-떠 있어야 하는데, 둘 다 아래에서 다룹니다. 어느 쪽이 연결됐는지 확인하려면 CLI에서
-`tt "list files by size"`를 한 번 실행하는 게 가장 빠릅니다.
+설치 직후에는 `tt auth`로 백엔드를 하나 설정하세요. 클라우드 API나 로컬 OpenAI 호환 서버
+중 하나가 연결되어 있어야 답을 받을 수 있습니다. 연결 확인은 `tt "list files by size"`가
+가장 빠릅니다.
 
 ---
 

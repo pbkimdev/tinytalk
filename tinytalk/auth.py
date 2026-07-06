@@ -21,6 +21,7 @@ but the module itself must stay cheap to import for `--version`/`--help`.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -40,6 +41,16 @@ _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _CLAUDE_CURATED_MODELS = ("claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5")
 _CUSTOM_MODEL = "__custom__"
 _NO_EFFORT = "__none__"
+
+# First-time local defaults when openai-compat is chosen with no slot configured yet.
+_LINUX_LLAMA_BASE = "http://localhost:8080/v1"
+_LINUX_LLAMA_MODEL = "unsloth/gemma-4-12b-it-GGUF:Q4_K_M"
+_MAC_OMLX_BASE = "http://localhost:8000/v1"
+_MAC_OMLX_MODEL = "gemma-4-26B-A4B-it-MLX-8bit"
+_LLAMA_SERVER_CMD = (
+    "llama-server -hf unsloth/gemma-4-12b-it-GGUF:Q4_K_M "
+    "--spec-type draft-mtp --spec-draft-n-max 4 --port 8080 -c 8192 --jinja"
+)
 
 
 class WizardIO(Protocol):
@@ -138,7 +149,8 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if kind is None:
         return None
 
-    draft = _KIND_SETUP[kind](io)
+    suggest_local = kind == "openai-compat" and _no_auth_slot_configured(defaults, backends)
+    draft = _setup_kind(kind, io, suggest_local=suggest_local)
     if draft is None:
         return None
 
@@ -259,9 +271,56 @@ def _retry(io: WizardIO) -> bool:
 # --- per-kind setup steps -----------------------------------------------------------
 
 
-def _setup_openai_compat(io: WizardIO, *, prober=None) -> BackendDraft | None:
+def _no_auth_slot_configured(defaults, backends) -> bool:
+    """True when neither primary nor fallback has a backend table yet."""
+    if not isinstance(defaults, dict):
+        defaults = {}
+    if not isinstance(backends, dict):
+        backends = {}
+    primary = defaults.get("backend")
+    has_primary = bool(primary and primary in backends)
+    fallback = defaults.get("escalation_backend")
+    has_fallback = bool(fallback and fallback in backends) or "fallback" in backends
+    return not has_primary and not has_fallback
+
+
+def _local_openai_compat_defaults() -> tuple[str, str]:
+    if sys.platform == "darwin":
+        return _MAC_OMLX_BASE, _MAC_OMLX_MODEL
+    return _LINUX_LLAMA_BASE, _LINUX_LLAMA_MODEL
+
+
+def _print_local_llm_setup_guide() -> None:
+    if sys.platform == "darwin":
+        print(
+            "Local model (oMLX): install omlx, download a Gemma 4 MLX build, then run:\n"
+            "  omlx serve --model-dir ~/models\n"
+            "See README — Using a local model."
+        )
+        return
+    print(
+        "Local model (llama.cpp): needs a recent build with Gemma 4 MTP. Start a server:\n"
+        f"  {_LLAMA_SERVER_CMD}\n"
+        "Then confirm: curl -s localhost:8080/v1/models\n"
+        "The MTP assistant drafter is configured in llama-server, not in TinyTalk config."
+    )
+
+
+def _setup_kind(kind: str, io: WizardIO, *, suggest_local: bool = False) -> BackendDraft | None:
+    if kind == "openai-compat":
+        return _setup_openai_compat(io, suggest_local=suggest_local)
+    return _KIND_SETUP[kind](io)
+
+
+def _setup_openai_compat(
+    io: WizardIO, *, prober=None, suggest_local: bool = False
+) -> BackendDraft | None:
     probe = prober or _probe_openai_compat
-    base_url_default = "http://localhost:11434/v1"
+    if suggest_local:
+        _print_local_llm_setup_guide()
+        base_url_default, _ = _local_openai_compat_defaults()
+    else:
+        base_url_default = "http://localhost:11434/v1"
     while True:
         base_url = io.text("Base URL:", default=base_url_default)
         if not base_url:
