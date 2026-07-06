@@ -21,5 +21,12 @@ permissions:
 
 jobs:
   pipeline:
+    # Bot reviews (Bugbot, etc.) fire pull_request_review* events but aren't human
+    # @claude triggers — calling the reusable workflow on them fails instantly.
+    if: >-
+      ${{
+        (github.event_name != 'pull_request_review' || github.event.review.user.type != 'Bot') &&
+        (github.event_name != 'pull_request_review_comment' || github.event.comment.user.type != 'Bot')
+      }}
     uses: pbkimdev/agentic-workflows/.github/workflows/dispatch.yml@main
     secrets: inherit

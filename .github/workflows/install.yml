@@ -8,9 +8,9 @@ name: install
 on:
   push:
     branches: [main]
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
   pull_request:
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, .github/workflows/install.yml]
+    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
   workflow_dispatch:
 
 jobs:
@@ -64,9 +64,21 @@ jobs:
       - name: Assert config scaffold and rc wiring (each block exactly once)
         run: |
           cat "$FAKEHOME/${{ matrix.rcfile }}"
-          test -f "$FAKEHOME/.config/tinytalk/config.toml"
+          CONFIG="$FAKEHOME/.config/tinytalk/config.toml"
+          test -f "$CONFIG"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            grep -qF 'localhost:8080' "$CONFIG"
+            grep -qF 'unsloth/gemma-4-12b-it-GGUF:Q4_K_M' "$CONFIG"
+          else
+            grep -qF 'localhost:8000' "$CONFIG"
+            grep -qF 'gemma-4-26B-A4B-it-MLX-8bit' "$CONFIG"
+          fi
           [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/${{ matrix.rcfile }}")" -eq 1 ]
           [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
+      - name: Run installer unit tests
+        run: |
+          uv sync --frozen --group dev
+          uv run pytest tests/test_install.py -q
       - name: Re-run installer — must change nothing
         run: |
           cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
