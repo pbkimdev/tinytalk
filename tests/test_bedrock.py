@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+import types
 
 import pytest
 
@@ -36,10 +38,13 @@ class FakeRuntimeClient:
 
 
 class FakeControlClient:
-    def __init__(self, summaries):
+    def __init__(self, summaries=None, error=None):
         self._summaries = summaries
+        self._error = error
 
     def list_foundation_models(self):
+        if self._error is not None:
+            raise self._error
         return {"modelSummaries": self._summaries}
 
 
@@ -55,7 +60,11 @@ def _envelope(*, blocks, usage=None):
 
 
 def test_seam_conformance():
-    prov = BedrockProvider("anthropic.claude-opus-4-8-v1:0", region="us-east-1", client=FakeRuntimeClient(_envelope(blocks=[])))
+    prov = BedrockProvider(
+        "anthropic.claude-opus-4-8-v1:0",
+        region="us-east-1",
+        client=FakeRuntimeClient(_envelope(blocks=[])),
+    )
     assert isinstance(prov, Provider)
     assert prov.name == "bedrock:anthropic.claude-opus-4-8-v1:0"
     assert isinstance(prov.capabilities, Capabilities)
@@ -63,7 +72,12 @@ def test_seam_conformance():
 
 
 def test_text_response_parsed():
-    client = FakeRuntimeClient(_envelope(blocks=[{"text": "ls -la"}], usage={"inputTokens": 3, "outputTokens": 4, "totalTokens": 7}))
+    client = FakeRuntimeClient(
+        _envelope(
+            blocks=[{"text": "ls -la"}],
+            usage={"inputTokens": 3, "outputTokens": 4, "totalTokens": 7},
+        )
+    )
     prov = BedrockProvider("some-model", region="us-east-1", client=client)
     completion = _run(prov.complete(CompletionRequest(MSGS)))
     assert completion.text == "ls -la"
@@ -80,9 +94,19 @@ def test_system_message_split():
 
 
 def test_tool_use_response_parsed():
-    payload_data = {"command": "ls -la", "explanation": "x", "danger": "safe", "confidence": 0.9, "needs": []}
+    payload_data = {
+        "command": "ls -la",
+        "explanation": "x",
+        "danger": "safe",
+        "confidence": 0.9,
+        "needs": [],
+    }
     client = FakeRuntimeClient(
-        _envelope(blocks=[{"toolUse": {"toolUseId": "t1", "name": "suggest_command", "input": payload_data}}])
+        _envelope(
+            blocks=[
+                {"toolUse": {"toolUseId": "t1", "name": "suggest_command", "input": payload_data}}
+            ]
+        )
     )
     prov = BedrockProvider("some-model", region="us-east-1", client=client)
     completion = _run(
@@ -154,12 +178,123 @@ def test_list_foundation_models():
     assert models == [{"modelId": "anthropic.claude-opus-4-8-v1:0"}]
 
 
-def test_missing_boto3_raises_actionable_error():
-    # boto3 is an optional extra and isn't installed in the dev env — proves the real
-    # (non-injected) path raises an install hint rather than a bare ImportError.
+def test_endpoint_url_passed_to_runtime_client(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def client(self, service, **kwargs):
+            calls.append((self.kwargs, service, kwargs))
+            return FakeRuntimeClient(_envelope(blocks=[]))
+
+    monkeypatch.setattr("tinytalk.addons.ensure_bedrock_importable", lambda: None)
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(Session=FakeSession))
+    prov = BedrockProvider(
+        "some-model",
+        region="us-east-1",
+        profile="dev",
+        endpoint_url="https://bedrock-runtime.example.test",
+    )
+    _run(prov.complete(CompletionRequest(MSGS)))
+    assert calls == [
+        (
+            {"region_name": "us-east-1", "profile_name": "dev"},
+            "bedrock-runtime",
+            {"endpoint_url": "https://bedrock-runtime.example.test"},
+        )
+    ]
+
+
+def test_endpoint_url_omitted_for_model_listing(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def client(self, service, **kwargs):
+            calls.append((self.kwargs, service, kwargs))
+            return FakeControlClient([])
+
+    monkeypatch.setattr("tinytalk.addons.ensure_bedrock_importable", lambda: None)
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(Session=FakeSession))
+    assert list_foundation_models(region="us-west-2") == []
+    assert calls == [({"region_name": "us-west-2"}, "bedrock", {})]
+
+
+def test_missing_boto3_raises_actionable_error(monkeypatch):
+    # Force the optional-dependency branch so the test stays valid when the bedrock
+    # extra happens to be installed in the developer's venv (#124).
+    monkeypatch.setattr("tinytalk.addons.ensure_bedrock_importable", lambda: None)
+    monkeypatch.setitem(sys.modules, "boto3", None)
     prov = BedrockProvider("some-model", region="us-east-1")
     with pytest.raises(BedrockError, match="not installed"):
         _run(prov.complete(CompletionRequest(MSGS)))
+
+
+def test_converse_sso_error_names_login_command(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeRuntimeClient(error=errors.UnauthorizedSSOTokenError("expired"))
+    prov = BedrockProvider("some-model", region="us-east-1", profile="dev", client=client)
+    with pytest.raises(BedrockError, match="aws sso login --profile dev"):
+        _run(prov.complete(CompletionRequest(MSGS)))
+
+
+def test_list_foundation_models_sso_error_names_login_command(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=errors.SSOTokenLoadError("missing"))
+    with pytest.raises(BedrockError, match="aws sso login --profile dev"):
+        list_foundation_models(region="us-east-1", profile="dev", client=client)
+
+
+def test_converse_no_credentials_repairs_profile_without_sso_hint(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeRuntimeClient(error=errors.NoCredentialsError("missing"))
+    prov = BedrockProvider("some-model", region="us-east-1", profile="dev", client=client)
+    with pytest.raises(BedrockError) as exc:
+        _run(prov.complete(CompletionRequest(MSGS)))
+    message = str(exc.value)
+    assert "AWS profile 'dev'" in message
+    assert "aws sso login" not in message
+
+
+def test_list_foundation_models_no_credentials_points_at_standard_chain(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=errors.NoCredentialsError("missing"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", client=client)
+    message = str(exc.value)
+    assert "standard AWS credential chain" in message
+    assert "aws sso login" not in message
+
+
+@pytest.mark.parametrize(
+    "error_cls",
+    [
+        "PartialCredentialsError",
+        "CredentialRetrievalError",
+    ],
+)
+def test_non_sso_credential_errors_repair_profile_without_sso_hint(monkeypatch, error_cls):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=getattr(errors, error_cls)("broken"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", profile="dev", client=client)
+    message = str(exc.value)
+    assert "AWS profile 'dev'" in message
+    assert "aws sso login" not in message
+
+
+def test_profile_not_found_names_profile_without_sso_hint(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=errors.ProfileNotFound("dev"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", profile="dev", client=client)
+    message = str(exc.value)
+    assert "AWS profile 'dev' was not found" in message
+    assert "aws sso login" not in message
 
 
 def test_usage_cache_tokens_normalized():
@@ -181,3 +316,40 @@ def test_usage_cache_tokens_normalized():
     assert completion.usage.prompt_tokens == 100
     assert completion.usage.cached_prompt_tokens == 70
     assert completion.usage.cache_write_tokens == 20
+
+
+def _fake_botocore_errors(monkeypatch):
+    class UnauthorizedSSOTokenError(Exception):
+        pass
+
+    class SSOTokenLoadError(Exception):
+        pass
+
+    class TokenRetrievalError(Exception):
+        pass
+
+    class NoCredentialsError(Exception):
+        pass
+
+    class PartialCredentialsError(Exception):
+        pass
+
+    class CredentialRetrievalError(Exception):
+        pass
+
+    class ProfileNotFound(Exception):
+        pass
+
+    exceptions = types.ModuleType("botocore.exceptions")
+    exceptions.UnauthorizedSSOTokenError = UnauthorizedSSOTokenError
+    exceptions.SSOTokenLoadError = SSOTokenLoadError
+    exceptions.TokenRetrievalError = TokenRetrievalError
+    exceptions.NoCredentialsError = NoCredentialsError
+    exceptions.PartialCredentialsError = PartialCredentialsError
+    exceptions.CredentialRetrievalError = CredentialRetrievalError
+    exceptions.ProfileNotFound = ProfileNotFound
+    botocore = types.ModuleType("botocore")
+    botocore.exceptions = exceptions
+    monkeypatch.setitem(sys.modules, "botocore", botocore)
+    monkeypatch.setitem(sys.modules, "botocore.exceptions", exceptions)
+    return exceptions

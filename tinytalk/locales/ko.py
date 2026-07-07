@@ -153,18 +153,35 @@ MESSAGES = {
     "tt auth: codex model discovery failed: {error}": (
         "tt auth: codex 모델 탐색에 실패했습니다: {error}"
     ),
+    "Custom Bedrock runtime endpoint URL (blank = AWS default):": (
+        "사용자 지정 Bedrock runtime 엔드포인트 URL (비워 두면 AWS 기본값 사용):"
+    ),
     "AWS region:": "AWS 리전:",
     "AWS profile (blank = default credential chain):": (
         "AWS 프로파일 (비워 두면 기본 자격 증명 체인 사용):"
     ),
+    "(default AWS credential chain)": "(기본 AWS 자격 증명 체인)",
+    "(type a different AWS profile)": "(다른 AWS 프로파일 직접 입력)",
+    "AWS profile:": "AWS 프로파일:",
+    "AWS profile name (blank = default credential chain):": (
+        "AWS 프로파일 이름 (비워 두면 기본 자격 증명 체인 사용):"
+    ),
     "tt auth: bedrock credential test failed: {error}": (
         "tt auth: bedrock 자격 증명 테스트에 실패했습니다: {error}"
     ),
-    "No models discovered with your current AWS credentials. Enter an access key pair instead?": (
-        "현재 AWS 자격 증명으로 모델을 찾지 못했습니다. 액세스 키 쌍을 직접 입력할까요?"
+    "tt auth: run `{command}` in another terminal, then choose retry.": (
+        "tt auth: 다른 터미널에서 `{command}`를 실행한 뒤 재시도하세요."
     ),
-    "AWS access key ID:": "AWS 액세스 키 ID:",
-    "AWS secret access key:": "AWS 시크릿 액세스 키:",
+    "tt auth: fix the standard AWS credential chain "
+    "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry.": (
+        "tt auth: 표준 AWS 자격 증명 체인(env, ~/.aws/credentials, SSO 또는 IAM role)을 "
+        "수정한 뒤 재시도하세요."
+    ),
+    "Bedrock model discovery failed.": "Bedrock 모델 탐색에 실패했습니다.",
+    "Retry probe": "프로브 재시도",
+    "Continue with a manual model id (discovery unavailable)": (
+        "수동 모델 ID로 계속하기(탐색 불가)"
+    ),
     "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com):": (
         "Azure OpenAI 엔드포인트 (예: https://my-resource.openai.azure.com):"
     ),
@@ -213,8 +230,7 @@ MESSAGES = {
         "{path}: [defaults] backend {backend!r}이(가) 정의되어 있지 않습니다; "
         "정의된 백엔드: {known}"
     ),
-    "{path}: [defaults] escalation_backend {backend!r} is not defined; "
-    "defined backends: {known}": (
+    "{path}: [defaults] escalation_backend {backend!r} is not defined; defined backends: {known}": (
         "{path}: [defaults] escalation_backend {backend!r}이(가) 정의되어 있지 않습니다; "
         "정의된 백엔드: {known}"
     ),
@@ -233,12 +249,20 @@ MESSAGES = {
     ),
     "{where} api_key_env must be a string": "{where} api_key_env는 문자열이어야 합니다",
     "{where} keyring_account must be a string": "{where} keyring_account는 문자열이어야 합니다",
+    "{where} bedrock stored access keys are no longer read; "
+    "credentials come from the AWS profile/default chain; re-run `tt auth`": (
+        "{where} bedrock 저장된 액세스 키는 더 이상 읽지 않습니다; "
+        "자격 증명은 AWS profile/default chain에서 가져옵니다; `tt auth`를 다시 실행하세요"
+    ),
     "{where} unknown effort {effort!r}; valid: {valid}": (
         "{where} 알 수 없는 effort {effort!r}; 유효한 값: {valid}"
     ),
     "{where} aws_region must be a string": "{where} aws_region은 문자열이어야 합니다",
     "{where} kind bedrock requires aws_region": "{where} kind bedrock에는 aws_region이 필요합니다",
     "{where} aws_profile must be a string": "{where} aws_profile은 문자열이어야 합니다",
+    "{where} bedrock base_url must be a non-empty string": (
+        "{where} bedrock base_url은 비어 있지 않은 문자열이어야 합니다"
+    ),
     "{where} azure_api_version must be a string": (
         "{where} azure_api_version은 문자열이어야 합니다"
     ),

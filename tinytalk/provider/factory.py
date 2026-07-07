@@ -64,33 +64,12 @@ def make_provider(cfg: BackendConfig) -> Provider:
         from tinytalk.provider.bedrock import BedrockProvider
 
         assert cfg.aws_region is not None  # guaranteed by config validation
-        access_key_id, secret_access_key = _bedrock_credential_pair(cfg)
         return BedrockProvider(
             model=cfg.model,
             region=cfg.aws_region,
             profile=cfg.aws_profile,
-            aws_access_key_id=access_key_id,
-            aws_secret_access_key=secret_access_key,
+            endpoint_url=cfg.base_url,
             capabilities=_capabilities(cfg),
             default_effort=cfg.effort,
         )
     raise ConfigError(f"backend {cfg.name!r}: unknown kind {cfg.kind!r}")
-
-
-def _bedrock_credential_pair(cfg: BackendConfig) -> tuple[str | None, str | None]:
-    """The keyring/env-resolved secret holds a `{"aws_access_key_id", "aws_secret_access_key"}`
-    JSON blob for bedrock — the explicit-credential fallback when boto3's own default
-    credential chain doesn't apply. A missing/malformed blob just means "use the default
-    chain", not an error."""
-    import json
-
-    raw = cfg.api_key
-    if not raw:
-        return None, None
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return None, None
-    if not isinstance(parsed, dict):
-        return None, None
-    return parsed.get("aws_access_key_id"), parsed.get("aws_secret_access_key")

@@ -134,7 +134,9 @@ def test_api_key_falls_back_to_keyring(tmp_path, monkeypatch):
     monkeypatch.delenv("MY_KEY", raising=False)
     monkeypatch.setattr(
         "keyring.get_password",
-        lambda service, account: "from-keyring" if (service, account) == ("tinytalk", "local") else None,
+        lambda service, account: (
+            "from-keyring" if (service, account) == ("tinytalk", "local") else None
+        ),
     )
     assert cfg.backend("local").api_key == "from-keyring"
 
@@ -145,7 +147,10 @@ def test_api_key_falls_back_to_keyring(tmp_path, monkeypatch):
         ("anthropic-compat", ""),
         ("codex-agent-sdk", ""),
         ("bedrock", '\naws_region = "us-east-1"'),
-        ("azure-openai", '\nbase_url = "https://my.openai.azure.com"\nazure_api_version = "2026-01-01-preview"'),
+        (
+            "azure-openai",
+            '\nbase_url = "https://my.openai.azure.com"\nazure_api_version = "2026-01-01-preview"',
+        ),
     ],
 )
 def test_new_kinds_validate(tmp_path, kind, extra):
@@ -343,10 +348,9 @@ aws_profile = "tt"
     assert provider.name == "bedrock:anthropic.claude-opus-4-8-v1:0"
 
 
-def test_factory_builds_bedrock_with_explicit_credential_blob(tmp_path, monkeypatch):
-    from tinytalk.provider.bedrock import BedrockProvider
-
-    text = """\
+@pytest.mark.parametrize("secret_field", ['api_key_env = "BEDROCK_CREDS"', 'keyring_account = "b"'])
+def test_bedrock_rejects_legacy_stored_key_wiring(tmp_path, secret_field):
+    text = f"""\
 [defaults]
 backend = "b"
 
@@ -354,23 +358,16 @@ backend = "b"
 kind = "bedrock"
 model = "anthropic.claude-opus-4-8-v1:0"
 aws_region = "us-east-1"
-api_key_env = "BEDROCK_CREDS"
+{secret_field}
 """
-    cfg = load_config(write(tmp_path, text))
-    monkeypatch.setenv(
-        "BEDROCK_CREDS",
-        '{"aws_access_key_id": "AKIA123", "aws_secret_access_key": "shh"}',
-    )
-    provider = make_provider(cfg.backend())
-    assert isinstance(provider, BedrockProvider)
-    assert provider._access_key_id == "AKIA123"
-    assert provider._secret_access_key == "shh"
+    with pytest.raises(ConfigError, match="stored access keys are no longer read"):
+        load_config(write(tmp_path, text))
 
 
 def test_prices_cache_rates(tmp_path):
     text = GOOD.replace(
-        'output_per_mtok = 0.4\n',
-        'output_per_mtok = 0.4\ncached_input_per_mtok = 0.01\ncache_write_per_mtok = 0.125\n',
+        "output_per_mtok = 0.4\n",
+        "output_per_mtok = 0.4\ncached_input_per_mtok = 0.01\ncache_write_per_mtok = 0.125\n",
     )
     cfg = load_config(write(tmp_path, text))
     price = cfg.price("qwen3:8b")

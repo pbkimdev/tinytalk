@@ -6,7 +6,6 @@ as the DoD requires."""
 
 from __future__ import annotations
 
-import json
 import tomllib
 
 import tinytalk.auth as auth
@@ -727,16 +726,17 @@ def test_setup_codex_agent_sdk_probe_failure_retries():
 # --- bedrock setup ---------------------------------------------------------------------
 
 
-def test_setup_bedrock_ambient_credentials_used_first():
-    io = ScriptedIO(["us-west-2", "", "anthropic.claude-opus-4-8-v1:0", "low"])
+def test_setup_bedrock_ambient_credentials_used_first(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-west-2", "", "anthropic.claude-opus-4-8-v1:0", "low"])
     calls = []
 
-    def prober(region, profile, ak, sk):
-        calls.append((region, profile, ak, sk))
+    def prober(region, profile):
+        calls.append((region, profile))
         return [{"modelId": "anthropic.claude-opus-4-8-v1:0"}], None
 
     draft = auth._setup_bedrock(io, prober=prober)
-    assert calls == [("us-west-2", None, None, None)]
+    assert calls == [("us-west-2", None)]
     assert draft.fields == {
         "kind": "bedrock",
         "model": "anthropic.claude-opus-4-8-v1:0",
@@ -747,60 +747,115 @@ def test_setup_bedrock_ambient_credentials_used_first():
     assert draft.secret is None
 
 
-def test_setup_bedrock_falls_back_to_explicit_credentials():
-    io = ScriptedIO(["us-east-1", "myprofile", True, "AKIA123", "shh", "some-vendor.model-x"])
+def test_setup_bedrock_custom_endpoint_and_profile_store_no_secret(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(
+        ["https://bedrock.example.test", "us-east-1", "myprofile", "some-vendor.model-x"]
+    )
     calls = []
 
-    def prober(region, profile, ak, sk):
-        calls.append((region, profile, ak, sk))
-        return ([], None) if ak is None else ([{"modelId": "some-vendor.model-x"}], None)
+    def prober(region, profile):
+        calls.append((region, profile))
+        return [{"modelId": "some-vendor.model-x"}], None
 
     draft = auth._setup_bedrock(io, prober=prober)
-    assert calls == [
-        ("us-east-1", "myprofile", None, None),
-        ("us-east-1", "myprofile", "AKIA123", "shh"),
-    ]
-    assert draft.secret == json.dumps(
-        {"aws_access_key_id": "AKIA123", "aws_secret_access_key": "shh"}
-    )
+    assert calls == [("us-east-1", "myprofile")]
+    assert draft.fields["base_url"] == "https://bedrock.example.test"
+    assert draft.fields["aws_profile"] == "myprofile"
     assert draft.fields["capabilities"] == []
     assert "effort" not in draft.fields
+    assert draft.secret is None
 
 
-def test_setup_bedrock_explicit_credential_failure_retries():
+def test_setup_bedrock_profile_select_allows_free_text(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: ["dev", "prod"])
+    io = ScriptedIO(
+        [
+            "",
+            "us-east-1",
+            auth._CUSTOM_AWS_PROFILE,
+            "sso-dev",
+            "some-vendor.model-x",
+        ]
+    )
+    calls = []
+
+    def prober(region, profile):
+        calls.append((region, profile))
+        return [{"modelId": "some-vendor.model-x"}], None
+
+    draft = auth._setup_bedrock(io, prober=prober)
+    assert calls == [("us-east-1", "sso-dev")]
+    assert draft.fields["aws_profile"] == "sso-dev"
+    assert draft.secret is None
+
+
+def test_setup_bedrock_sso_credential_failure_retries(monkeypatch, capsys):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     probes = [
-        ([], "ambient chain has no credentials"),
-        ([], "AccessDeniedException"),
-        ([{"modelId": "anthropic.claude-opus-4-8-v1:0"}], None),
+        ([], "bedrock credentials failed for AWS profile 'dev'; token expired"),
+        ([{"modelId": "some-vendor.model-x"}], None),
     ]
     io = ScriptedIO(
         [
-            "us-east-1",
             "",
-            True,  # enter access key pair?
-            "AKIA-BAD",
-            "wrong",
-            "retry",  # credential test failed -> re-enter
-            "AKIA-GOOD",
-            "right",
-            "anthropic.claude-opus-4-8-v1:0",
-            auth._NO_EFFORT,
+            "us-east-1",
+            "dev",
+            "retry",
+            "some-vendor.model-x",
         ]
     )
     draft = auth._setup_bedrock(io, prober=lambda *a: probes.pop(0))
-    assert json.loads(draft.secret)["aws_access_key_id"] == "AKIA-GOOD"
+    assert draft.secret is None
+    assert "aws sso login --profile dev" in capsys.readouterr().out
 
 
-def test_setup_bedrock_declines_explicit_credentials_free_types_model():
-    io = ScriptedIO(["us-east-1", "", False, "custom-model-id"])
-    draft = auth._setup_bedrock(io, prober=lambda region, profile, ak, sk: ([], None))
+def test_setup_bedrock_failed_probe_declines_retry_manual_model(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "manual", "locked-down.model-x"])
+    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    assert draft.fields["model"] == "locked-down.model-x"
+    assert draft.secret is None
+
+
+def test_setup_bedrock_failed_probe_declines_retry_blank_model_cancels(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "manual", ""])
+    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    assert draft is None
+
+
+def test_setup_bedrock_failed_probe_abort_skips_model_prompt(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "abort"])
+    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    assert draft is None
+
+
+def test_setup_bedrock_token_validation_error_does_not_print_credential_hint(monkeypatch, capsys):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "manual", "some-vendor.model-x"])
+    draft = auth._setup_bedrock(
+        io, prober=lambda region, profile: ([], "ValidationException: input tokens too high")
+    )
+    out = capsys.readouterr().out
+    assert draft.fields["model"] == "some-vendor.model-x"
+    assert "aws sso login" not in out
+    assert "standard AWS credential chain" not in out
+
+
+def test_setup_bedrock_no_models_free_types_model(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "custom-model-id"])
+    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], None))
     assert draft.fields["model"] == "custom-model-id"
     assert draft.secret is None
     assert "effort" not in draft.fields
 
 
-def test_setup_bedrock_cross_region_claude_profile_gets_effort_and_tools():
-    io = ScriptedIO(["us-east-1", "", "us.anthropic.claude-opus-4-8-v1:0", "medium"])
+def test_setup_bedrock_cross_region_claude_profile_gets_effort_and_tools(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    io = ScriptedIO(["", "us-east-1", "", "us.anthropic.claude-opus-4-8-v1:0", "medium"])
     draft = auth._setup_bedrock(
         io, prober=lambda *a: ([{"modelId": "us.anthropic.claude-opus-4-8-v1:0"}], None)
     )
