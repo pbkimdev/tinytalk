@@ -20,7 +20,6 @@ but the module itself must stay cheap to import for `--version`/`--help`.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -42,6 +41,7 @@ KIND_CHOICES = [
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _CLAUDE_CURATED_MODELS = ("claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5")
 _CUSTOM_MODEL = "__custom__"
+_CUSTOM_AWS_PROFILE = "__custom_profile__"
 _NO_EFFORT = "__none__"
 
 
@@ -460,44 +460,40 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
         print(f"tt auth: {exc}")
         return None
     probe = prober or _probe_bedrock
+    endpoint_url = io.text(_("Custom Bedrock endpoint URL (blank = AWS default):"), default="")
+    if endpoint_url is None:
+        return None
+    endpoint_url = endpoint_url or None
     region = io.text(_("AWS region:"), default="us-east-1")
     if not region:
         return None
-    profile = io.text(_("AWS profile (blank = default credential chain):"), default="")
+    profile = _pick_aws_profile(io)
     if profile is None:
         return None
     profile = profile or None
 
-    models, err = probe(region, profile, None, None)
-    if err is not None:
+    while True:
+        models, err = probe(endpoint_url, region, profile)
+        if err is None:
+            break
         print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
-    secret = None
-    if not models:
-        use_explicit = io.confirm(
-            _(
-                "No models discovered with your current AWS credentials. "
-                "Enter an access key pair instead?"
-            ),
-            default=False,
-        )
-        if use_explicit:
-            while True:
-                access_key_id = io.text(_("AWS access key ID:"))
-                secret_access_key = io.password(_("AWS secret access key:"))
-                if not access_key_id or not secret_access_key:
-                    return None
-                models, err = probe(region, profile, access_key_id, secret_access_key)
-                if err is None:
-                    secret = json.dumps(
-                        {
-                            "aws_access_key_id": access_key_id,
-                            "aws_secret_access_key": secret_access_key,
-                        }
+        if _looks_like_aws_credential_error(err):
+            if profile:
+                print(
+                    _("tt auth: run `{command}` in another terminal, then choose retry.").format(
+                        command=f"aws sso login --profile {profile}"
                     )
-                    break
-                print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
-                if not _retry(io):
-                    return None
+                )
+            else:
+                print(
+                    _(
+                        "tt auth: fix the standard AWS credential chain "
+                        "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry."
+                    )
+                )
+        if not _retry(io):
+            models = []
+            break
 
     model_ids = [
         m["modelId"] for m in models if isinstance(m, dict) and isinstance(m.get("modelId"), str)
@@ -517,11 +513,13 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
         "aws_region": region,
         "capabilities": ["tool_calling"] if is_claude else [],
     }
+    if endpoint_url:
+        fields["base_url"] = endpoint_url
     if profile:
         fields["aws_profile"] = profile
     if effort:
         fields["effort"] = effort
-    return BackendDraft(fields=fields, secret=secret)
+    return BackendDraft(fields=fields, secret=None)
 
 
 def _setup_azure_openai(io: WizardIO, *, prober=None) -> BackendDraft | None:
@@ -560,6 +558,46 @@ def _setup_azure_openai(io: WizardIO, *, prober=None) -> BackendDraft | None:
     if effort:
         fields["effort"] = effort
     return BackendDraft(fields=fields, secret=api_key)
+
+
+def _pick_aws_profile(io: WizardIO) -> str | None:
+    profiles = _available_aws_profiles()
+    if not profiles:
+        return io.text(_("AWS profile (blank = default credential chain):"), default="")
+
+    choices = [
+        ("", _("(default AWS credential chain)")),
+        *[(profile, profile) for profile in profiles],
+        (_CUSTOM_AWS_PROFILE, _("(type a different AWS profile)")),
+    ]
+    picked = io.select(_("AWS profile:"), choices)
+    if picked is None:
+        return None
+    if picked == _CUSTOM_AWS_PROFILE:
+        return io.text(_("AWS profile name (blank = default credential chain):"), default="")
+    return picked
+
+
+def _available_aws_profiles() -> list[str]:
+    try:
+        from tinytalk.addons import ensure_bedrock_importable
+
+        ensure_bedrock_importable()
+        import boto3
+    except Exception:
+        return []
+    try:
+        return list(boto3.Session().available_profiles)
+    except Exception:
+        return []
+
+
+def _looks_like_aws_credential_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(
+        marker in lowered
+        for marker in ("credential", "sso", "token", "nocredentials", "unauthorizedsso")
+    )
 
 
 _KIND_SETUP = {
@@ -615,7 +653,7 @@ def _login_codex(api_key: str) -> None:
 
 
 def _probe_bedrock(
-    region: str, profile: str | None, access_key_id: str | None, secret_access_key: str | None
+    endpoint_url: str | None, region: str, profile: str | None
 ) -> tuple[list[dict], str | None]:
     from tinytalk.provider.bedrock import list_foundation_models
 
@@ -624,8 +662,7 @@ def _probe_bedrock(
             list_foundation_models(
                 region=region,
                 profile=profile,
-                aws_access_key_id=access_key_id,
-                aws_secret_access_key=secret_access_key,
+                endpoint_url=endpoint_url,
             ),
             None,
         )
@@ -674,13 +711,15 @@ def _probe_azure_openai(
 
 def _pick_model(io: WizardIO, models: list[str]) -> str | None:
     if not models:
-        return io.text(_("Model id (no models discovered — type one):"))
+        model = io.text(_("Model id (no models discovered — type one):"))
+        return model or None
     choices = [(m, m) for m in models] + [(_CUSTOM_MODEL, _("(type a different model id)"))]
     picked = io.select(_("Model:"), choices)
     if picked is None:
         return None
     if picked == _CUSTOM_MODEL:
-        return io.text(_("Model id:"))
+        model = io.text(_("Model id:"))
+        return model or None
     return picked
 
 

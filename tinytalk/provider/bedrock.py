@@ -7,9 +7,8 @@ a thread via `asyncio.to_thread` so they don't block the event loop. `boto3` is 
 optional extra (`tinytalk[bedrock]`) and is imported lazily so unselected backends never
 pay for it.
 
-Credentials default to boto3's own chain (env vars, `~/.aws/credentials`, IAM role) via
-`region`/`profile` — no secret for tt to manage. An explicit access-key pair is a
-fallback for when that chain doesn't apply.
+Credentials resolve through boto3's own chain (env vars, `~/.aws/credentials`, SSO
+cache, IAM role) via `region`/`profile` — no secret for tt to manage.
 """
 
 from __future__ import annotations
@@ -39,7 +38,10 @@ def is_claude_model(model: str) -> bool:
     """Claude on Bedrock: 'anthropic.claude-*' or a cross-region profile 'us.anthropic.claude-*'."""
     return "anthropic." in model
 
-_INSTALL_HINT = "boto3 is not installed; `uv sync --extra bedrock` (or pip install 'tinytalk[bedrock]')"
+
+_INSTALL_HINT = (
+    "boto3 is not installed; `uv sync --extra bedrock` (or pip install 'tinytalk[bedrock]')"
+)
 
 
 class BedrockError(ProviderError):
@@ -58,8 +60,7 @@ class BedrockProvider:
         *,
         region: str,
         profile: str | None = None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
+        endpoint_url: str | None = None,
         capabilities: Capabilities | None = None,
         client: object | None = None,
         default_effort: str | None = None,
@@ -71,21 +72,22 @@ class BedrockProvider:
         self.capabilities = capabilities or Capabilities()
         self._region = region
         self._profile = profile
-        self._access_key_id = aws_access_key_id
-        self._secret_access_key = aws_secret_access_key
+        self._endpoint_url = endpoint_url
         self._client = client
         self._default_effort = default_effort
 
     async def complete(self, request: CompletionRequest) -> Completion:
-        client = self._client or _build_client(
-            "bedrock-runtime", self._region, self._profile, self._access_key_id, self._secret_access_key
-        )
         payload = self._build_payload(request)
         try:
+            client = self._client or _build_client(
+                "bedrock-runtime", self._region, self._profile, self._endpoint_url
+            )
             response = await asyncio.to_thread(client.converse, **payload)
         except BedrockError:
             raise
         except Exception as exc:  # botocore errors (auth, throttling, validation, transport)
+            if message := _credential_error_message(exc, self._profile):
+                raise BedrockError(message) from exc
             raise BedrockError(f"bedrock converse failed: {exc}") from exc
         return self._parse_response(response)
 
@@ -157,7 +159,9 @@ class BedrockProvider:
                 text = block["text"]
 
         usage = self._parse_usage(response.get("usage") if isinstance(response, dict) else None)
-        return Completion(text=text, tool_calls=tool_calls, usage=usage, model=self.model, raw=response)
+        return Completion(
+            text=text, tool_calls=tool_calls, usage=usage, model=self.model, raw=response
+        )
 
     @staticmethod
     def _parse_usage(raw: object) -> Usage:
@@ -199,8 +203,7 @@ def _build_client(
     service: str,
     region: str,
     profile: str | None,
-    access_key_id: str | None,
-    secret_access_key: str | None,
+    endpoint_url: str | None,
 ):
     from tinytalk.addons import AddonMissing, ensure_bedrock_importable
 
@@ -216,11 +219,8 @@ def _build_client(
         session_kwargs["profile_name"] = profile
     session = boto3.Session(**session_kwargs)
     client_kwargs: dict = {}
-    if access_key_id and secret_access_key:
-        client_kwargs = {
-            "aws_access_key_id": access_key_id,
-            "aws_secret_access_key": secret_access_key,
-        }
+    if endpoint_url:
+        client_kwargs["endpoint_url"] = endpoint_url
     return session.client(service, **client_kwargs)
 
 
@@ -228,8 +228,7 @@ def list_foundation_models(
     *,
     region: str,
     profile: str | None = None,
-    aws_access_key_id: str | None = None,
-    aws_secret_access_key: str | None = None,
+    endpoint_url: str | None = None,
     client: object | None = None,
 ) -> list[dict]:
     """`bedrock.list_foundation_models()` — used by `tt auth` for live model discovery.
@@ -237,9 +236,43 @@ def list_foundation_models(
     Lists the region's model *catalog*, not confirmed per-account entitlement (PRD §3) —
     an unauthorized model choice surfaces as a runtime error on first real use, not here.
     """
-    client = client or _build_client("bedrock", region, profile, aws_access_key_id, aws_secret_access_key)
     try:
+        client = client or _build_client("bedrock", region, profile, endpoint_url)
         response = client.list_foundation_models()
     except Exception as exc:  # botocore errors (auth, throttling, transport)
+        if message := _credential_error_message(exc, profile):
+            raise BedrockError(message) from exc
         raise BedrockError(f"bedrock list_foundation_models failed: {exc}") from exc
     return response.get("modelSummaries", [])
+
+
+def _credential_error_message(exc: Exception, profile: str | None) -> str | None:
+    try:
+        from botocore.exceptions import (
+            NoCredentialsError,
+            SSOTokenLoadError,
+            TokenRetrievalError,
+            UnauthorizedSSOTokenError,
+        )
+    except ImportError:
+        return None
+
+    if not isinstance(
+        exc,
+        (
+            UnauthorizedSSOTokenError,
+            SSOTokenLoadError,
+            TokenRetrievalError,
+            NoCredentialsError,
+        ),
+    ):
+        return None
+    if profile:
+        return (
+            f"bedrock credentials failed for AWS profile {profile!r}; "
+            f"run `aws sso login --profile {profile}` and retry."
+        )
+    return (
+        "bedrock credentials failed; configure the standard AWS credential chain "
+        "(environment, ~/.aws/credentials, SSO, or IAM role) and retry."
+    )

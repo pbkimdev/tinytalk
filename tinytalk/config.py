@@ -239,15 +239,19 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
     if kind in ("openai-compat", "azure-openai") and (
         not isinstance(base_url, str) or not base_url
     ):
+        raise ConfigError(_("{where} kind {kind} requires base_url").format(where=where, kind=kind))
+    if (
+        kind == "bedrock"
+        and base_url is not None
+        and (not isinstance(base_url, str) or not base_url)
+    ):
         raise ConfigError(
-            _("{where} kind {kind} requires base_url").format(where=where, kind=kind)
+            _("{where} bedrock base_url must be a non-empty string").format(where=where)
         )
 
     capabilities = entry.get("capabilities", [])
     if not isinstance(capabilities, list) or not all(isinstance(c, str) for c in capabilities):
-        raise ConfigError(
-            _("{where} capabilities must be a list of strings").format(where=where)
-        )
+        raise ConfigError(_("{where} capabilities must be a list of strings").format(where=where))
     for cap in capabilities:
         if cap not in VALID_CAPABILITIES:
             raise ConfigError(

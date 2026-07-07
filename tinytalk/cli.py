@@ -79,9 +79,7 @@ def build_eval_parser() -> argparse.ArgumentParser:
         metavar="ID,ID",
         help=_("run a subset of the suite (full ids, or bare targets to get every language)"),
     )
-    parser.add_argument(
-        "--export", metavar="PATH", help=_("write results to a .json or .csv file")
-    )
+    parser.add_argument("--export", metavar="PATH", help=_("write results to a .json or .csv file"))
     parser.add_argument(
         "--report", metavar="PATH", help=_("write a self-contained HTML report of the results")
     )
@@ -124,7 +122,9 @@ def build_uninstall_parser() -> argparse.ArgumentParser:
         description="Remove TinyTalk installed files and configured keyring entries.",
     )
     parser.add_argument("--yes", "-y", action="store_true", help="do not prompt for confirmation")
-    parser.add_argument("--keep-config", action="store_true", help="leave ~/.config/tinytalk intact")
+    parser.add_argument(
+        "--keep-config", action="store_true", help="leave ~/.config/tinytalk intact"
+    )
     parser.add_argument(
         "--config", metavar="PATH", help="config file to inspect for keyring accounts"
     )
@@ -350,7 +350,7 @@ def _perform_upgrade(version: str) -> str:
     from tinytalk import addons
 
     if addons.PLATFORM_TAG is None:
-        raise RuntimeError(f"no prebuilt tt release for this platform")
+        raise RuntimeError("no prebuilt tt release for this platform")
     asset = f"tt-{addons.PLATFORM_TAG}.tar.gz"
     url = _release_asset_url(asset, version)
     opener = addons._http_opener
@@ -411,7 +411,6 @@ def _uninstall(args: argparse.Namespace) -> int:
         print(_("tt uninstall: cancelled"), file=sys.stderr)
         return 1
 
-    import os
     import shutil
     from pathlib import Path
 
