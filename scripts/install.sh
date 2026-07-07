@@ -1,7 +1,7 @@
 #!/bin/sh
 # TinyTalk installer — download the prebuilt `tt` binary, wire PATH + the zsh widget.
 #
-#   curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/install.sh | sh
+#   curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
 #
 #   Pin a release tag (either form works):
 #     curl ... | sh -s -- --version v0.2.0rc4     # -s is required when piping into sh
@@ -245,4 +245,5 @@ fi
 say ""
 say 'done. try:   tt "list files by size"      or, in a new shell:   ? show my disk usage'
 say "set up a model:   tt auth"
-say "uninstall:   rm $TT && rm -rf $LIB_DIR/tt   (and remove the 'added by install.sh' blocks from your rc files)"
+say "uninstall:   tt uninstall    (removes files, config, and keyring entries)"
+say "  or, one-liner:   curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/$REPO/main/scripts/uninstall.sh | sh"
