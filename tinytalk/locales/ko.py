@@ -17,6 +17,7 @@ MESSAGES = {
     "  history     browse and reuse past commands\n"
     '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
     "  prompt      print the assembled model prompt for a request (no model call)\n"
+    "  setup       interactively configure TinyTalk step by step\n"
     "  upgrade     download and install the latest tt release\n"
     "  uninstall   remove tt files and keyring entries\n"
     "\n"
@@ -29,6 +30,7 @@ MESSAGES = {
         "  history     과거 명령어를 둘러보고 다시 사용합니다\n"
         '  init zsh    zsh 통합 스크립트를 출력합니다 (eval "$(tt init zsh)")\n'
         "  prompt      요청에 대해 조립된 모델 프롬프트를 출력합니다 (모델 호출 없음)\n"
+        "  setup       TinyTalk를 단계별로 대화형 설정합니다\n"
         "  upgrade     최신 tt 릴리스를 내려받아 설치합니다\n"
         "  uninstall   tt 파일과 키링 항목을 제거합니다\n"
         "\n"
@@ -63,6 +65,9 @@ MESSAGES = {
     "Interactively set up a provider backend (PRD-provider-setup.md).": (
         "프로바이더 백엔드를 대화형으로 설정합니다 (PRD-provider-setup.md)."
     ),
+    # --- tt setup --help ---------------------------------------------------------------
+    "Interactively configure TinyTalk step by step.": "TinyTalk를 단계별로 대화형 설정합니다.",
+    "print manual setup hints": "수동 설정 힌트를 출력합니다",
     # --- cli diagnostics ---------------------------------------------------------------
     "tt: --report-from requires --report PATH": "tt: --report-from은 --report PATH가 필요합니다",
     "tt auth: cancelled": "tt auth: 취소되었습니다",
@@ -273,4 +278,40 @@ MESSAGES = {
         "{path}: [prices]는 모델별 테이블을 담은 테이블이어야 합니다"
     ),
     "{where} prices must be numbers": "{where} 가격은 숫자여야 합니다",
+    # --- branding ------------------------------------------------------------------------
+    "TinyTalk — plain English at the shell": "TinyTalk — 셸에서 쓰는 일상 언어",
+    # --- tt setup wizard -------------------------------------------------------------------
+    "Step 1 of 3 — zsh integration": "1/3단계 — zsh 통합",
+    "Step 2 of 3 — provider": "2/3단계 — 프로바이더",
+    "Step 3 of 3 — language": "3/3단계 — 언어",
+    "Install the tt zsh widget into ~/.zshrc?": "tt zsh 위젯을 ~/.zshrc에 설치할까요?",
+    "✓ zsh widget installed in {path}": "✓ zsh 위젯이 {path}에 설치되었습니다",
+    "✓ zsh widget already installed in {path}": "✓ zsh 위젯이 이미 {path}에 설치되어 있습니다",
+    "Manual zsh setup: {line}": "수동 zsh 설정: {line}",
+    "Reconfigure the primary provider?": "기본 프로바이더를 다시 설정할까요?",
+    "✓ primary provider configured in {path}": "✓ 기본 프로바이더가 {path}에 설정되었습니다",
+    "✓ fallback provider configured in {path}": "✓ 폴백 프로바이더가 {path}에 설정되었습니다",
+    "✓ primary provider already configured in {path}": (
+        "✓ 기본 프로바이더가 이미 {path}에 설정되어 있습니다"
+    ),
+    "Provider setup skipped.": "프로바이더 설정을 건너뛰었습니다.",
+    "✓ language set to {language} in {path}": "✓ 언어가 {path}에서 {language}(으)로 설정되었습니다",
+    "Language setup skipped.": "언어 설정을 건너뛰었습니다.",
+    "Summary": "요약",
+    "✓ {label}: {path}": "✓ {label}: {path}",
+    "Nothing was changed.": "변경된 내용이 없습니다.",
+    "You can re-run `tt setup` anytime.": "언제든 다시 `tt setup`을 실행할 수 있습니다.",
+    "Run 'tt setup' in a terminal to configure TinyTalk interactively.": (
+        "TinyTalk를 대화형으로 설정하려면 터미널에서 'tt setup'을 실행하세요."
+    ),
+    "Provider setup: run `tt auth` when you are ready.": (
+        "프로바이더 설정: 준비되면 `tt auth`를 실행하세요."
+    ),
+    "Language setup: run `tt setup` in a terminal when you are ready.": (
+        "언어 설정: 준비되면 터미널에서 `tt setup`을 실행하세요."
+    ),
+    "zsh integration": "zsh 통합",
+    "primary provider": "기본 프로바이더",
+    "fallback provider": "폴백 프로바이더",
+    "language": "언어",
 }

@@ -14,7 +14,7 @@ from tinytalk.locales.ko import MESSAGES as KO
 # exactly these, so a string extracted elsewhere must be added here to be enforced.
 _SOURCES = [
     Path(__file__).parent.parent / "tinytalk" / name
-    for name in ("cli.py", "auth.py", "config.py")
+    for name in ("cli.py", "auth.py", "config.py", "setup_wizard.py", "branding.py")
 ]
 
 
