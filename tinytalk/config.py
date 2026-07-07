@@ -13,6 +13,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from tinytalk.i18n import _
+
 VALID_KINDS = (
     "openai-compat",
     "anthropic-compat",
@@ -91,7 +93,11 @@ class Config:
         chosen = name or self.default_backend
         if chosen not in self.backends:
             known = ", ".join(sorted(self.backends)) or "(none)"
-            raise ConfigError(f"unknown backend {chosen!r}; defined backends: {known}")
+            raise ConfigError(
+                _("unknown backend {backend!r}; defined backends: {known}").format(
+                    backend=chosen, known=known
+                )
+            )
         return self.backends[chosen]
 
     def price(self, model: str) -> Price:
@@ -122,63 +128,81 @@ def load_config(path: Path | None = None) -> Config:
         raw = path.read_bytes()
     except FileNotFoundError:
         raise ConfigError(
-            f"no config found at {path}\nRun `tt auth` to set one up, or create it by "
-            f"hand — a minimal example:\n\n{_EXAMPLE}"
+            _(
+                "no config found at {path}\nRun `tt auth` to set one up, or create it by "
+                "hand — a minimal example:\n\n{example}"
+            ).format(path=path, example=_EXAMPLE)
         ) from None
     try:
         data = tomllib.loads(raw.decode("utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"invalid TOML in {path}: {exc}") from exc
+        raise ConfigError(
+            _("invalid TOML in {path}: {error}").format(path=path, error=exc)
+        ) from exc
     return _validate(data, path)
 
 
 def _validate(data: dict, path: Path) -> Config:
     defaults = data.get("defaults")
     if not isinstance(defaults, dict) or not isinstance(defaults.get("backend"), str):
-        raise ConfigError(f'{path}: [defaults] must set backend = "<name>"\nExample:\n\n{_EXAMPLE}')
+        raise ConfigError(
+            _('{path}: [defaults] must set backend = "<name>"\nExample:\n\n{example}').format(
+                path=path, example=_EXAMPLE
+            )
+        )
 
     posture = defaults.get("posture", "local")
     if posture not in VALID_POSTURES:
         raise ConfigError(
-            f"{path}: [defaults] posture must be one of {', '.join(VALID_POSTURES)}; "
-            f"got {posture!r}"
+            _("{path}: [defaults] posture must be one of {valid}; got {posture!r}").format(
+                path=path, valid=", ".join(VALID_POSTURES), posture=posture
+            )
         )
 
     language = defaults.get("language", "")
     if not isinstance(language, str):
         raise ConfigError(
-            f'{path}: [defaults] language must be a string (e.g. "ko"); got {language!r}'
+            _('{path}: [defaults] language must be a string (e.g. "ko"); got {language!r}').format(
+                path=path, language=language
+            )
         )
 
     show_explanation = defaults.get("explanation", True)
     if not isinstance(show_explanation, bool):
         raise ConfigError(
-            f"{path}: [defaults] explanation must be true or false; got {show_explanation!r}"
+            _("{path}: [defaults] explanation must be true or false; got {value!r}").format(
+                path=path, value=show_explanation
+            )
         )
 
     raw_backends = data.get("backends")
     if not isinstance(raw_backends, dict) or not raw_backends:
-        raise ConfigError(f"{path}: define at least one [backends.<name>] table")
+        raise ConfigError(
+            _("{path}: define at least one [backends.<name>] table").format(path=path)
+        )
     backends = {name: _validate_backend(name, entry, path) for name, entry in raw_backends.items()}
 
     default_backend = defaults["backend"]
     if default_backend not in backends:
         known = ", ".join(sorted(backends))
         raise ConfigError(
-            f"{path}: [defaults] backend {default_backend!r} is not defined; "
-            f"defined backends: {known}"
+            _(
+                "{path}: [defaults] backend {backend!r} is not defined; defined backends: {known}"
+            ).format(path=path, backend=default_backend, known=known)
         )
     escalation = defaults.get("escalation_backend")
     if escalation is not None and escalation not in backends:
         known = ", ".join(sorted(backends))
         raise ConfigError(
-            f"{path}: [defaults] escalation_backend {escalation!r} is not defined; "
-            f"defined backends: {known}"
+            _(
+                "{path}: [defaults] escalation_backend {backend!r} is not defined; "
+                "defined backends: {known}"
+            ).format(path=path, backend=escalation, known=known)
         )
 
     cache = data.get("cache", {})
     if not isinstance(cache, dict):
-        raise ConfigError(f"{path}: [cache] must be a table")
+        raise ConfigError(_("{path}: [cache] must be a table").format(path=path))
     cache_dir = Path(cache["dir"]).expanduser() if isinstance(cache.get("dir"), str) else None
 
     return Config(
@@ -197,58 +221,74 @@ def _validate(data: dict, path: Path) -> Config:
 def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
     where = f"{path}: [backends.{name}]"
     if not isinstance(entry, dict):
-        raise ConfigError(f"{where} must be a table")
+        raise ConfigError(_("{where} must be a table").format(where=where))
 
     kind = entry.get("kind")
     if kind not in VALID_KINDS:
-        raise ConfigError(f"{where} kind must be one of {', '.join(VALID_KINDS)}; got {kind!r}")
+        raise ConfigError(
+            _("{where} kind must be one of {valid}; got {kind!r}").format(
+                where=where, valid=", ".join(VALID_KINDS), kind=kind
+            )
+        )
 
     model = entry.get("model")
     if not isinstance(model, str) or not model:
-        raise ConfigError(f'{where} must set model = "<model-id>"')
+        raise ConfigError(_('{where} must set model = "<model-id>"').format(where=where))
 
     base_url = entry.get("base_url")
     if kind in ("openai-compat", "azure-openai") and (
         not isinstance(base_url, str) or not base_url
     ):
-        raise ConfigError(f"{where} kind {kind} requires base_url")
+        raise ConfigError(
+            _("{where} kind {kind} requires base_url").format(where=where, kind=kind)
+        )
 
     capabilities = entry.get("capabilities", [])
     if not isinstance(capabilities, list) or not all(isinstance(c, str) for c in capabilities):
-        raise ConfigError(f"{where} capabilities must be a list of strings")
+        raise ConfigError(
+            _("{where} capabilities must be a list of strings").format(where=where)
+        )
     for cap in capabilities:
         if cap not in VALID_CAPABILITIES:
             raise ConfigError(
-                f"{where} unknown capability {cap!r}; valid: {', '.join(VALID_CAPABILITIES)}"
+                _("{where} unknown capability {capability!r}; valid: {valid}").format(
+                    where=where, capability=cap, valid=", ".join(VALID_CAPABILITIES)
+                )
             )
 
     api_key_env = entry.get("api_key_env")
     if api_key_env is not None and not isinstance(api_key_env, str):
-        raise ConfigError(f"{where} api_key_env must be a string")
+        raise ConfigError(_("{where} api_key_env must be a string").format(where=where))
 
     keyring_account = entry.get("keyring_account")
     if keyring_account is not None and not isinstance(keyring_account, str):
-        raise ConfigError(f"{where} keyring_account must be a string")
+        raise ConfigError(_("{where} keyring_account must be a string").format(where=where))
 
     effort = entry.get("effort")
     if effort is not None and effort not in VALID_EFFORTS:
-        raise ConfigError(f"{where} unknown effort {effort!r}; valid: {', '.join(VALID_EFFORTS)}")
+        raise ConfigError(
+            _("{where} unknown effort {effort!r}; valid: {valid}").format(
+                where=where, effort=effort, valid=", ".join(VALID_EFFORTS)
+            )
+        )
 
     aws_region = entry.get("aws_region")
     if aws_region is not None and not isinstance(aws_region, str):
-        raise ConfigError(f"{where} aws_region must be a string")
+        raise ConfigError(_("{where} aws_region must be a string").format(where=where))
     if kind == "bedrock" and not aws_region:
-        raise ConfigError(f"{where} kind bedrock requires aws_region")
+        raise ConfigError(_("{where} kind bedrock requires aws_region").format(where=where))
 
     aws_profile = entry.get("aws_profile")
     if aws_profile is not None and not isinstance(aws_profile, str):
-        raise ConfigError(f"{where} aws_profile must be a string")
+        raise ConfigError(_("{where} aws_profile must be a string").format(where=where))
 
     azure_api_version = entry.get("azure_api_version")
     if azure_api_version is not None and not isinstance(azure_api_version, str):
-        raise ConfigError(f"{where} azure_api_version must be a string")
+        raise ConfigError(_("{where} azure_api_version must be a string").format(where=where))
     if kind == "azure-openai" and not azure_api_version:
-        raise ConfigError(f"{where} kind azure-openai requires azure_api_version")
+        raise ConfigError(
+            _("{where} kind azure-openai requires azure_api_version").format(where=where)
+        )
 
     return BackendConfig(
         name=name,
@@ -267,12 +307,14 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
 
 def _validate_prices(raw: object, path: Path) -> dict[str, Price]:
     if not isinstance(raw, dict):
-        raise ConfigError(f"{path}: [prices] must be a table of per-model tables")
+        raise ConfigError(
+            _("{path}: [prices] must be a table of per-model tables").format(path=path)
+        )
     prices: dict[str, Price] = {}
     for model, entry in raw.items():
         where = f'{path}: [prices."{model}"]'
         if not isinstance(entry, dict):
-            raise ConfigError(f"{where} must be a table")
+            raise ConfigError(_("{where} must be a table").format(where=where))
         try:
             prices[model] = Price(
                 input_per_mtok=float(entry.get("input_per_mtok", 0.0)),
@@ -281,5 +323,5 @@ def _validate_prices(raw: object, path: Path) -> dict[str, Price]:
                 cache_write_per_mtok=float(entry.get("cache_write_per_mtok", 0.0)),
             )
         except (TypeError, ValueError):
-            raise ConfigError(f"{where} prices must be numbers") from None
+            raise ConfigError(_("{where} prices must be numbers").format(where=where)) from None
     return prices

@@ -26,14 +26,17 @@ from pathlib import Path
 from typing import Protocol
 
 from tinytalk.config import env_language
+from tinytalk.i18n import N_, _
 
+# Labels are N_-marked (extracted into the catalog, translated with `_()` at display
+# time) so the module constant keeps the English source text.
 KIND_CHOICES = [
-    ("openai-compat", "OpenAI-compatible HTTP API (OpenAI itself, Ollama, llama.cpp, ...)"),
-    ("anthropic-compat", "Anthropic Messages API (raw HTTP, not the Agent SDK)"),
-    ("claude-agent-sdk", "Claude Agent SDK (Claude Code login or ANTHROPIC_API_KEY)"),
-    ("codex-agent-sdk", "OpenAI Codex Agent SDK (local codex CLI login)"),
-    ("bedrock", "AWS Bedrock (uses your AWS credentials)"),
-    ("azure-openai", "Azure OpenAI (endpoint + API key)"),
+    ("openai-compat", N_("OpenAI-compatible HTTP API (OpenAI itself, Ollama, llama.cpp, ...)")),
+    ("anthropic-compat", N_("Anthropic Messages API (raw HTTP, not the Agent SDK)")),
+    ("claude-agent-sdk", N_("Claude Agent SDK (Claude Code login or ANTHROPIC_API_KEY)")),
+    ("codex-agent-sdk", N_("OpenAI Codex Agent SDK (local codex CLI login)")),
+    ("bedrock", N_("AWS Bedrock (uses your AWS credentials)")),
+    ("azure-openai", N_("Azure OpenAI (endpoint + API key)")),
 ]
 
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
@@ -117,8 +120,8 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
             ("fallback", _slot_label("fallback", backends)),
         ]
         if "fallback" in backends or defaults.get("escalation_backend"):
-            choices.append(("remove-fallback", "remove fallback"))
-        slot = io.select("Which backend do you want to set up?", choices)
+            choices.append(("remove-fallback", _("remove fallback")))
+        slot = io.select(_("Which backend do you want to set up?"), choices)
         if slot is None:
             return None
         if slot == "remove-fallback":
@@ -129,12 +132,14 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     replaced = backends[slot] if slot in backends else None
     if replaced is not None:
         if not io.confirm(
-            f"Writing a new {slot} will replace the existing one ({_describe(replaced)}). Continue?",
+            _("Writing a new {slot} will replace the existing one ({current}). Continue?").format(
+                slot=slot, current=_describe(replaced)
+            ),
             default=False,
         ):
             return None
 
-    kind = io.select("Provider kind:", KIND_CHOICES)
+    kind = io.select(_("Provider kind:"), [(value, _(label)) for value, label in KIND_CHOICES])
     if kind is None:
         return None
 
@@ -145,7 +150,9 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     language = None
     if slot == "primary":
         current = str(defaults.get("language") or env_language())
-        language = io.text('Explanation language (code or name, e.g. "en", "ko"):', default=current)
+        language = io.text(
+            _('Explanation language (code or name, e.g. "en", "ko"):'), default=current
+        )
         if language is None:
             return None
 
@@ -154,10 +161,10 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
         if value:
             print(f"  {key} = {value!r}")
     if draft.secret:
-        print("  (API key/credentials → OS keychain, not the file)")
+        print(_("  (API key/credentials → OS keychain, not the file)"))
     if language:
         print(f"  [defaults] language = {language!r}")
-    if not io.confirm(f"Write this to {config_path}?", default=True):
+    if not io.confirm(_("Write this to {path}?").format(path=config_path), default=True):
         return None
 
     stale_account = replaced.get("keyring_account") if replaced is not None else None
@@ -182,8 +189,8 @@ def _remove_fallback(doc, config_path: Path, io: WizardIO) -> str | None:
     """Retire the fallback: defaults key, slot table, and its (unshared) secret (#86)."""
     backends = doc["backends"] if "backends" in doc else {}
     current = backends["fallback"] if "fallback" in backends else None
-    what = _describe(current) if current is not None else "config entry only"
-    if not io.confirm(f"Remove the fallback ({what})?", default=False):
+    what = _describe(current) if current is not None else _("config entry only")
+    if not io.confirm(_("Remove the fallback ({what})?").format(what=what), default=False):
         return None
     stale_account = current.get("keyring_account") if current is not None else None
     if current is not None:
@@ -204,7 +211,7 @@ def _account_referenced(doc, account: str) -> bool:
 def _slot_label(slot: str, backends) -> str:
     if slot in backends:
         return f"{slot} — {_describe(backends[slot])}"
-    return f"{slot} — (not set)"
+    return _("{slot} — (not set)").format(slot=slot)
 
 
 def _describe(table) -> str:
@@ -250,8 +257,8 @@ def _is_local(host: str) -> bool:
 
 def _retry(io: WizardIO) -> bool:
     action = io.select(
-        "The credential test failed.",
-        [("retry", "Re-enter and try again"), ("abort", "Abort setup")],
+        _("The credential test failed."),
+        [("retry", _("Re-enter and try again")), ("abort", _("Abort setup"))],
     )
     return action == "retry"
 
@@ -261,10 +268,10 @@ def _retry(io: WizardIO) -> bool:
 
 def _setup_openai_compat(io: WizardIO, *, prober=None, provisioner=None) -> BackendDraft | None:
     mode = io.select(
-        "Connect an OpenAI-compatible server:",
+        _("Connect an OpenAI-compatible server:"),
         [
-            ("managed", "Set up local Gemma + server for me (recommended)"),
-            ("manual", "I already have a server — enter its base URL"),
+            ("managed", _("Set up local Gemma + server for me (recommended)")),
+            ("manual", _("I already have a server — enter its base URL")),
         ],
     )
     if mode is None:
@@ -277,7 +284,11 @@ def _setup_openai_compat(io: WizardIO, *, prober=None, provisioner=None) -> Back
         try:
             draft = provisioner(io)
         except Exception as exc:  # managed setup is best-effort; never crash the wizard
-            print(f"tt auth: managed local setup failed ({exc}) — falling back to manual setup.")
+            print(
+                _(
+                    "tt auth: managed local setup failed ({error}) — falling back to manual setup."
+                ).format(error=exc)
+            )
             draft = None
         if draft is not None:
             return draft
@@ -290,17 +301,21 @@ def _setup_openai_compat_manual(io: WizardIO, *, prober=None) -> BackendDraft | 
     probe = prober or _probe_openai_compat
     base_url_default = "http://localhost:11434/v1"
     while True:
-        base_url = io.text("Base URL:", default=base_url_default)
+        base_url = io.text(_("Base URL:"), default=base_url_default)
         if not base_url:
             return None
-        api_key = io.password("API key (leave blank for a keyless local server):")
+        api_key = io.password(_("API key (leave blank for a keyless local server):"))
         if api_key is None:
             return None
         api_key = api_key or None
         models, err = probe(base_url, api_key)
         if err is None:
             break
-        print(f"tt auth: credential test against {base_url} failed: {err}")
+        print(
+            _("tt auth: credential test against {base_url} failed: {error}").format(
+                base_url=base_url, error=err
+            )
+        )
         if not _retry(io):
             return None
         base_url_default = base_url
@@ -327,16 +342,20 @@ def _setup_anthropic_compat(io: WizardIO, *, prober=None) -> BackendDraft | None
     probe = prober or _probe_anthropic_compat
     base_url_default = _DEFAULT_ANTHROPIC_BASE_URL
     while True:
-        base_url = io.text("Base URL:", default=base_url_default)
+        base_url = io.text(_("Base URL:"), default=base_url_default)
         if not base_url:
             return None
-        api_key = io.password("API key:")
+        api_key = io.password(_("API key:"))
         if not api_key:
             return None
         models, err = probe(base_url, api_key)
         if err is None:
             break
-        print(f"tt auth: credential test against {base_url} failed: {err}")
+        print(
+            _("tt auth: credential test against {base_url} failed: {error}").format(
+                base_url=base_url, error=err
+            )
+        )
         if not _retry(io):
             return None
         base_url_default = base_url
@@ -371,8 +390,10 @@ def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None
         return None
     probe = prober or _probe_claude_agent
     print(
-        "Auth follows the Claude Agent SDK's own convention: an existing `claude` CLI "
-        "login, or ANTHROPIC_API_KEY set in your environment. tt manages no secret here."
+        _(
+            "Auth follows the Claude Agent SDK's own convention: an existing `claude` CLI "
+            "login, or ANTHROPIC_API_KEY set in your environment. tt manages no secret here."
+        )
     )
     model = _pick_model(io, list(_CLAUDE_CURATED_MODELS))
     if model is None:
@@ -380,10 +401,12 @@ def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None
     while True:
         err = probe(model)
         if err is None:
-            print("tt auth: Claude Agent SDK test call succeeded.")
+            print(_("tt auth: Claude Agent SDK test call succeeded."))
             break
-        print(f"tt auth: Claude Agent SDK test call failed: {err}")
-        print("(log in with `claude` in another terminal, or export ANTHROPIC_API_KEY, then retry)")
+        print(_("tt auth: Claude Agent SDK test call failed: {error}").format(error=err))
+        print(
+            _("(log in with `claude` in another terminal, or export ANTHROPIC_API_KEY, then retry)")
+        )
         if not _retry(io):
             return None
     effort = _pick_effort(io, ("low", "medium", "high", "xhigh", "max"))
@@ -394,19 +417,19 @@ def _setup_claude_agent_sdk(io: WizardIO, *, prober=None) -> BackendDraft | None
 
 
 def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendDraft | None:
-    already = io.confirm("Already logged in via the Codex CLI?", default=True)
+    already = io.confirm(_("Already logged in via the Codex CLI?"), default=True)
     if already is None:
         return None
     if not already:
         api_key = io.password(
-            "OpenAI API key (persists into the Codex CLI's own login, not stored by tt):"
+            _("OpenAI API key (persists into the Codex CLI's own login, not stored by tt):")
         )
         if not api_key:
             return None
         try:
             (login or _login_codex)(api_key)
         except Exception as exc:
-            print(f"tt auth: codex login failed: {exc}")
+            print(_("tt auth: codex login failed: {error}").format(error=exc))
             return None
 
     probe = prober or _probe_codex
@@ -414,7 +437,7 @@ def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendD
         models, err = probe()
         if err is None:
             break
-        print(f"tt auth: codex model discovery failed: {err}")
+        print(_("tt auth: codex model discovery failed: {error}").format(error=err))
         if not _retry(io):
             return None
 
@@ -437,28 +460,30 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
         print(f"tt auth: {exc}")
         return None
     probe = prober or _probe_bedrock
-    region = io.text("AWS region:", default="us-east-1")
+    region = io.text(_("AWS region:"), default="us-east-1")
     if not region:
         return None
-    profile = io.text("AWS profile (blank = default credential chain):", default="")
+    profile = io.text(_("AWS profile (blank = default credential chain):"), default="")
     if profile is None:
         return None
     profile = profile or None
 
     models, err = probe(region, profile, None, None)
     if err is not None:
-        print(f"tt auth: bedrock credential test failed: {err}")
+        print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
     secret = None
     if not models:
         use_explicit = io.confirm(
-            "No models discovered with your current AWS credentials. "
-            "Enter an access key pair instead?",
+            _(
+                "No models discovered with your current AWS credentials. "
+                "Enter an access key pair instead?"
+            ),
             default=False,
         )
         if use_explicit:
             while True:
-                access_key_id = io.text("AWS access key ID:")
-                secret_access_key = io.password("AWS secret access key:")
+                access_key_id = io.text(_("AWS access key ID:"))
+                secret_access_key = io.password(_("AWS secret access key:"))
                 if not access_key_id or not secret_access_key:
                     return None
                 models, err = probe(region, profile, access_key_id, secret_access_key)
@@ -470,7 +495,7 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
                         }
                     )
                     break
-                print(f"tt auth: bedrock credential test failed: {err}")
+                print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
                 if not _retry(io):
                     return None
 
@@ -502,25 +527,25 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
 def _setup_azure_openai(io: WizardIO, *, prober=None) -> BackendDraft | None:
     probe = prober or _probe_azure_openai
     while True:
-        endpoint = io.text("Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com):")
+        endpoint = io.text(_("Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com):"))
         if not endpoint:
             return None
-        api_version = io.text("API version (e.g. 2026-01-01-preview):")
+        api_version = io.text(_("API version (e.g. 2026-01-01-preview):"))
         if not api_version:
             return None
         deployment = io.text(
-            "Deployment name (Azure has no key-only discovery API — type it exactly):"
+            _("Deployment name (Azure has no key-only discovery API — type it exactly):")
         )
         if not deployment:
             return None
-        api_key = io.password("API key:")
+        api_key = io.password(_("API key:"))
         if not api_key:
             return None
         err = probe(endpoint, deployment, api_version, api_key)
         if err is None:
-            print("tt auth: Azure OpenAI test call succeeded.")
+            print(_("tt auth: Azure OpenAI test call succeeded."))
             break
-        print(f"tt auth: Azure OpenAI test call failed: {err}")
+        print(_("tt auth: Azure OpenAI test call failed: {error}").format(error=err))
         if not _retry(io):
             return None
 
@@ -649,21 +674,21 @@ def _probe_azure_openai(
 
 def _pick_model(io: WizardIO, models: list[str]) -> str | None:
     if not models:
-        return io.text("Model id (no models discovered — type one):")
-    choices = [(m, m) for m in models] + [(_CUSTOM_MODEL, "(type a different model id)")]
-    picked = io.select("Model:", choices)
+        return io.text(_("Model id (no models discovered — type one):"))
+    choices = [(m, m) for m in models] + [(_CUSTOM_MODEL, _("(type a different model id)"))]
+    picked = io.select(_("Model:"), choices)
     if picked is None:
         return None
     if picked == _CUSTOM_MODEL:
-        return io.text("Model id:")
+        return io.text(_("Model id:"))
     return picked
 
 
 def _pick_effort(io: WizardIO, levels: tuple[str, ...]) -> str | None:
     if not levels:
         return None
-    choices = [(_NO_EFFORT, "(default — don't set one)")] + [(lv, lv) for lv in levels]
-    picked = io.select("Reasoning effort:", choices)
+    choices = [(_NO_EFFORT, _("(default — don't set one)"))] + [(lv, lv) for lv in levels]
+    picked = io.select(_("Reasoning effort:"), choices)
     if picked in (None, _NO_EFFORT):
         return None
     return picked

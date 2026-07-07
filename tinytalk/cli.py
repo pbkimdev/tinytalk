@@ -17,6 +17,7 @@ import os
 import sys
 
 from tinytalk import __version__
+from tinytalk.i18n import _
 
 # How many recent records `tt history` reads before deduping — shared by the porcelain
 # widget feed and the plaintext viewer.
@@ -26,8 +27,8 @@ _PORCELAIN_LIMIT = 1000
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tt",
-        description="Turn plain English at the shell into a real, validated command.",
-        epilog=(
+        description=_("Turn plain English at the shell into a real, validated command."),
+        epilog=_(
             "commands:\n"
             "  auth        interactively set up a provider backend\n"
             "  config      change a setting in config.toml (e.g. `tt config explanation off`)\n"
@@ -45,21 +46,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"tt {__version__}")
     parser.add_argument(
-        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+        "--config", metavar="PATH", help=_("config file (default: ~/.config/tinytalk)")
     )
     parser.add_argument(
-        "--backend", metavar="NAME", help="backend from config (default: defaults.backend)"
+        "--backend", metavar="NAME", help=_("backend from config (default: defaults.backend)")
     )
-    parser.add_argument("--json", action="store_true", help="emit the full suggestion as JSON")
+    parser.add_argument("--json", action="store_true", help=_("emit the full suggestion as JSON"))
     parser.add_argument(
         "--widget",
         action="store_true",
-        help="emit shell-evalable tt_* assignments (used by the zsh widget)",
+        help=_("emit shell-evalable tt_* assignments (used by the zsh widget)"),
     )
     parser.add_argument(
         "request",
         nargs="*",
-        help="what you want to do, in plain English",
+        help=_("what you want to do, in plain English"),
     )
     return parser
 
@@ -67,30 +68,32 @@ def build_parser() -> argparse.ArgumentParser:
 def build_eval_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tt eval",
-        description="Benchmark configured backends over the built-in prompt suite.",
+        description=_("Benchmark configured backends over the built-in prompt suite."),
     )
     parser.add_argument(
-        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+        "--config", metavar="PATH", help=_("config file (default: ~/.config/tinytalk)")
     )
-    parser.add_argument("--backends", metavar="A,B", help="backends to score (default: all)")
+    parser.add_argument("--backends", metavar="A,B", help=_("backends to score (default: all)"))
     parser.add_argument(
         "--prompts",
         metavar="ID,ID",
-        help="run a subset of the suite (full ids, or bare targets to get every language)",
+        help=_("run a subset of the suite (full ids, or bare targets to get every language)"),
     )
-    parser.add_argument("--export", metavar="PATH", help="write results to a .json or .csv file")
     parser.add_argument(
-        "--report", metavar="PATH", help="write a self-contained HTML report of the results"
+        "--export", metavar="PATH", help=_("write results to a .json or .csv file")
+    )
+    parser.add_argument(
+        "--report", metavar="PATH", help=_("write a self-contained HTML report of the results")
     )
     parser.add_argument(
         "--report-from",
         metavar="JSON",
-        help="re-render --report from a previous --export .json instead of running",
+        help=_("re-render --report from a previous --export .json instead of running"),
     )
     parser.add_argument(
         "--data-preview",
         action="store_true",
-        help="eval-only: include read-only fixture file previews in scored prompts",
+        help=_("eval-only: include read-only fixture file previews in scored prompts"),
     )
     return parser
 
@@ -98,10 +101,10 @@ def build_eval_parser() -> argparse.ArgumentParser:
 def build_auth_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tt auth",
-        description="Interactively set up a provider backend (PRD-provider-setup.md).",
+        description=_("Interactively set up a provider backend (PRD-provider-setup.md)."),
     )
     parser.add_argument(
-        "--config", metavar="PATH", help="config file (default: ~/.config/tinytalk)"
+        "--config", metavar="PATH", help=_("config file (default: ~/.config/tinytalk)")
     )
     return parser
 
@@ -247,7 +250,7 @@ def _eval(args: argparse.Namespace) -> int:
     from tinytalk.eval.runner import export, render_leaderboard, render_matrix, run_eval
 
     if args.report_from and not args.report:
-        print("tt: --report-from requires --report PATH", file=sys.stderr)
+        print(_("tt: --report-from requires --report PATH"), file=sys.stderr)
         return 2
     try:
         if args.report_from:
@@ -302,21 +305,26 @@ def _auth(args: argparse.Namespace) -> int:
     config_path = Path(args.config) if args.config else default_config_path()
     result = run_auth_wizard(config_path, QuestionaryIO())
     if result is None:
-        print("tt auth: cancelled", file=sys.stderr)
+        print(_("tt auth: cancelled"), file=sys.stderr)
         return 1
     try:
         config = load_config(config_path)
     except ConfigError as exc:  # should never happen — surface loudly if it does
-        print(f"tt: the written config failed validation: {exc}", file=sys.stderr)
+        print(
+            _("tt: the written config failed validation: {error}").format(error=exc),
+            file=sys.stderr,
+        )
         return 1
     # A returned slot that is absent from the loaded config was removed, not set up.
-    action = "saved to" if result in config.backends else "removed from"
-    print(f"tt: backend {result!r} {action} {config_path}")
-    line = f"default backend: {config.default_backend}"
+    if result in config.backends:
+        print(_("tt: backend {name!r} saved to {path}").format(name=result, path=config_path))
+    else:
+        print(_("tt: backend {name!r} removed from {path}").format(name=result, path=config_path))
+    line = _("default backend: {name}").format(name=config.default_backend)
     if config.escalation_backend:
-        line += f"; fallback: {config.escalation_backend}"
+        line += _("; fallback: {name}").format(name=config.escalation_backend)
     print(line)
-    print('Try it: tt "show me disk usage"')
+    print(_('Try it: tt "show me disk usage"'))
     return 0
 
 
@@ -326,7 +334,7 @@ def _upgrade(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"tt upgrade: {exc}", file=sys.stderr)
         return 1
-    print(f"tt: upgraded to {new_version}")
+    print(_("tt: upgraded to {version}").format(version=new_version))
     return 0
 
 
@@ -399,8 +407,8 @@ def _perform_upgrade(version: str) -> str:
 
 
 def _uninstall(args: argparse.Namespace) -> int:
-    if not args.yes and not _confirm("Remove TinyTalk installed files and keyring entries?"):
-        print("tt uninstall: cancelled", file=sys.stderr)
+    if not args.yes and not _confirm(_("Remove TinyTalk installed files and keyring entries?")):
+        print(_("tt uninstall: cancelled"), file=sys.stderr)
         return 1
 
     import os
@@ -553,7 +561,10 @@ def _config(args: argparse.Namespace) -> int:
     try:
         load_config(config_path)
     except ConfigError as exc:  # should never happen — surface loudly if it does
-        print(f"tt: the written config failed validation: {exc}", file=sys.stderr)
+        print(
+            _("tt: the written config failed validation: {error}").format(error=exc),
+            file=sys.stderr,
+        )
         return 1
     state = "shown" if args.value == "on" else "hidden"
     print(f"tt: explanation {state} ({config_path})")
@@ -663,7 +674,7 @@ def _history(args: argparse.Namespace) -> int:
             )  # NUL-terminated: `read -r -d ''` safe
         return 0
     if not records:
-        print("tt: no history yet", file=sys.stderr)  # friendly empty state (spec-C1)
+        print(_("tt: no history yet"), file=sys.stderr)  # friendly empty state (spec-C1)
         return 0
     if _use_fzf():
         try:
@@ -1023,10 +1034,10 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
     except NoValidCommand as exc:
         backend = exc.backend or backend_cfg.name
         if exc.kind == "transport":
-            message = f"backend {backend!r} failed: {exc}"
+            message = _("backend {backend!r} failed: {error}").format(backend=backend, error=exc)
             print(f"tt: {message}", file=sys.stderr)
         else:
-            message = f"no valid command: {exc}"
+            message = _("no valid command: {error}").format(error=exc)
             print(f"tt: {message}", file=sys.stderr)
         if args.widget:
             _emit_widget(tt_error_kind=exc.kind, tt_error_message=message, tt_backend=backend)
@@ -1043,8 +1054,13 @@ def _run(args: argparse.Namespace, request_text: str) -> int:
         )
         return 1
     except Exception as exc:  # provider/transport faults — keep the shell usable
-        subject = f"backend {backend_name!r}" if backend_name else "backend"
-        message = f"{subject} failed: {type(exc).__name__}: {exc}"
+        error = f"{type(exc).__name__}: {exc}"
+        if backend_name:
+            message = _("backend {backend!r} failed: {error}").format(
+                backend=backend_name, error=error
+            )
+        else:
+            message = _("backend failed: {error}").format(error=error)
         print(f"tt: {message}", file=sys.stderr)
         if args.widget:
             _emit_widget(
