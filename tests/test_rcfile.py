@@ -18,7 +18,6 @@ from tinytalk.rcfile import ZSH_MARKER, ensure_block, has_block, remove_block, z
 
 REPO = Path(__file__).resolve().parent.parent
 UNINSTALL = REPO / "scripts" / "uninstall.sh"
-INSTALL = REPO / "scripts" / "install.sh"
 
 MARKER = "# marker"
 BLOCK = "line one\nline two\n"
@@ -113,12 +112,11 @@ def test_zsh_integration_block_matches_install_sh_output():
     )
 
 
-def test_marker_matches_scripts_install_and_uninstall_sh():
+def test_marker_matches_scripts_uninstall_sh():
     """Source-consistency check: the marker rcfile.py writes must be the same
-    literal string both shell scripts key off of."""
-    install_text = INSTALL.read_text()
+    literal string uninstall.sh keys off of. (install.sh no longer writes the
+    block itself — `tt setup` does, via this module; #131.)"""
     uninstall_text = UNINSTALL.read_text()
-    assert f'"{ZSH_MARKER}"' in install_text
     assert f'"{ZSH_MARKER}"' in uninstall_text
 
 

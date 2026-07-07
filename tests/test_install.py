@@ -1,5 +1,6 @@
-"""Installer (#58, binary-downloader rewrite): unpack the --onedir bundle, symlink
-its launcher onto PATH, scaffold config, wire PATH + the ? widget.
+"""Installer (#58, binary-downloader rewrite; #131, tt-setup handoff): unpack the
+--onedir bundle, symlink its launcher onto PATH, scaffold config, wire PATH, and
+hand off zsh-widget/model/language setup to `tt setup`.
 
 Hermetic — the download is short-circuited with `TT_BINARY` (a local bundle) or a
 stubbed `curl`, so these tests never touch the network. The bundle mirrors what the
@@ -19,7 +20,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 INSTALL = REPO / "scripts" / "install.sh"
-MARKER = "# tt zsh integration (added by install.sh)"
 PATH_MARKER = "# tt PATH (added by install.sh)"
 INSTALLED = "installed: tt 0.0.1"  # the launcher stub reports this version
 
@@ -93,8 +93,16 @@ def sandbox(tmp_path):
 
 
 def run_install(env: dict, *args: str) -> subprocess.CompletedProcess:
+    # start_new_session detaches the controlling terminal, so /dev/tty exists but
+    # won't open — every run here is deterministically "headless" even when pytest
+    # itself runs from an interactive terminal (install.sh probes openability).
     return subprocess.run(
-        ["sh", str(INSTALL), *args], env=env, capture_output=True, text=True, timeout=30
+        ["sh", str(INSTALL), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        start_new_session=True,
     )
 
 
@@ -123,23 +131,20 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert "\n[backends.local]" not in text
     assert '# [backends.local]' in text
 
-    zshrc = (home / ".zshrc").read_text()
-    assert zshrc.count(MARKER) == 1
-    assert PATH_MARKER not in zshrc  # the bin dir was already on PATH — no PATH block
-    assert '"$_tt_bin" init zsh' in zshrc  # the cached-init widget block, not a raw eval
+    # the zsh widget and model setup are handed off to `tt setup` now, not written here
+    assert not (home / ".zshrc").exists()
+    assert "setup: run 'tt setup'" in proc.stdout
 
 
 def test_second_run_changes_nothing(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes").returncode == 0
     config = home / ".config" / "tinytalk" / "config.toml"
-    zshrc = home / ".zshrc"
-    config_before, zshrc_before = config.read_text(), zshrc.read_text()
+    config_before = config.read_text()
 
     assert run_install(env, "--yes").returncode == 0
     assert config.read_text() == config_before
-    assert zshrc.read_text() == zshrc_before
-    assert zshrc.read_text().count(MARKER) == 1
+    assert not (home / ".zshrc").exists()  # install.sh never writes it under --yes
 
 
 def test_existing_config_and_zshrc_content_untouched(sandbox):
@@ -151,9 +156,7 @@ def test_existing_config_and_zshrc_content_untouched(sandbox):
 
     assert run_install(env, "--yes").returncode == 0
     assert (config_dir / "config.toml").read_text() == "# my precious config\n"
-    zshrc = (home / ".zshrc").read_text()
-    assert zshrc.startswith("# my precious zshrc\n")
-    assert zshrc.count(MARKER) == 1  # appended once, nothing replaced
+    assert (home / ".zshrc").read_text() == "# my precious zshrc\n"  # left untouched
 
 
 def test_install_warms_grounding_cache(sandbox):
@@ -181,7 +184,7 @@ def test_failing_ground_does_not_fail_install(tmp_path):
     env = {"HOME": str(home), "PATH": f"{home}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle)}
     proc = run_install(env, "--yes")
     assert proc.returncode == 0, proc.stderr
-    assert (home / ".zshrc").read_text().count(MARKER) == 1  # later steps still ran
+    assert "setup: run 'tt setup'" in proc.stdout  # later steps still ran
 
 
 def test_no_rc_flag_skips_zshrc(sandbox):
@@ -190,34 +193,51 @@ def test_no_rc_flag_skips_zshrc(sandbox):
     assert not (home / ".zshrc").exists()
 
 
-def test_auth_nudge_skips_for_yes_no_rc_or_headless(sandbox, tmp_path):
+def test_setup_handoff_skips_for_yes_no_rc_or_headless(sandbox, tmp_path):
     # --yes means "non-interactive, auto-accept rc edits" for scripts/CI — it must NOT
-    # launch the interactive tt auth wizard.
+    # launch the interactive `tt setup` wizard; --no-rc must not either.
     home, env, tt_log = sandbox
-    assert run_install(env, "--yes").returncode == 0
-    assert "auth\n" not in tt_log.read_text()
+    proc = run_install(env, "--yes")
+    assert proc.returncode == 0, proc.stderr
+    assert "setup --from-install" not in tt_log.read_text()
+    assert "setup: run 'tt setup'" in proc.stdout
 
     home2 = tmp_path / "home2"
     home2.mkdir()
     tt_log2 = tmp_path / "tt2.log"
     bundle2 = make_bundle(tmp_path, tt_log2, tag="no-rc")
     env2 = {"HOME": str(home2), "PATH": f"{home2}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle2)}
-    assert run_install(env2, "--yes", "--no-rc").returncode == 0
-    assert "auth\n" not in tt_log2.read_text()
+    proc2 = run_install(env2, "--no-rc")
+    assert proc2.returncode == 0, proc2.stderr
+    assert "setup --from-install" not in tt_log2.read_text()
+    assert "setup: run 'tt setup'" in proc2.stdout
 
+    # a genuinely headless run (no flags, run_install detaches the controlling tty)
+    # must not invoke the wizard either — install.sh probes /dev/tty openability,
+    # not mere existence, and falls through to the hint.
     home3 = tmp_path / "home3"
     home3.mkdir()
     tt_log3 = tmp_path / "tt3.log"
     bundle3 = make_bundle(tmp_path, tt_log3, tag="headless")
     env3 = {"HOME": str(home3), "PATH": f"{home3}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle3)}
-    assert run_install(env3).returncode == 0
-    assert "auth\n" not in tt_log3.read_text()
+    proc3 = run_install(env3)
+    assert proc3.returncode == 0, proc3.stderr
+    assert "setup --from-install" not in tt_log3.read_text()
+    assert "setup: run 'tt setup'" in proc3.stdout
 
 
-def test_prompt_defaults_to_no(sandbox):
-    home, env, _ = sandbox
+def test_prompt_defaults_to_no(tmp_path):
+    """An unanswered ask() prompt (no /dev/tty reachable in this test harness)
+    defaults to "no" — proven via the one ask() prompt install.sh still has
+    (PATH wiring); the zsh-widget/setup prompt was replaced by the tt-setup handoff,
+    which never blocks on a question (see test_setup_handoff_skips_for_yes_no_rc_or_headless)."""
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    bundle = make_bundle(tmp_path, tt_log)
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "TT_BINARY": str(bundle)}
     proc = subprocess.run(
-        ["sh", str(INSTALL)],
+        ["sh", str(INSTALL), "--bin-dir", f"{home}/toolbin"],
         env=env,
         input="\n",  # user just presses Enter → default No
         capture_output=True,
@@ -226,25 +246,6 @@ def test_prompt_defaults_to_no(sandbox):
     )
     assert proc.returncode == 0, proc.stderr
     assert not (home / ".zshrc").exists()
-
-
-def test_rc_step_self_skips_without_init_zsh(tmp_path):
-    home = tmp_path / "home"
-    home.mkdir()
-    tt_log = tmp_path / "tt.log"
-    # a tt build whose `init zsh` fails (pre-#57 skeleton): only --version works
-    launcher = (
-        "#!/bin/sh\n"
-        'echo "$@" >> "{log}"\n'
-        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; exit 0; fi\n'
-        "exit 1\n"
-    )
-    bundle = make_bundle(tmp_path, tt_log, tag="noinit", launcher=launcher)
-    env = {"HOME": str(home), "PATH": f"{home}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle)}
-    proc = run_install(env, "--yes")
-    assert proc.returncode == 0, proc.stderr
-    assert not (home / ".zshrc").exists()
-    assert "doesn't support 'init zsh'" in proc.stdout
 
 
 def test_downloads_and_verifies_checksum(tmp_path):
@@ -324,7 +325,6 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     zshrc = (home / ".zshrc").read_text()
     assert zshrc.count(PATH_MARKER) == 1
     assert 'export PATH="$HOME/toolbin:$PATH"' in zshrc  # $HOME kept symbolic
-    assert zshrc.index(PATH_MARKER) < zshrc.index(MARKER)  # PATH block precedes the widget
 
     # --no-rc never touches the rc file, even when tt is off PATH
     home2 = tmp_path / "home2"
@@ -348,9 +348,7 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     profile = (home3 / ".bash_profile").read_text()
     assert profile.startswith("# my precious bash_profile\n")
     assert profile.count(PATH_MARKER) == 1
-    zshrc3 = (home3 / ".zshrc").read_text()  # widget still wires zshrc, but no PATH block
-    assert PATH_MARKER not in zshrc3
-    assert zshrc3.count(MARKER) == 1
+    assert not (home3 / ".zshrc").exists()  # PATH went to bash's rc files; no zsh widget block anymore
 
     proc = run_install(env3, "--yes", "--bin-dir", f"{home3}/toolbin")  # idempotent
     assert proc.returncode == 0, proc.stderr

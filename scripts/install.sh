@@ -201,45 +201,15 @@ else
   say "grounding: skipped (no backend configured yet — run tt auth, then tt ground --refresh)"
 fi
 
-# 7. Wire the ? widget into ~/.zshrc — consent-gated, marker-guarded, idempotent.
-MARKER="# tt zsh integration (added by install.sh)"
-if [ "$NO_RC" = 1 ]; then
-  say "zsh: skipped (--no-rc); enable any time with: eval \"\$(tt init zsh)\""
-elif ! "$TT" init zsh >/dev/null 2>&1; then
-  say "zsh: this build doesn't support 'init zsh' — skipped."
-elif [ -f "$ZSHRC" ] && grep -qF "$MARKER" "$ZSHRC"; then
-  say "zsh: $ZSHRC already wired — left untouched"
-elif ask "wire the ? widget into $ZSHRC?"; then
-  # Source a cached copy of `tt init zsh`, regenerated only when the launcher is
-  # newer than the cache — so a new shell sources a file instead of forking `tt`
-  # (`-nt` follows the $BIN_DIR/tt symlink to the unpacked launcher's mtime).
-  cat >>"$ZSHRC" <<EOF
-
-$MARKER
-_tt_cache="\${XDG_CACHE_HOME:-\$HOME/.cache}/tinytalk/init.zsh"
-_tt_bin=\$(command -v tt)
-if [[ -n \$_tt_bin && ( ! -s \$_tt_cache || \$_tt_bin -nt \$_tt_cache ) ]]; then
-  command mkdir -p "\${_tt_cache:h}" && "\$_tt_bin" init zsh >| \$_tt_cache 2>/dev/null
-fi
-[[ -s \$_tt_cache ]] && source \$_tt_cache
-unset _tt_cache _tt_bin
-EOF
-  say "zsh: added the ? widget to $ZSHRC (takes effect in new shells)"
+# 7. Hand off first-run setup to `tt setup` (zsh widget, model, language) — the
+# wizard lives in the binary now, not here. Same invariant as the old zsh/auth
+# prompts: --yes and --no-rc must never launch it, and a wizard failure must not
+# fail the install. /dev/tty must actually open, not merely exist — headless
+# runs (CI, containers) keep the node but can't open it, and they get the hint.
+if [ "$YES" != 1 ] && [ "$NO_RC" != 1 ] && (: </dev/tty) 2>/dev/null; then
+  "$TT" setup --from-install </dev/tty || true
 else
-  say "zsh: skipped; enable any time with: eval \"\$(tt init zsh)\""
-fi
-
-# The auth nudge is interactive by nature (tt auth is a questionary wizard), so it's
-# offered only to a real TTY user. --yes means "non-interactive, auto-accept rc edits"
-# for scripts/CI — it must NOT launch the wizard.
-if [ "$NO_RC" = 1 ]; then
-  say "auth: skipped (--no-rc); run any time with: tt auth"
-elif [ "$YES" = 1 ]; then
-  say "auth: skipped (--yes is non-interactive); run any time with: tt auth"
-elif ask "Set up a model now? (runs tt auth)"; then
-  "$TT" auth || say "auth: tt auth did not complete; run it again any time with: tt auth"
-else
-  say "auth: skipped; run any time with: tt auth"
+  say "setup: run 'tt setup' to configure TinyTalk interactively (widget, model, language)."
 fi
 
 say ""
