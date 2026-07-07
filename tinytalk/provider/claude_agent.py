@@ -21,6 +21,7 @@ from tinytalk.provider.base import (
     ProviderError,
     ResponseFormat,
     Role,
+    StreamChunk,
     Usage,
 )
 
@@ -68,8 +69,30 @@ class ClaudeAgentProvider:
             raise ClaudeAgentError("claude-agent-sdk stream ended without a result")
         return self._result_to_completion(result)
 
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
+        query_fn, options = self._build_call(request)
+        prompt, system_prompt = _split_messages(request.messages)
+        options.system_prompt = system_prompt
+
+        result = None
+        try:
+            async for message in query_fn(prompt=prompt, options=options):
+                if type(message).__name__ == "ResultMessage":
+                    result = message
+                    continue
+                for text in _assistant_text(message):
+                    yield StreamChunk(delta=text)
+        except ClaudeAgentError:
+            raise
+        except Exception as exc:  # SDK errors (CLI missing, process, JSON decode)
+            raise ClaudeAgentError(f"claude-agent-sdk query failed: {exc}") from exc
+
+        if result is None:
+            raise ClaudeAgentError("claude-agent-sdk stream ended without a result")
+        yield StreamChunk(completion=self._result_to_completion(result))
+
     def _result_to_completion(self, result: object) -> Completion:
-        """Map a terminal `ResultMessage` to a `Completion`."""
+        """Map a terminal `ResultMessage` to a `Completion` — shared by complete()/stream()."""
         if getattr(result, "is_error", False):
             detail = getattr(result, "result", None) or getattr(result, "subtype", "unknown")
             raise ClaudeAgentError(f"claude-agent-sdk returned an error result: {detail}")
@@ -131,6 +154,26 @@ def _contract_schema() -> dict:
     from tinytalk.contract import contract_json_schema
 
     return contract_json_schema()
+
+
+def _assistant_text(message: object) -> list[str]:
+    """Best-effort assistant text from a streamed SDK message.
+
+    Only `AssistantMessage` text blocks are surfaced as live deltas; every other message type
+    (tool use, system, the terminal result) yields nothing. These deltas are a preview only —
+    the stream still reconciles to the ResultMessage's validated payload at the end.
+    """
+    if type(message).__name__ != "AssistantMessage":
+        return []
+    content = getattr(message, "content", None)
+    if not isinstance(content, list):
+        return []
+    parts: list[str] = []
+    for block in content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return parts
 
 
 def _split_messages(messages: list[Message]) -> tuple[str, str | None]:

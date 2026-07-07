@@ -21,6 +21,7 @@ from tinytalk.provider.base import (
     Provider,
     ResponseFormat,
     Role,
+    StreamingProvider,
     Tool,
 )
 from tinytalk.provider.openai_compat import (
@@ -90,6 +91,34 @@ def _provider(
 
 def _body(request: httpx.Request) -> dict:
     return json.loads(request.content)
+
+
+async def _gather(aiter):
+    return [chunk async for chunk in aiter]
+
+
+def _sse(*chunks) -> str:
+    """An OpenAI-style `text/event-stream` body: one `data:` event per chunk, `[DONE]` last."""
+    lines = []
+    for chunk in chunks:
+        lines.append(f"data: {json.dumps(chunk)}")
+        lines.append("")
+    lines.append("data: [DONE]")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _content_chunk(text, *, model="local-model") -> dict:
+    return {"model": model, "choices": [{"index": 0, "delta": {"content": text}}]}
+
+
+def _usage_chunk(usage, *, model="local-model") -> dict:
+    # include_usage's terminal chunk: empty choices, populated usage.
+    return {"model": model, "choices": [], "usage": usage}
+
+
+def _stream_response(body: str):
+    return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
 
 def test_seam_conformance():
@@ -313,3 +342,114 @@ def test_default_effort_applied_and_request_wins():
     assert _body(reqs[0])["reasoning_effort"] == "low"
     _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="high")))
     assert _body(reqs[1])["reasoning_effort"] == "high"
+
+
+def test_streaming_provider_conformance():
+    prov, _ = _provider(lambda req, i: httpx.Response(200, json=_envelope(content="{}")))
+    assert isinstance(prov, StreamingProvider)
+
+
+def test_stream_content_deltas_then_terminal_completion():
+    usage = {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}
+    body = _sse(
+        _content_chunk("ls "),
+        _content_chunk("-la"),
+        _usage_chunk(usage, model="served-model"),
+    )
+    prov, reqs = _provider(lambda req, i: _stream_response(body))
+    chunks = _run(
+        _gather(prov.stream(CompletionRequest(MSGS, response_format=ResponseFormat.JSON_OBJECT)))
+    )
+    deltas = [c.delta for c in chunks if c.completion is None]
+    assert "".join(deltas) == "ls -la"
+    terminal = chunks[-1].completion
+    assert terminal.text == "ls -la"
+    assert terminal.usage.total_tokens == 7
+    assert terminal.model == "served-model"
+    # include_usage must be requested so the terminal usage-only chunk is emitted.
+    out = _body(reqs[0])
+    assert out["stream"] is True
+    assert out["stream_options"] == {"include_usage": True}
+
+
+def test_stream_terminal_text_matches_complete():
+    # DoD: concatenated deltas equal what a non-streamed complete() produces for the same content.
+    content = json.dumps(VALID)
+    prov_c, _ = _provider(lambda req, i: httpx.Response(200, json=_envelope(content=content)))
+    complete_text = _run(prov_c.complete(CompletionRequest(MSGS))).text
+    body = _sse(_content_chunk(content[:6]), _content_chunk(content[6:]))
+    prov_s, _ = _provider(lambda req, i: _stream_response(body))
+    chunks = _run(_gather(prov_s.stream(CompletionRequest(MSGS))))
+    streamed = "".join(c.delta for c in chunks if c.completion is None)
+    assert streamed == complete_text
+    assert chunks[-1].completion.text == complete_text
+
+
+def test_stream_tool_call_arguments_reassembled():
+    args = json.dumps(VALID)
+    mid = len(args) // 2
+    body = _sse(
+        {
+            "model": "local-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "suggest_command", "arguments": ""},
+                            }
+                        ]
+                    },
+                }
+            ],
+        },
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"tool_calls": [{"index": 0, "function": {"arguments": args[:mid]}}]},
+                }
+            ]
+        },
+        {
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"tool_calls": [{"index": 0, "function": {"arguments": args[mid:]}}]},
+                }
+            ]
+        },
+        _usage_chunk({"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}),
+    )
+    prov, _ = _provider(
+        lambda req, i: _stream_response(body),
+        capabilities=Capabilities(supports_tool_calling=True),
+    )
+    chunks = _run(
+        _gather(prov.stream(CompletionRequest(MSGS, response_format=ResponseFormat.TOOL_CALL)))
+    )
+    deltas = [c.delta for c in chunks if c.completion is None]
+    assert "".join(deltas) == args
+    call = chunks[-1].completion.tool_calls[0]
+    assert (call.id, call.name) == ("call_1", "suggest_command")
+    assert json.loads(call.arguments) == VALID
+
+
+def test_stream_http_500_raises_typed_error():
+    prov, _ = _provider(lambda req, i: httpx.Response(500, text="upstream is down"))
+    with pytest.raises(ProviderHTTPError) as exc:
+        _run(_gather(prov.stream(CompletionRequest(MSGS))))
+    assert exc.value.status_code == 500
+
+
+def test_stream_timeout_surfaces_as_transport_error():
+    def _boom(req, i):
+        raise httpx.ConnectTimeout("simulated timeout", request=req)
+
+    prov, _ = _provider(_boom)
+    with pytest.raises(ProviderTransportError):
+        _run(_gather(prov.stream(CompletionRequest(MSGS))))

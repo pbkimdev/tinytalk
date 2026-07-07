@@ -84,3 +84,35 @@ def test_response_parsed_via_shared_logic():
     completion = _run(prov.complete(CompletionRequest(MSGS)))
     assert completion.text == "hello"
     assert completion.model == "gpt-5-4"
+
+
+async def _gather(aiter):
+    return [chunk async for chunk in aiter]
+
+
+def test_stream_inherited_from_openai_compat():
+    # Streaming is inherited unchanged; it must flow through Azure's URL/auth override.
+    body = "\n".join(
+        [
+            f"data: {json.dumps({'choices': [{'index': 0, 'delta': {'content': 'ls'}}]})}",
+            "",
+            f"data: {json.dumps({'choices': [], 'usage': {'total_tokens': 5}})}",
+            "",
+            "data: [DONE]",
+            "",
+        ]
+    )
+    prov, reqs = _provider(
+        lambda req, i: httpx.Response(
+            200, text=body, headers={"content-type": "text/event-stream"}
+        ),
+        api_key="azkey",
+    )
+    chunks = _run(_gather(prov.stream(CompletionRequest(MSGS))))
+    deltas = [c.delta for c in chunks if c.completion is None]
+    assert "".join(deltas) == "ls"
+    assert chunks[-1].completion.usage.total_tokens == 5
+    # request went out over the Azure deployment URL with the api-key header, not Bearer.
+    assert reqs[0].url.path == "/openai/deployments/gpt-5-4/chat/completions"
+    assert reqs[0].headers["api-key"] == "azkey"
+    assert "authorization" not in reqs[0].headers

@@ -14,6 +14,7 @@ from tinytalk.provider.base import (
     Capabilities,
     Completion,
     ProviderError,
+    StreamChunk,
     Usage,
 )
 from tinytalk.tiers import (
@@ -326,6 +327,51 @@ def test_attempts_detail_tagged_with_tier_and_backend():
         (2, "cloud", "ok"),
     ]
     assert result.attempts == len(result.attempts_detail) == 2
+
+
+class StreamingStub:
+    """A streaming `Provider` for the on_partial forwarding check (#61)."""
+
+    name = "stub"
+
+    def __init__(self, capabilities: Capabilities, chunks: list[StreamChunk]):
+        self.capabilities = capabilities
+        self._chunks = chunks
+
+    async def complete(self, request):
+        for chunk in self._chunks:
+            if chunk.completion is not None:
+                return chunk.completion
+        raise AssertionError("no terminal completion scripted")
+
+    async def stream(self, request):
+        for chunk in self._chunks:
+            yield chunk
+
+
+def test_suggest_forwards_on_partial_to_the_streamed_generate():
+    payload = json.dumps(
+        {
+            "command": "du -h -d1 .",
+            "explanation": "disk usage",
+            "danger": "safe",
+            "confidence": 0.9,
+            "needs": ["du"],
+        }
+    )
+    provider = StreamingStub(
+        Capabilities(),
+        [StreamChunk(delta=payload), StreamChunk(completion=Completion(text=payload))],
+    )
+    seen: list[str] = []
+    result = asyncio.run(
+        TierController(provider).suggest(TierRequest(prompt="disk"), on_partial=seen.append)
+    )
+    # on_partial reached the engine's stream path via T1's generate call.
+    assert seen and seen[0] == ""  # reset then growing preview
+    assert seen[-1] == payload
+    assert result.tier == 1
+    assert result.suggestion.command == "du -h -d1 ."
 
 
 def test_prompt_surface_hash_set_on_ask_empty_on_cache_hit():

@@ -14,6 +14,7 @@ engine degrades to the next rung. The adapter raises only on transport/envelope 
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -24,6 +25,7 @@ from tinytalk.provider.base import (
     CompletionRequest,
     ProviderError,
     ResponseFormat,
+    StreamChunk,
     ToolCall,
     Usage,
 )
@@ -103,6 +105,110 @@ class OpenAICompatProvider:
         except (json.JSONDecodeError, ValueError) as exc:
             raise ProviderResponseError(f"response body is not JSON: {exc}") from exc
         return self._parse_response(data)
+
+    async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
+        payload = self._build_payload(request)
+        # include_usage makes the server emit a terminal usage-only chunk, so the final
+        # StreamChunk keeps the same usage fidelity as the blocking complete() path.
+        payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
+        headers = self._headers()
+        url = self._url()
+
+        client = self._client or httpx.AsyncClient(timeout=self._timeout)
+        try:
+            try:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code // 100 != 2:
+                        body = await resp.aread()
+                        raise ProviderHTTPError(resp.status_code, body.decode(errors="replace"))
+                    async for chunk in self._iter_chunks(resp):
+                        yield chunk
+            except httpx.TimeoutException as exc:
+                raise ProviderTransportError(f"request timed out: {exc}") from exc
+            except httpx.HTTPError as exc:
+                raise ProviderTransportError(f"transport error: {exc}") from exc
+        finally:
+            if self._client is None:
+                await client.aclose()
+
+    async def _iter_chunks(self, resp: httpx.Response) -> AsyncIterator[StreamChunk]:
+        # Accumulate the payload alongside the deltas so the terminal chunk carries a fully
+        # assembled Completion (concatenated text or reassembled tool-call arguments) plus usage.
+        text_parts: list[str] = []
+        tool_calls: dict[int, dict[str, str]] = {}
+        usage = Usage()
+        model = self.model
+        async for raw_line in resp.aiter_lines():
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:") :].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            served = chunk.get("model")
+            if isinstance(served, str) and served:
+                model = served
+            if isinstance(chunk.get("usage"), dict):
+                usage = self._parse_usage(chunk["usage"])
+            delta = self._delta_of(chunk)
+            content = delta.get("content")
+            if isinstance(content, str) and content:
+                text_parts.append(content)
+                yield StreamChunk(delta=content)
+            for fragment in self._accumulate_tool_calls(delta.get("tool_calls"), tool_calls):
+                yield StreamChunk(delta=fragment)
+        yield StreamChunk(
+            completion=Completion(
+                text="".join(text_parts),
+                tool_calls=[
+                    ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
+                    for _, tc in sorted(tool_calls.items())
+                ],
+                usage=usage,
+                model=model,
+            )
+        )
+
+    @staticmethod
+    def _delta_of(chunk: dict) -> dict:
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            return {}
+        delta = choices[0].get("delta")
+        return delta if isinstance(delta, dict) else {}
+
+    @staticmethod
+    def _accumulate_tool_calls(raw: object, acc: dict[int, dict[str, str]]) -> list[str]:
+        """Merge streamed tool-call fragments into `acc` (keyed by choice index) and return
+        the new `arguments` fragments in arrival order — the deltas to surface. A tool call's
+        id/name arrive in its first fragment; `arguments` accrues across the rest."""
+        if not isinstance(raw, list):
+            return []
+        fragments: list[str] = []
+        for tc in raw:
+            if not isinstance(tc, dict):
+                continue
+            idx = tc.get("index")
+            idx = idx if isinstance(idx, int) else 0
+            slot = acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+            if tc.get("id"):
+                slot["id"] = str(tc["id"])
+            fn = tc.get("function")
+            if isinstance(fn, dict):
+                if fn.get("name"):
+                    slot["name"] = str(fn["name"])
+                args = fn.get("arguments")
+                if isinstance(args, str) and args:
+                    slot["arguments"] += args
+                    fragments.append(args)
+        return fragments
 
     def _url(self) -> str:
         return f"{self.base_url}/chat/completions"
