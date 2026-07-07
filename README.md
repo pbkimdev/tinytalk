@@ -66,9 +66,19 @@ shell config without asking. In one pass it:
 2. adds that to your `PATH` (with your consent),
 3. writes a starter `~/.config/tinytalk/config.toml` — only if one doesn't exist,
 4. warms the grounding snapshot so your first request is instant, and
-5. wires the `?` widget into `~/.zshrc` (with your consent).
+5. hands off to **`tt setup`** — a step-by-step interactive wizard that wires the `?`
+   widget into `~/.zshrc`, sets up a model provider, and picks your explanation
+   language. Every step asks first and can be skipped; re-run `tt setup` anytime to
+   change your answers (it shows what's already configured).
 
 ![install.sh](docs/assets/install.png)
+
+To remove everything the installer added (binary, config, cache, keychain entries, rc
+blocks — each removal asks first):
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/uninstall.sh | sh
+```
 
 Pass `--yes` to accept every prompt (handy for scripts/CI), `--no-rc` to leave your shell
 config untouched, or pin a release:
@@ -103,18 +113,19 @@ one-line explanation beneath it. Read it, edit it if you like, and run it yourse
 
 ![a generated command](docs/assets/run.png)
 
-Run `tt auth` right after install to set up a backend — a cloud API or a local
-OpenAI-compatible server, both covered next. `tt "list files by size"` from the CLI
-is the fastest way to confirm it's wired up.
+If you skipped the wizard at install time, `tt setup` walks you through everything
+(widget, backend, language); `tt auth` manages backends on their own — a cloud API or a
+local OpenAI-compatible server, both covered next. `tt "list files by size"` from the
+CLI is the fastest way to confirm it's wired up.
 
 ---
 
 ## Using a cloud model
 
-The one-stop setup command is `tt auth` — an interactive wizard that picks a provider,
-authenticates using that provider's own idiom, tests the credential with one real call,
-and writes a validated backend into your config. Secrets go into your OS keychain, never
-the config file, and only after you confirm.
+The backend setup command is `tt auth` (also step 2 of `tt setup`) — an interactive
+wizard that picks a provider, authenticates using that provider's own idiom, tests the
+credential with one real call, and writes a validated backend into your config. Secrets
+go into your OS keychain, never the config file, and only after you confirm.
 
 ![tt auth](docs/assets/authkind.png)
 

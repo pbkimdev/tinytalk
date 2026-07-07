@@ -63,9 +63,19 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 2. 동의를 받아 그 경로를 `PATH`에 추가합니다.
 3. `~/.config/tinytalk/config.toml`이 없을 때만 스타터 설정을 만듭니다.
 4. 첫 요청이 바로 뜨도록 grounding 스냅샷을 미리 만들어 둡니다.
-5. 동의를 받아 `?` 위젯을 `~/.zshrc`에 연결합니다.
+5. **`tt setup`** 으로 넘겨줍니다 — `?` 위젯의 `~/.zshrc` 연결, 모델 프로바이더, 설명
+   언어를 단계별로 묻는 대화형 마법사입니다. 모든 단계는 먼저 물어보고, 건너뛸 수
+   있으며, `tt setup`을 다시 실행하면 언제든 답을 바꿀 수 있습니다(이미 설정된 항목은
+   표시됩니다).
 
 ![install.sh](docs/assets/install.png)
+
+설치 스크립트가 추가한 것 전부(바이너리, 설정, 캐시, 키체인 항목, rc 블록)를 제거하려면
+— 각 제거도 먼저 물어봅니다:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/uninstall.sh | sh
+```
 
 `--yes`를 붙이면 모든 확인을 자동으로 넘기고(스크립트·CI용), `--no-rc`를 붙이면 셸 설정을
 건드리지 않으며, 릴리스를 고정할 수 있습니다:
@@ -94,16 +104,18 @@ curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh -s -- --versio
 
 ![생성된 명령](docs/assets/run.png)
 
-설치 직후에는 `tt auth`로 백엔드를 하나 설정하세요. 클라우드 API나 로컬 OpenAI 호환 서버
-중 하나가 연결되어 있어야 답을 받을 수 있습니다. 연결 확인은 `tt "list files by size"`가
-가장 빠릅니다.
+설치 때 마법사를 건너뛰었다면 `tt setup`이 전부(위젯, 백엔드, 언어)를 안내합니다.
+백엔드만 다루려면 `tt auth`를 쓰세요 — 클라우드 API나 로컬 OpenAI 호환 서버 중 하나가
+연결되어 있어야 답을 받을 수 있습니다. 연결 확인은 `tt "list files by size"`가 가장
+빠릅니다.
 
 ---
 
 ## 클라우드 모델 사용하기
 
-설정은 `tt auth` 하나로 끝납니다. 프로바이더를 고르면 그 방식대로 인증하고, 실제 호출 한
-번으로 자격 증명을 확인한 뒤, 검증한 백엔드를 설정 파일에 기록합니다. 비밀값은 설정 파일이
+백엔드 설정은 `tt auth`입니다(`tt setup`의 2단계이기도 합니다). 프로바이더를 고르면 그
+방식대로 인증하고, 실제 호출 한 번으로 자격 증명을 확인한 뒤, 검증한 백엔드를 설정 파일에
+기록합니다. 비밀값은 설정 파일이
 아니라 OS 키체인에 저장합니다. 사용자가 확인하기 전에는 아무것도 저장하지 않습니다.
 
 ![tt auth](docs/assets/authkind.png)
