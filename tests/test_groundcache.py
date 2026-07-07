@@ -16,6 +16,14 @@ from tests.test_grounding import make_exe
 TT = "0.0.1-test"
 
 
+@pytest.fixture(autouse=True)
+def generous_probe_timeout(monkeypatch):
+    """The probe's production `--version` budget is 1.0s; under a loaded full test run the
+    subprocess spawn can exceed it and drop freshly-made fixtures, so give these tests plenty
+    of headroom. The deliberate-timeout test overrides this in its own body."""
+    monkeypatch.setattr(groundcache, "_VERSION_TIMEOUT", 30.0)
+
+
 @pytest.fixture
 def bin_dir(tmp_path):
     d = tmp_path / "bin"
