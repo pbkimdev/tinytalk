@@ -55,7 +55,7 @@ product: a translator that stops at your keyboard and leaves the decision to you
 One command. `tt` ships as a self-contained binary — no Python, no uv, nothing to build:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
 ```
 
 The installer downloads the binary for your platform (macOS and Linux, arm64 or x86_64).
@@ -75,10 +75,10 @@ config untouched, or pin a release:
 
 ```sh
 # env var — works with plain curl | sh
-TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh
 
 # flag — requires -s when piping into sh (without -s, sh treats --version as a filename)
-curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc4
+curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh -s -- --version v0.2.0rc4
 ```
 
 The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**

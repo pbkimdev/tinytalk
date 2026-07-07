@@ -8,9 +8,9 @@ name: install
 on:
   push:
     branches: [main]
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
+    paths: [scripts/install.sh, scripts/uninstall.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
   pull_request:
-    paths: [install.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, .github/workflows/install.yml]
+    paths: [scripts/install.sh, scripts/uninstall.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
       - name: Run installer unit tests
         run: |
           uv sync --frozen --group dev
-          uv run pytest tests/test_install.py -q
+          uv run pytest tests/test_install.py tests/test_uninstall.py -q
 
   install:
     strategy:
@@ -71,7 +71,7 @@ jobs:
           mkdir -p "$FAKEHOME"
           echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
-            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./install.sh --yes
+            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./scripts/install.sh --yes
       - name: Assert config scaffold and rc wiring (each block exactly once)
         run: |
           cat "$FAKEHOME/${{ matrix.rcfile }}"
@@ -82,7 +82,7 @@ jobs:
         run: |
           cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
-            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./install.sh --yes
+            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./scripts/install.sh --yes
           diff "$RUNNER_TEMP/rc.before" "$FAKEHOME/${{ matrix.rcfile }}"
       - name: CLI works from a fresh interactive shell
         run: |

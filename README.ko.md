@@ -52,7 +52,7 @@ du -h -d1 / 2>/dev/null | sort -hr | head -20
 명령 한 줄입니다. `tt`는 단독 실행 바이너리로 배포됩니다. Python도, uv도, 빌드도 필요 없습니다.
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
 ```
 
 설치 스크립트가 내 플랫폼(macOS·Linux, arm64·x86_64)에 맞는 바이너리를 내려받습니다. 설치와
@@ -72,10 +72,10 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 
 ```sh
 # 환경 변수 — curl | sh 만으로 동작
-TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh
+TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh
 
 # 플래그 — 파이프 설치 시 -s 필요 (-s 없이 --version 을 쓰면 sh 가 파일명으로 해석함)
-curl --proto '=https' --tlsv1.2 -LsSf .../install.sh | sh -s -- --version v0.2.0rc4
+curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh -s -- --version v0.2.0rc4
 ```
 
 대화형 `?` 프롬프트는 **zsh** 위젯이라 zsh를 권장합니다. macOS는 기본 셸이고, Linux에서도

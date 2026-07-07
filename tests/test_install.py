@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-INSTALL = REPO / "install.sh"
+INSTALL = REPO / "scripts" / "install.sh"
 MARKER = "# tt zsh integration (added by install.sh)"
 PATH_MARKER = "# tt PATH (added by install.sh)"
 INSTALLED = "installed: tt 0.0.1"  # the launcher stub reports this version
