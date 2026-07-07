@@ -297,8 +297,11 @@ _tt_accept_line() {
       && [[ "$BUFFER" == "$_TT_RECALL_ITEMS[_TT_RECALL_IDX]" ]]; then
     # A past command was walked into BUFFER verbatim — the user reviewed it while
     # stepping through the recall, so Enter runs it directly, not as a new NL prompt.
-    # If BUFFER diverged from the selected item, the user edited after recalling
-    # (e.g. cleared the line and typed fresh English) — fall through to generate.
+    # If BUFFER diverged from the selected item, the user edited after recalling —
+    # fall through to generate. This is a safety gate, not just prompt routing: the
+    # danger in _TT_RECALL_DANGERS classifies the ORIGINAL text, so running an edited
+    # buffer here would execute it under a stale classification (a safe `ls` edited
+    # into `ls; rm -rf ~` would run as "safe"); generate re-validates the actual text.
     # Neutralize any `!` exactly like the generated-command path (#62); line-init
     # restores histchars at the next prompt.
     [[ -z "$_TT_SAVED_HISTCHARS" ]] && _TT_SAVED_HISTCHARS=$histchars
