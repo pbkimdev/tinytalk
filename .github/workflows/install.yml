@@ -71,13 +71,21 @@ jobs:
           mkdir -p "$FAKEHOME"
           echo "FAKEHOME=$FAKEHOME" >> "$GITHUB_ENV"
           HOME="$FAKEHOME" XDG_CONFIG_HOME="$FAKEHOME/.config" \
-            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./scripts/install.sh --yes
-      - name: Assert config scaffold and rc wiring (each block exactly once)
+            SHELL="/bin/${{ matrix.shell }}" TT_BINARY="$PWD/tt-bundle.tar.gz" ./scripts/install.sh --yes \
+            | tee "$RUNNER_TEMP/install.log"
+      - name: Assert config scaffold, rc wiring, and the tt-setup handoff hint
+        # --yes never launches the interactive `tt setup` wizard (S4/#131) — the zsh
+        # widget block it used to write inline is gone, replaced by a hint to run
+        # `tt setup` by hand.
         run: |
           cat "$FAKEHOME/${{ matrix.rcfile }}"
           test -f "$FAKEHOME/.config/tinytalk/config.toml"
           [ "$(grep -cF '# tt PATH (added by install.sh)' "$FAKEHOME/${{ matrix.rcfile }}")" -eq 1 ]
-          [ "$(grep -cF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc")" -eq 1 ]
+          if [ -f "$FAKEHOME/.zshrc" ] && grep -qF '# tt zsh integration (added by install.sh)' "$FAKEHOME/.zshrc"; then
+            echo "install.sh --yes must not write the zsh widget block anymore" >&2
+            exit 1
+          fi
+          grep -qF "tt setup" "$RUNNER_TEMP/install.log"
       - name: Re-run installer — must change nothing
         run: |
           cp "$FAKEHOME/${{ matrix.rcfile }}" "$RUNNER_TEMP/rc.before"
