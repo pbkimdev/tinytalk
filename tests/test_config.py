@@ -348,10 +348,9 @@ aws_profile = "tt"
     assert provider.name == "bedrock:anthropic.claude-opus-4-8-v1:0"
 
 
-def test_factory_builds_bedrock_ignores_legacy_explicit_credential_blob(tmp_path, monkeypatch):
-    from tinytalk.provider.bedrock import BedrockProvider
-
-    text = """\
+@pytest.mark.parametrize("secret_field", ['api_key_env = "BEDROCK_CREDS"', 'keyring_account = "b"'])
+def test_bedrock_rejects_legacy_stored_key_wiring(tmp_path, secret_field):
+    text = f"""\
 [defaults]
 backend = "b"
 
@@ -359,17 +358,10 @@ backend = "b"
 kind = "bedrock"
 model = "anthropic.claude-opus-4-8-v1:0"
 aws_region = "us-east-1"
-api_key_env = "BEDROCK_CREDS"
+{secret_field}
 """
-    cfg = load_config(write(tmp_path, text))
-    monkeypatch.setenv(
-        "BEDROCK_CREDS",
-        '{"aws_access_key_id": "AKIA123", "aws_secret_access_key": "shh"}',
-    )
-    provider = make_provider(cfg.backend())
-    assert isinstance(provider, BedrockProvider)
-    assert not hasattr(provider, "_access_key_id")
-    assert not hasattr(provider, "_secret_access_key")
+    with pytest.raises(ConfigError, match="stored access keys are no longer read"):
+        load_config(write(tmp_path, text))
 
 
 def test_prices_cache_rates(tmp_path):

@@ -228,7 +228,6 @@ def list_foundation_models(
     *,
     region: str,
     profile: str | None = None,
-    endpoint_url: str | None = None,
     client: object | None = None,
 ) -> list[dict]:
     """`bedrock.list_foundation_models()` — used by `tt auth` for live model discovery.
@@ -237,7 +236,7 @@ def list_foundation_models(
     an unauthorized model choice surfaces as a runtime error on first real use, not here.
     """
     try:
-        client = client or _build_client("bedrock", region, profile, endpoint_url)
+        client = client or _build_client("bedrock", region, profile, None)
         response = client.list_foundation_models()
     except Exception as exc:  # botocore errors (auth, throttling, transport)
         if message := _credential_error_message(exc, profile):
@@ -249,7 +248,10 @@ def list_foundation_models(
 def _credential_error_message(exc: Exception, profile: str | None) -> str | None:
     try:
         from botocore.exceptions import (
+            CredentialRetrievalError,
             NoCredentialsError,
+            PartialCredentialsError,
+            ProfileNotFound,
             SSOTokenLoadError,
             TokenRetrievalError,
             UnauthorizedSSOTokenError,
@@ -260,17 +262,73 @@ def _credential_error_message(exc: Exception, profile: str | None) -> str | None
     if not isinstance(
         exc,
         (
+            CredentialRetrievalError,
             UnauthorizedSSOTokenError,
             SSOTokenLoadError,
             TokenRetrievalError,
             NoCredentialsError,
+            PartialCredentialsError,
+            ProfileNotFound,
         ),
     ):
         return None
+
+    if isinstance(exc, (UnauthorizedSSOTokenError, SSOTokenLoadError, TokenRetrievalError)):
+        if profile:
+            return (
+                f"bedrock SSO credentials failed for AWS profile {profile!r}; "
+                f"run `aws sso login --profile {profile}` and retry."
+            )
+        return "bedrock SSO credentials failed; run `aws sso login` and retry."
+
+    if isinstance(exc, ProfileNotFound):
+        if profile:
+            return (
+                f"bedrock credentials failed: AWS profile {profile!r} was not found; "
+                "fix ~/.aws/config, choose another profile, or re-run `tt auth`."
+            )
+        return (
+            "bedrock credentials failed: the configured AWS profile was not found; "
+            "fix ~/.aws/config or re-run `tt auth`."
+        )
+
+    if isinstance(exc, NoCredentialsError):
+        if profile:
+            return (
+                f"bedrock credentials failed for AWS profile {profile!r}: no credentials "
+                "were found; fix that profile's credential source or re-run `tt auth`."
+            )
+        return (
+            "bedrock credentials failed: no credentials were found; configure the standard "
+            "AWS credential chain (environment, ~/.aws/credentials, SSO, or IAM role) and retry."
+        )
+
+    if isinstance(exc, PartialCredentialsError):
+        if profile:
+            return (
+                f"bedrock credentials failed for AWS profile {profile!r}: partial credentials "
+                "were found; fix the incomplete credential source or re-run `tt auth`."
+            )
+        return (
+            "bedrock credentials failed: partial credentials were found; fix the standard "
+            "AWS credential chain and retry."
+        )
+
+    if isinstance(exc, CredentialRetrievalError):
+        if profile:
+            return (
+                f"bedrock credentials failed for AWS profile {profile!r}: credential retrieval "
+                "failed; fix that profile's credential_process/source_profile or re-run `tt auth`."
+            )
+        return (
+            "bedrock credentials failed: credential retrieval failed; fix the standard AWS "
+            "credential chain and retry."
+        )
+
     if profile:
         return (
             f"bedrock credentials failed for AWS profile {profile!r}; "
-            f"run `aws sso login --profile {profile}` and retry."
+            "fix that profile's AWS credential source or re-run `tt auth`."
         )
     return (
         "bedrock credentials failed; configure the standard AWS credential chain "

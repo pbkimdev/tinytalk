@@ -460,7 +460,9 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
         print(f"tt auth: {exc}")
         return None
     probe = prober or _probe_bedrock
-    endpoint_url = io.text(_("Custom Bedrock endpoint URL (blank = AWS default):"), default="")
+    endpoint_url = io.text(
+        _("Custom Bedrock runtime endpoint URL (blank = AWS default):"), default=""
+    )
     if endpoint_url is None:
         return None
     endpoint_url = endpoint_url or None
@@ -473,7 +475,7 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
     profile = profile or None
 
     while True:
-        models, err = probe(endpoint_url, region, profile)
+        models, err = probe(region, profile)
         if err is None:
             break
         print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
@@ -491,9 +493,20 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
                         "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry."
                     )
                 )
-        if not _retry(io):
+        action = io.select(
+            _("Bedrock model discovery failed."),
+            [
+                ("retry", _("Retry probe")),
+                ("manual", _("Continue with a manual model id (discovery unavailable)")),
+                ("abort", _("Abort setup")),
+            ],
+        )
+        if action == "retry":
+            continue
+        if action == "manual":
             models = []
             break
+        return None
 
     model_ids = [
         m["modelId"] for m in models if isinstance(m, dict) and isinstance(m.get("modelId"), str)
@@ -594,10 +607,7 @@ def _available_aws_profiles() -> list[str]:
 
 def _looks_like_aws_credential_error(message: str) -> bool:
     lowered = message.lower()
-    return any(
-        marker in lowered
-        for marker in ("credential", "sso", "token", "nocredentials", "unauthorizedsso")
-    )
+    return any(marker in lowered for marker in ("credentials failed", "credential", "sso"))
 
 
 _KIND_SETUP = {
@@ -652,9 +662,7 @@ def _login_codex(api_key: str) -> None:
     login_api_key(api_key)
 
 
-def _probe_bedrock(
-    endpoint_url: str | None, region: str, profile: str | None
-) -> tuple[list[dict], str | None]:
+def _probe_bedrock(region: str, profile: str | None) -> tuple[list[dict], str | None]:
     from tinytalk.provider.bedrock import list_foundation_models
 
     try:
@@ -662,7 +670,6 @@ def _probe_bedrock(
             list_foundation_models(
                 region=region,
                 profile=profile,
-                endpoint_url=endpoint_url,
             ),
             None,
         )

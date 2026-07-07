@@ -267,6 +267,13 @@ def _validate_backend(name: str, entry: object, path: Path) -> BackendConfig:
     keyring_account = entry.get("keyring_account")
     if keyring_account is not None and not isinstance(keyring_account, str):
         raise ConfigError(_("{where} keyring_account must be a string").format(where=where))
+    if kind == "bedrock" and (api_key_env is not None or keyring_account is not None):
+        raise ConfigError(
+            _(
+                "{where} bedrock stored access keys are no longer read; "
+                "credentials come from the AWS profile/default chain; re-run `tt auth`"
+            ).format(where=where)
+        )
 
     effort = entry.get("effort")
     if effort is not None and effort not in VALID_EFFORTS:

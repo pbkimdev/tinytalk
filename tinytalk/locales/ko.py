@@ -153,8 +153,8 @@ MESSAGES = {
     "tt auth: codex model discovery failed: {error}": (
         "tt auth: codex 모델 탐색에 실패했습니다: {error}"
     ),
-    "Custom Bedrock endpoint URL (blank = AWS default):": (
-        "사용자 지정 Bedrock 엔드포인트 URL (비워 두면 AWS 기본값 사용):"
+    "Custom Bedrock runtime endpoint URL (blank = AWS default):": (
+        "사용자 지정 Bedrock runtime 엔드포인트 URL (비워 두면 AWS 기본값 사용):"
     ),
     "AWS region:": "AWS 리전:",
     "AWS profile (blank = default credential chain):": (
@@ -176,6 +176,11 @@ MESSAGES = {
     "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry.": (
         "tt auth: 표준 AWS 자격 증명 체인(env, ~/.aws/credentials, SSO 또는 IAM role)을 "
         "수정한 뒤 재시도하세요."
+    ),
+    "Bedrock model discovery failed.": "Bedrock 모델 탐색에 실패했습니다.",
+    "Retry probe": "프로브 재시도",
+    "Continue with a manual model id (discovery unavailable)": (
+        "수동 모델 ID로 계속하기(탐색 불가)"
     ),
     "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com):": (
         "Azure OpenAI 엔드포인트 (예: https://my-resource.openai.azure.com):"
@@ -244,6 +249,11 @@ MESSAGES = {
     ),
     "{where} api_key_env must be a string": "{where} api_key_env는 문자열이어야 합니다",
     "{where} keyring_account must be a string": "{where} keyring_account는 문자열이어야 합니다",
+    "{where} bedrock stored access keys are no longer read; "
+    "credentials come from the AWS profile/default chain; re-run `tt auth`": (
+        "{where} bedrock 저장된 액세스 키는 더 이상 읽지 않습니다; "
+        "자격 증명은 AWS profile/default chain에서 가져옵니다; `tt auth`를 다시 실행하세요"
+    ),
     "{where} unknown effort {effort!r}; valid: {valid}": (
         "{where} 알 수 없는 effort {effort!r}; 유효한 값: {valid}"
     ),

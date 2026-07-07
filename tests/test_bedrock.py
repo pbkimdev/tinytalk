@@ -207,7 +207,7 @@ def test_endpoint_url_passed_to_runtime_client(monkeypatch):
     ]
 
 
-def test_endpoint_url_omitted_when_unset_for_model_listing(monkeypatch):
+def test_endpoint_url_omitted_for_model_listing(monkeypatch):
     calls = []
 
     class FakeSession:
@@ -242,11 +242,59 @@ def test_converse_sso_error_names_login_command(monkeypatch):
         _run(prov.complete(CompletionRequest(MSGS)))
 
 
-def test_list_foundation_models_credential_error_names_login_command(monkeypatch):
+def test_list_foundation_models_sso_error_names_login_command(monkeypatch):
     errors = _fake_botocore_errors(monkeypatch)
-    client = FakeControlClient(error=errors.NoCredentialsError("missing"))
+    client = FakeControlClient(error=errors.SSOTokenLoadError("missing"))
     with pytest.raises(BedrockError, match="aws sso login --profile dev"):
         list_foundation_models(region="us-east-1", profile="dev", client=client)
+
+
+def test_converse_no_credentials_repairs_profile_without_sso_hint(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeRuntimeClient(error=errors.NoCredentialsError("missing"))
+    prov = BedrockProvider("some-model", region="us-east-1", profile="dev", client=client)
+    with pytest.raises(BedrockError) as exc:
+        _run(prov.complete(CompletionRequest(MSGS)))
+    message = str(exc.value)
+    assert "AWS profile 'dev'" in message
+    assert "aws sso login" not in message
+
+
+def test_list_foundation_models_no_credentials_points_at_standard_chain(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=errors.NoCredentialsError("missing"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", client=client)
+    message = str(exc.value)
+    assert "standard AWS credential chain" in message
+    assert "aws sso login" not in message
+
+
+@pytest.mark.parametrize(
+    "error_cls",
+    [
+        "PartialCredentialsError",
+        "CredentialRetrievalError",
+    ],
+)
+def test_non_sso_credential_errors_repair_profile_without_sso_hint(monkeypatch, error_cls):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=getattr(errors, error_cls)("broken"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", profile="dev", client=client)
+    message = str(exc.value)
+    assert "AWS profile 'dev'" in message
+    assert "aws sso login" not in message
+
+
+def test_profile_not_found_names_profile_without_sso_hint(monkeypatch):
+    errors = _fake_botocore_errors(monkeypatch)
+    client = FakeControlClient(error=errors.ProfileNotFound("dev"))
+    with pytest.raises(BedrockError) as exc:
+        list_foundation_models(region="us-east-1", profile="dev", client=client)
+    message = str(exc.value)
+    assert "AWS profile 'dev' was not found" in message
+    assert "aws sso login" not in message
 
 
 def test_usage_cache_tokens_normalized():
@@ -283,11 +331,23 @@ def _fake_botocore_errors(monkeypatch):
     class NoCredentialsError(Exception):
         pass
 
+    class PartialCredentialsError(Exception):
+        pass
+
+    class CredentialRetrievalError(Exception):
+        pass
+
+    class ProfileNotFound(Exception):
+        pass
+
     exceptions = types.ModuleType("botocore.exceptions")
     exceptions.UnauthorizedSSOTokenError = UnauthorizedSSOTokenError
     exceptions.SSOTokenLoadError = SSOTokenLoadError
     exceptions.TokenRetrievalError = TokenRetrievalError
     exceptions.NoCredentialsError = NoCredentialsError
+    exceptions.PartialCredentialsError = PartialCredentialsError
+    exceptions.CredentialRetrievalError = CredentialRetrievalError
+    exceptions.ProfileNotFound = ProfileNotFound
     botocore = types.ModuleType("botocore")
     botocore.exceptions = exceptions
     monkeypatch.setitem(sys.modules, "botocore", botocore)
