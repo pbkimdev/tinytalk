@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
+from tinytalk import i18n
 from tinytalk.auth import QuestionaryIO, WizardIO, configure_language, run_auth_wizard
 from tinytalk.branding import banner
 from tinytalk.config import default_config_path
-from tinytalk.i18n import _
+from tinytalk.i18n import N_, _
 from tinytalk.rcfile import ensure_block, has_block, zsh_integration_block
 
 
@@ -59,21 +61,36 @@ def run_setup_wizard(
     marker, block = zsh_integration_block()
     summary: list[tuple[str, str]] = []
 
-    print(_("Step 1 of 3 — zsh integration"))
+    # Language comes first so the rest of the wizard can render in it (when a
+    # catalog exists — see i18n.SUPPORTED). The config value is the explanation
+    # language and is written for any answer; the UI override applies only in-run.
+    print(_("Step 1 of 3 — language"))
+    language = configure_language(config_path, io)
+    if language:
+        i18n.set_language(re.split(r"[._@-]", language)[0].lower() or None)
+        print(
+            _("✓ language set to {language} in {path}").format(language=language, path=config_path)
+        )
+        summary.append((N_("language"), str(config_path)))
+    else:
+        print(_("Language setup skipped."))
+
+    print()
+    print(_("Step 2 of 3 — zsh integration"))
     if has_block(zshrc, marker):
         print(_("✓ zsh widget already installed in {path}").format(path=zshrc))
-        summary.append((_("zsh integration"), str(zshrc)))
+        summary.append((N_("zsh integration"), str(zshrc)))
     else:
         install = io.confirm(_("Install the tt zsh widget into ~/.zshrc?"), default=True)
         if install:
             ensure_block(zshrc, marker, block)
             print(_("✓ zsh widget installed in {path}").format(path=zshrc))
-            summary.append((_("zsh integration"), str(zshrc)))
+            summary.append((N_("zsh integration"), str(zshrc)))
         else:
             print(_("Manual zsh setup: {line}").format(line=_MANUAL_ZSH_LINE))
 
     print()
-    print(_("Step 2 of 3 — provider"))
+    print(_("Step 3 of 3 — provider"))
     if _has_primary_backend(config_path):
         print(_("✓ primary provider already configured in {path}").format(path=config_path))
         reconfigure = io.confirm(_("Reconfigure the primary provider?"), default=False)
@@ -85,29 +102,20 @@ def run_setup_wizard(
         result = run_auth_wizard(config_path, io)
         if result == "primary":
             print(_("✓ primary provider configured in {path}").format(path=config_path))
-            summary.append((_("primary provider"), str(config_path)))
+            summary.append((N_("primary provider"), str(config_path)))
         elif result == "fallback":
             print(_("✓ fallback provider configured in {path}").format(path=config_path))
-            summary.append((_("fallback provider"), str(config_path)))
+            summary.append((N_("fallback provider"), str(config_path)))
         else:
             print(_("Provider setup skipped."))
-
-    print()
-    print(_("Step 3 of 3 — language"))
-    language = configure_language(config_path, io)
-    if language:
-        print(
-            _("✓ language set to {language} in {path}").format(language=language, path=config_path)
-        )
-        summary.append((_("language"), str(config_path)))
-    else:
-        print(_("Language setup skipped."))
 
     print()
     print(_("Summary"))
     if summary:
         for label, path in summary:
-            print(_("✓ {label}: {path}").format(label=label, path=path))
+            # Labels are N_-marked at append time; translate here so every line
+            # honors a language chosen in step 1.
+            print(_("✓ {label}: {path}").format(label=_(label), path=path))
     else:
         print(_("Nothing was changed."))
     print(_("You can re-run `tt setup` anytime."))

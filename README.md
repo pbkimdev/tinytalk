@@ -66,10 +66,11 @@ shell config without asking. In one pass it:
 2. adds that to your `PATH` (with your consent),
 3. writes a starter `~/.config/tinytalk/config.toml` — only if one doesn't exist,
 4. warms the grounding snapshot so your first request is instant, and
-5. hands off to **`tt setup`** — a step-by-step interactive wizard that wires the `?`
-   widget into `~/.zshrc`, sets up a model provider, and picks your explanation
-   language. Every step asks first and can be skipped; re-run `tt setup` anytime to
-   change your answers (it shows what's already configured).
+5. hands off to **`tt setup`** — a step-by-step interactive wizard that picks your
+   language first (the rest of the wizard follows it), wires the `?` widget into
+   `~/.zshrc`, and sets up a model provider. Every step asks first and can be
+   skipped; re-run `tt setup` anytime to change your answers (it shows what's
+   already configured).
 
 ![install.sh](docs/assets/install.png)
 

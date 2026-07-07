@@ -63,10 +63,10 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 2. 동의를 받아 그 경로를 `PATH`에 추가합니다.
 3. `~/.config/tinytalk/config.toml`이 없을 때만 스타터 설정을 만듭니다.
 4. 첫 요청이 바로 뜨도록 grounding 스냅샷을 미리 만들어 둡니다.
-5. **`tt setup`** 으로 넘겨줍니다 — `?` 위젯의 `~/.zshrc` 연결, 모델 프로바이더, 설명
-   언어를 단계별로 묻는 대화형 마법사입니다. 모든 단계는 먼저 물어보고, 건너뛸 수
-   있으며, `tt setup`을 다시 실행하면 언제든 답을 바꿀 수 있습니다(이미 설정된 항목은
-   표시됩니다).
+5. **`tt setup`** 으로 넘겨줍니다 — 언어를 먼저 고르면(이후 마법사도 그 언어로
+   진행됩니다) `?` 위젯의 `~/.zshrc` 연결, 모델 프로바이더를 단계별로 묻는 대화형
+   마법사입니다. 모든 단계는 먼저 물어보고, 건너뛸 수 있으며, `tt setup`을 다시
+   실행하면 언제든 답을 바꿀 수 있습니다(이미 설정된 항목은 표시됩니다).
 
 ![install.sh](docs/assets/install.png)
 

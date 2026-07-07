@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tinytalk.cli import build_parser
 from tinytalk.config import ConfigError, load_config
-from tinytalk.i18n import _, language
+from tinytalk.i18n import _, language, set_language
 from tinytalk.locales.ko import MESSAGES as KO
 
 # The modules whose user-facing strings #74 extracts; the completeness test below scans
@@ -64,6 +64,20 @@ def test_no_locale_env_is_english(monkeypatch):
     assert language() == "en"
     message = "tt: no history yet"
     assert _(message) is message  # byte-identical English, not a copy through the catalog
+
+
+def test_set_language_override_beats_env_until_cleared(monkeypatch):
+    """`tt setup` learns the preference mid-run (#135) — the override wins over
+    the locale env and None restores env resolution."""
+    _clear_locale(monkeypatch)
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    set_language("ko")
+    try:
+        assert language() == "ko"
+        assert _("Summary") == "요약"
+    finally:
+        set_language(None)
+    assert language() == "en"
 
 
 def test_c_locale_is_english(monkeypatch):

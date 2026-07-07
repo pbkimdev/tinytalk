@@ -281,9 +281,9 @@ MESSAGES = {
     # --- branding ------------------------------------------------------------------------
     "TinyTalk — plain English at the shell": "TinyTalk — 셸에서 쓰는 일상 언어",
     # --- tt setup wizard -------------------------------------------------------------------
-    "Step 1 of 3 — zsh integration": "1/3단계 — zsh 통합",
-    "Step 2 of 3 — provider": "2/3단계 — 프로바이더",
-    "Step 3 of 3 — language": "3/3단계 — 언어",
+    "Step 1 of 3 — language": "1/3단계 — 언어",
+    "Step 2 of 3 — zsh integration": "2/3단계 — zsh 통합",
+    "Step 3 of 3 — provider": "3/3단계 — 프로바이더",
     "Install the tt zsh widget into ~/.zshrc?": "tt zsh 위젯을 ~/.zshrc에 설치할까요?",
     "✓ zsh widget installed in {path}": "✓ zsh 위젯이 {path}에 설치되었습니다",
     "✓ zsh widget already installed in {path}": "✓ zsh 위젯이 이미 {path}에 설치되어 있습니다",

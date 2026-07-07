@@ -8,6 +8,7 @@ import pytest
 
 import tinytalk.auth as auth
 import tinytalk.setup_wizard as setup
+from tinytalk import i18n
 from tinytalk.rcfile import zsh_integration_block
 
 
@@ -46,6 +47,13 @@ def no_keyring(monkeypatch):
     return stored, deleted
 
 
+@pytest.fixture(autouse=True)
+def reset_language_override():
+    """Step 1 sets a process-wide UI-language override; don't leak it across tests."""
+    yield
+    i18n.set_language(None)
+
+
 @pytest.fixture
 def paths(tmp_path, monkeypatch):
     zshrc = tmp_path / ".zshrc"
@@ -62,7 +70,8 @@ def _read(path):
 def test_full_accept_path_writes_zsh_config_and_language_once(paths, monkeypatch, capsys):
     zshrc, config = paths
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
-    io = ScriptedIO([True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True, "ko"])
+    # Language ("en") first, then zsh confirm, then the provider sub-wizard.
+    io = ScriptedIO(["en", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
 
     assert setup.run_setup_wizard(io=io, config_path=config) == 0
 
@@ -71,12 +80,12 @@ def test_full_accept_path_writes_zsh_config_and_language_once(paths, monkeypatch
     assert block in zshrc.read_text()
     doc = _read(config)
     assert doc["defaults"]["backend"] == "primary"
-    assert doc["defaults"]["language"] == "ko"
+    assert doc["defaults"]["language"] == "en"
     assert doc["backends"]["primary"]["kind"] == "claude-agent-sdk"
     out = capsys.readouterr().out
-    assert "Step 1 of 3" in out
-    assert "Step 2 of 3" in out
-    assert "Step 3 of 3" in out
+    assert "Step 1 of 3 — language" in out
+    assert "Step 2 of 3 — zsh integration" in out
+    assert "Step 3 of 3 — provider" in out
     assert "✓" in out
 
 
@@ -89,7 +98,7 @@ def test_full_decline_leaves_rc_and_config_byte_identical(paths, capsys):
     )
     before_rc = zshrc.read_bytes()
     before_config = config.read_bytes()
-    io = ScriptedIO([False, False, None])
+    io = ScriptedIO([None, False, False])
 
     assert setup.run_setup_wizard(io=io, config_path=config) == 0
 
@@ -131,12 +140,12 @@ def test_rerun_skips_installed_widget_and_offers_reconfigure(paths, capsys):
         '[defaults]\nbackend = "primary"\n\n'
         '[backends.primary]\nkind = "claude-agent-sdk"\nmodel = "claude-sonnet-5"\n'
     )
-    io = ScriptedIO([False, "en"])
+    io = ScriptedIO(["en", False])
 
     assert setup.run_setup_wizard(io=io, config_path=config) == 0
 
     kinds = [kind for kind, _ in io.prompts]
-    assert kinds == ["confirm", "text"]
+    assert kinds == ["text", "confirm"]
     out = capsys.readouterr().out
     assert "already installed" in out
     assert "primary provider already configured" in out
@@ -159,7 +168,7 @@ def test_fallback_slot_result_is_reported_not_skipped(paths, monkeypatch, capsys
         '[backends.primary]\nkind = "claude-agent-sdk"\nmodel = "claude-sonnet-5"\n'
     )
     monkeypatch.setattr(setup, "run_auth_wizard", lambda config_path, io: "fallback")
-    io = ScriptedIO([False, True, None])  # skip widget, reconfigure=yes, cancel language
+    io = ScriptedIO([None, False, True])  # cancel language, skip widget, reconfigure=yes
 
     assert setup.run_setup_wizard(io=io, config_path=config) == 0
 
@@ -168,14 +177,20 @@ def test_fallback_slot_result_is_reported_not_skipped(paths, monkeypatch, capsys
     assert "Provider setup skipped" not in out
 
 
-def test_provider_failure_does_not_abort_language_step(paths, monkeypatch, capsys):
+def test_choosing_ko_renders_the_rest_of_the_wizard_in_korean(paths, monkeypatch, capsys):
+    """Language is step 1 so the remaining steps (and a failing provider step)
+    render in the chosen language — and a provider failure still doesn't abort
+    the summary."""
     _zshrc, config = paths
     monkeypatch.setattr(setup, "run_auth_wizard", lambda config_path, io: None)
-    io = ScriptedIO([False, "ko"])
+    io = ScriptedIO(["ko", False])  # language=ko, decline widget
 
     assert setup.run_setup_wizard(io=io, config_path=config) == 0
 
     assert _read(config)["defaults"]["language"] == "ko"
     out = capsys.readouterr().out
-    assert "Provider setup skipped" in out
-    assert "language set to ko" in out
+    assert "Step 1 of 3 — language" in out  # asked before the switch, env language
+    assert "2/3단계 — zsh 통합" in out
+    assert "3/3단계 — 프로바이더" in out
+    assert "프로바이더 설정을 건너뛰었습니다." in out
+    assert "요약" in out

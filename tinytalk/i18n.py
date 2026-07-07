@@ -23,10 +23,23 @@ import re
 SUPPORTED = frozenset({"ko"})
 
 _catalogs: dict[str, dict[str, str]] = {}
+_override: str | None = None
+
+
+def set_language(code: str | None) -> None:
+    """Runtime override of the UI language (None restores env resolution).
+
+    For flows that learn the user's preference mid-run — `tt setup` asks language
+    first and renders the rest of the wizard in it. Deliberately not written to
+    `os.environ`, which would leak into child processes (provider probes)."""
+    global _override
+    _override = code
 
 
 def language() -> str:
     """UI language code from the locale env; `C`/`POSIX` (or nothing set) mean English."""
+    if _override:
+        return _override
     for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         if value := os.environ.get(var):
             code = re.split(r"[._@-]", value)[0].lower()
