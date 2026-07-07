@@ -138,7 +138,9 @@ class TierController:
         # Forwarded into every CompletionRequest (e.g. the eval runner pins temperature=0).
         self._request_opts = dict(request_opts or {})
 
-    async def suggest(self, request: TierRequest) -> TierResult:
+    async def suggest(
+        self, request: TierRequest, on_partial: Callable[[str], None] | None = None
+    ) -> TierResult:
         # T0 — cache; re-validate hits (the environment may have changed).
         cached = self._cache.get(request, self._provider.name)
         if cached is not None:
@@ -158,7 +160,9 @@ class TierController:
         # T1 — grounded ask against the default backend.
         messages, surface_hash = self._messages(request, extra="")
         try:
-            gen = await generate(self._provider, messages, **self._request_opts)
+            gen = await generate(
+                self._provider, messages, on_partial=on_partial, **self._request_opts
+            )
             usage, attempts, detail = _merge_gen(
                 usage, attempts, detail, gen, tier=1, backend=self._provider.name
             )
@@ -205,7 +209,7 @@ class TierController:
             ) from exc
         messages, surface_hash = self._messages(request, extra=extra, problems=problems)
         try:
-            gen = await generate(provider, messages, **self._request_opts)
+            gen = await generate(provider, messages, on_partial=on_partial, **self._request_opts)
         except ProviderError as exc:
             kind = "transport" if last is None else "no_command"
             usage, attempts, detail = _merge_error(

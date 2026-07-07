@@ -331,6 +331,7 @@ _tt_accept_line() {
     local tmp="$(mktemp)" out rc=1
     {
       TT_SESSION_CONTEXT="$(fc -ln -20 2>/dev/null)" \
+      TT_WIDGET_PARTIAL="$tmp.partial" \
         command tt --widget -- "$BUFFER" >"$tmp" 2>/dev/null
       print -n $? >"$tmp.rc"
     } &
@@ -342,21 +343,45 @@ _tt_accept_line() {
       # -s, not -e: the redirection creates the rc file before the status byte
       # lands; an empty read would make a failed run look like success.
       while [[ ! -s "$tmp.rc" ]]; do
+        # Streaming preview (#61): once `tt --widget` starts writing the growing
+        # command to $tmp.partial, drop the spinner glyph and show the partial as a
+        # dimmed, marked preview in POSTDISPLAY — the non-editable display region, so
+        # an unvalidated command is never in BUFFER and never runnable. BUFFER is
+        # still written exactly once, from the validated stdout, at the end below.
+        local partial=""
+        [[ -s "$tmp.partial" ]] && partial="$(<"$tmp.partial")"
         (( _TT_WAVE_PHASE++ ))
-        PREDISPLAY="$_TT_BADGE ${frames[i]} "
-        POSTDISPLAY=""
-        _tt_wave_paint
-        (( i = i % $#frames + 1 ))
+        if [[ -n "$partial" ]]; then
+          PREDISPLAY="$_TT_BADGE "
+          POSTDISPLAY=$'\n'"⋯ $partial"
+          _tt_wave_paint
+          # POSTDISPLAY isn't ANSI-interpreted; dim the preview via a P-offset span
+          # (P indexes PREDISPLAY+BUFFER+POSTDISPLAY). Re-assert it AFTER the wave
+          # paint — which only rewrites the badge letter spans — replacing any prior
+          # preview span so the growing text leaves no stale highlight.
+          region_highlight=("${(@)region_highlight:#*memo=ttpreview*}")
+          local -i pstart=$(( $#PREDISPLAY + $#BUFFER ))
+          region_highlight+=("P$pstart $(( pstart + $#POSTDISPLAY )) fg=8 memo=ttpreview")
+        else
+          PREDISPLAY="$_TT_BADGE ${frames[i]} "
+          POSTDISPLAY=""
+          _tt_wave_paint
+          region_highlight=("${(@)region_highlight:#*memo=ttpreview*}")
+          (( i = i % $#frames + 1 ))
+        fi
         zle -R
         if (( have_zselect )); then zselect -t 12 2>/dev/null; else command sleep 0.12; fi
       done
       rc="$(<"$tmp.rc")" out="$(<"$tmp")"
     } always {
       kill $pid 2>/dev/null
-      rm -f "$tmp" "$tmp.rc"
+      # `.partial.new` is the sidecar the writer renames from; a kill mid-write can
+      # leave it behind before the rename, so clear it alongside `.partial`.
+      rm -f "$tmp" "$tmp.rc" "$tmp.partial" "$tmp.partial.new"
       PREDISPLAY="$_TT_BADGE "
       POSTDISPLAY=""
       region_highlight=("${(@)region_highlight:#*memo=ttdim*}")
+      region_highlight=("${(@)region_highlight:#*memo=ttpreview*}")
     }
     local tt_command tt_danger tt_explanation tt_error_kind tt_error_message tt_backend
     if [[ $rc -ne 0 ]]; then

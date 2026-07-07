@@ -42,6 +42,19 @@ that catches restoration against a real third-party binding (e.g. atuin's `atuin
 the line. It also asserts the `history unavailable` (failing `tt`) and `no history yet`
 (empty store) feedback, driven by the stub's `TT_HISTORY_DELAY` / `_FAIL` / `_EMPTY` knobs.
 
+```sh
+.claude/skills/test-shell-ui/scripts/streaming.zsh      # streaming preview (#61)
+.claude/skills/test-shell-ui/scripts/streaming.zsh -f   # clean `zsh -f`
+```
+
+`streaming.zsh` proves the #61 streaming preview: while `tt --widget` streams the growing
+partial command to `TT_WIDGET_PARTIAL`, the spinner is replaced by a dimmed `⋯ <partial>`
+preview in POSTDISPLAY; at stream end the buffer reconciles to the VALIDATED command (a
+`1.stream` fixture deliberately differs from the final, proving a stale preview never
+survives). It also proves the safety invariant: an Enter pressed mid-stream queues until
+the widget returns, so a destructive suggestion lands comment-gated and never executes
+(asserted via a sentinel file the command would have deleted).
+
 To test other flows (destructive commands, backend failure), point `TT_STUB_RESPONSES`
 at a directory of files `1`, `2`, … — each is printed verbatim as that call's
 `tt --widget` output; a missing file makes the stub exit 1 (the widget's error path).
@@ -57,6 +70,10 @@ Copy the scenario section of `drive.zsh` and adapt the keystrokes/checks.
 - `scripts/recall-async.zsh` — tmux driver for the async porcelain load (#D1): asserts a
   slow `tt` shows `loading history…` and auto-fills without freezing, and that a failing /
   empty store surface the `history unavailable` / `no history yet` notes.
+- `scripts/streaming.zsh` — tmux driver for the streaming preview (#61): asserts the
+  progressive dimmed `⋯` preview replaces the spinner, the buffer reconciles to the
+  validated command (not the stale preview), and a mid-stream Enter cannot run a
+  destructive suggestion.
 - `scripts/tt-stub` — fake `tt`: emits canned `tt_command=…` / `tt_danger=…` /
   `tt_explanation=…` after `TT_STUB_DELAY` seconds (default 1) to simulate backend latency,
   and answers `history --porcelain` with a canned NUL-delimited newest-first list of
