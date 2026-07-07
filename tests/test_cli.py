@@ -59,7 +59,16 @@ def test_no_request_prints_help_and_succeeds(capsys):
 def test_help_lists_every_subcommand(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    for command in ("auth", "eval", "ground", "init zsh", "prompt", "upgrade", "uninstall"):
+    for command in (
+        "auth",
+        "eval",
+        "ground",
+        "init zsh",
+        "prompt",
+        "setup",
+        "upgrade",
+        "uninstall",
+    ):
         assert command in out
 
 
@@ -231,7 +240,7 @@ def test_config_explanation_off_then_on(tmp_path, capsys):
     assert main(["config", "--config", str(config_file), "explanation", "off"]) == 0
     assert "hidden" in capsys.readouterr().out
     assert load_config(config_file).show_explanation is False
-    assert "kind = \"openai-compat\"" in config_file.read_text()  # rest of the file untouched
+    assert 'kind = "openai-compat"' in config_file.read_text()  # rest of the file untouched
 
     assert main(["config", "--config", str(config_file), "explanation", "on"]) == 0
     assert "shown" in capsys.readouterr().out
