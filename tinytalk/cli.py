@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  history     browse and reuse past commands\n"
             '  init zsh    print the zsh integration script (eval "$(tt init zsh)")\n'
             "  prompt      print the assembled model prompt for a request (no model call)\n"
+            "  setup       interactively configure TinyTalk step by step\n"
             "  upgrade     download and install the latest tt release\n"
             "  uninstall   remove tt files and keyring entries\n"
             "\n"
@@ -103,6 +104,23 @@ def build_auth_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config", metavar="PATH", help=_("config file (default: ~/.config/tinytalk)")
+    )
+    return parser
+
+
+def build_setup_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tt setup",
+        description=_("Interactively configure TinyTalk step by step."),
+    )
+    parser.add_argument("--yes", "-y", action="store_true", help=_("print manual setup hints"))
+    parser.add_argument(
+        "--config", metavar="PATH", help=_("config file (default: ~/.config/tinytalk)")
+    )
+    parser.add_argument(
+        "--from-install",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     return parser
 
@@ -209,6 +227,8 @@ def main(argv: list[str] | None = None) -> int:
         return _init(argv[1:])
     if argv[:1] == ["auth"]:
         return _auth(build_auth_parser().parse_args(argv[1:]))
+    if argv[:1] == ["setup"]:
+        return _setup(build_setup_parser().parse_args(argv[1:]))
     if argv[:1] == ["upgrade"]:
         return _upgrade(build_upgrade_parser().parse_args(argv[1:]))
     if argv[:1] == ["uninstall"]:
@@ -326,6 +346,15 @@ def _auth(args: argparse.Namespace) -> int:
     print(line)
     print(_('Try it: tt "show me disk usage"'))
     return 0
+
+
+def _setup(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from tinytalk.setup_wizard import run_setup_wizard
+
+    config_path = Path(args.config) if args.config else None
+    return run_setup_wizard(yes=args.yes, from_install=args.from_install, config_path=config_path)
 
 
 def _upgrade(args: argparse.Namespace) -> int:

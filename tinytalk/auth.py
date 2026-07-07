@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from tinytalk.config import env_language
 from tinytalk.i18n import N_, _
 
 # Labels are N_-marked (extracted into the catalog, translated with `_()` at display
@@ -147,23 +146,12 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     if draft is None:
         return None
 
-    language = None
-    if slot == "primary":
-        current = str(defaults.get("language") or env_language())
-        language = io.text(
-            _('Explanation language (code or name, e.g. "en", "ko"):'), default=current
-        )
-        if language is None:
-            return None
-
     print(f"[backends.{slot}]")
     for key, value in draft.fields.items():
         if value:
             print(f"  {key} = {value!r}")
     if draft.secret:
         print(_("  (API key/credentials → OS keychain, not the file)"))
-    if language:
-        print(f"  [defaults] language = {language!r}")
     if not io.confirm(_("Write this to {path}?").format(path=config_path), default=True):
         return None
 
@@ -175,8 +163,6 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     _write_backend(
         doc, slot, draft.fields, set_default=(slot == "primary"), set_fallback=(slot == "fallback")
     )
-    if language:
-        doc["defaults"]["language"] = language
     _save(config_path, doc)
     # Cleanup only after the write succeeded, and never while any table still
     # references the account — hand-written backends may share one (#86).
@@ -201,6 +187,28 @@ def _remove_fallback(doc, config_path: Path, io: WizardIO) -> str | None:
     if stale_account and not _account_referenced(doc, stale_account):
         _delete_secret(stale_account)
     return "fallback"
+
+
+def configure_language(config_path: Path, io: WizardIO) -> str | None:
+    """Prompt for the explanation language and write [defaults].language.
+
+    Free text on purpose: the explanation language is what the model writes in,
+    not the UI catalog — any code or name works, same as the old `tt auth` prompt."""
+    from tinytalk.config import env_language
+
+    doc = _load_or_new(config_path)
+    defaults = doc["defaults"] if "defaults" in doc else {}
+    current = str(defaults.get("language") or env_language())
+    language = io.text(_('Explanation language (code or name, e.g. "en", "ko"):'), default=current)
+    if not language:
+        return None
+    if "defaults" not in doc:
+        import tomlkit
+
+        doc["defaults"] = tomlkit.table()
+    doc["defaults"]["language"] = language
+    _save(config_path, doc)
+    return language
 
 
 def _account_referenced(doc, account: str) -> bool:
