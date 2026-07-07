@@ -28,6 +28,32 @@ def _zshrc_path() -> Path:
     return Path(os.environ.get("ZDOTDIR") or Path.home()) / ".zshrc"
 
 
+def _use_select_event_loop() -> None:
+    """macOS kqueue rejects the /dev/tty alias device (EINVAL) — exactly the fd
+    install.sh hands us via `tt setup --from-install </dev/tty` (#139).
+    prompt_toolkit registers stdin with the asyncio loop, so give this process a
+    select()-based loop on darwin; select() handles /dev/tty, and the wizard's
+    handful of fds makes the selector choice performance-irrelevant."""
+    if sys.platform != "darwin":
+        return
+    import asyncio
+    import selectors
+    import warnings
+
+    # The policy API is deprecated on 3.14+ but is the only seam prompt_toolkit
+    # consults when it creates its loop, and shipped bundles build on 3.12
+    # (UV_PYTHON in release.yml). Revisit when prompt_toolkit exposes a
+    # loop_factory (policies are slated for removal in 3.16).
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+
+        class _SelectPolicy(asyncio.DefaultEventLoopPolicy):
+            def new_event_loop(self):
+                return asyncio.SelectorEventLoop(selectors.SelectSelector())
+
+        asyncio.set_event_loop_policy(_SelectPolicy())
+
+
 def run_setup_wizard(
     *,
     yes: bool = False,
@@ -57,6 +83,7 @@ def run_setup_wizard(
     print(banner())
     print()
 
+    _use_select_event_loop()
     io = io or QuestionaryIO()
     marker, block = zsh_integration_block()
     summary: list[tuple[str, str]] = []
