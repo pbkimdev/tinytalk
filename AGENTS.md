@@ -54,3 +54,35 @@ Only people with write access can trigger any of this; keep `main` behind branch
 - We never let TinyTalk auto-run the shell commands it generates; the product always hands control back to
   the user, and so do we when we script it.
 - Keep each change scoped to its issue.
+
+## Cursor Cloud specific instructions
+
+Notes for the **Cursor Cloud Agent VM** (the ephemeral dev environment). The startup
+update script already runs `uv sync --group dev`, so `uv` and the `.venv` (Python 3.14,
+per `.python-version`) are in place — you do **not** need to install them again.
+
+- **Run everything through uv:** `uv run tt …`, `uv run pytest -q`, `uv run ruff check .`.
+  The pinned dev commands live in `pyproject.toml` and the `.github/workflows/*.yml` CI files
+  (`uv sync --frozen --group dev`, `uv run pytest`). `uv tool install .` also works to put a
+  real `tt` on `$PATH` for interactive tries.
+- **The product needs a model backend to translate.** There are no cloud/local model
+  credentials in this VM by default. `tt "<request>"` fails at the provider unless a backend is
+  reachable. Two credential-free ways to exercise things end to end:
+  - `tt ground` (builds/inspects the real host grounding snapshot) and
+    `tt prompt "<request>"` (assembles the exact system+user prompt, **no** model call) — both
+    run the real grounding/prompt pipeline with zero backend.
+  - Point an `openai-compat` backend (`~/.config/tinytalk/config.toml`, `base_url` →
+    `/v1/chat/completions`) at any local OpenAI-compatible server to drive the whole
+    pipeline (grounding → HTTP → strict parse → validate → output). A tiny stub server that
+    returns a fenced-JSON contract body is enough to prove the flow without a real LLM.
+- **The `?` prompt widget is zsh-only and `zsh` is not installed here.** The plain
+  `tt "<request>"` / `tt --json` / `tt --widget` paths work in `bash`. To exercise the
+  interactive widget, `apt install zsh` and follow `.claude/skills/test-shell-ui/`
+  (tmux + a stubbed `tt`).
+- **Two host-sensitive test groups are expected to fail on this minimized Ubuntu image**
+  (they pass on a fuller/macOS-flavored box, and are *not* a setup problem): the grounding
+  "no-help" tests (`man <x>` prints an "unminimized" banner here, so it looks like docs) and
+  several `test_oracle.py` fixtures whose "correct" commands need `fd`/`kubectl` (absent) or
+  BSD-only flags like `stat -f` / `date -v` (this VM is GNU coreutils). The other ~719 tests
+  pass. `apt install fd-find kubectl` + `unminimize` narrows the gap but never closes the
+  BSD-flag ones — don't chase them.
