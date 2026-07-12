@@ -1,113 +1,248 @@
-# tt bench — runbook
+# TinyTalk benchmark runbook
 
-How the published run under `docs/bench/<YYYY-MM-DD>/` was produced, and how to reproduce it.
-Linked from [README.md](../../README.md) and [README.ko.md](../../README.ko.md).
-Config: [`bench.toml`](./bench.toml) (used via `TT_CONFIG`; personal config untouched).
-Parent: #90 · spec: `docs/specs/bench-04-run.md` · sub-issue: #101.
+Use this runbook to create a new `docs/bench/<YYYY-MM-DD>/` field run without touching personal
+TinyTalk settings. The suite and scoring model are explained in [SUITE-V4.md](SUITE-V4.md) and
+[AUTOMATION.md](AUTOMATION.md).
 
-Set the run date once per sweep — folder names are the ISO date (`YYYY-MM-DD`), not year-month:
+## Rules before the run
+
+- Open a GitHub issue and post the run plan before generating data.
+- Use `TT_CONFIG=docs/bench/bench.toml`; never edit or rely on personal config.
+- Smoke one target before a full sweep.
+- Run one local-GPU backend at a time.
+- Keep every raw export, including failures.
+- Never combine rows produced by different suite/scorer commits without recording that fact.
+- Do not call a report reproducible unless the commit, machine, model/runtime, and run method are
+  captured.
+
+Set the run directory once:
 
 ```sh
-RUN_DATE=2026-07-03
+cd <tinytalk-repo>
+RUN_DATE=$(date +%F)
+RUN_DIR="docs/bench/$RUN_DATE"
+mkdir -p "$RUN_DIR"
 ```
 
-## Roster
+## 1. Choose and record the roster
 
-| Backend | Model | Runtime | Notes |
-|---|---|---|---|
-| `local-gemma4-26b` | gemma-4-26B-A4B-it-MLX-8bit | oMLX, managed server on :3333 | MoE 25.2B total / ~3.8B active; no MTP drafter in the default roster |
-| `local-gemma4-12b-8bit` | gemma-4-12B-it-8bit | oMLX, managed server on :3333 | 12B 8-bit with matching assistant drafter downloaded (`gemma-4-12B-it-assistant-8bit`); record MTP-on/off provenance when used |
-| `local-gemma4-e4b` | lmstudio-community--gemma-4-E4B-it-MLX-4bit | oMLX, managed server on :3333 | on-device class, 4.5B effective |
-| `local-qwen36-35b` | mtplx-qwen36-35b-a3b-optimized-balance | `mtplx quickstart --model Youssofal/Qwen3.6-35B-A3B-MTPLX-Optimized-Balance --port 18080 --yes` | MTP speculative decoding. Roster note: the PRD named Qwen 3.6 **27B**; the mtplx-installed build is the **35B-A3B** MoE — swapped by decision on #90. |
-| `sonnet5-low` | claude-sonnet-5 | Claude Agent SDK (`effort = "low"`) | Auth = local Claude Code login, **no API key**. Latency includes SDK/CLI startup per request — footnoted in the report. |
-| `gpt55-low` | gpt-5.5 | OpenAI Codex SDK (`effort = "low"`) | Auth = local Codex CLI ChatGPT login, **no API key** (the env `OPENAI_API_KEY` 401'd). Latency includes SDK/CLI startup — footnoted like Sonnet. Needs `uv sync --extra codex`. |
+`docs/bench/bench.toml` contains historical and current backend definitions. An official run should
+name its exact subset rather than silently running every table.
 
-Machine: Apple M5 Max, 128 GB unified memory. Protocol: single backend per run (no
-cross-backend escalation; same-backend T2 retry is as-shipped behavior), temperature 0,
-one scored run per prompt, one discarded warmup request per backend.
-
-## Pricing quotes (captured 2026-07-03)
-
-| Model | in / out $ per MTok | cache | Source |
-|---|---|---|---|
-| Sonnet 5 | 2.00 / 10.00 | read 0.20, 5m-write 2.50 | Anthropic pricing docs — intro pricing through 2026-08-31; its tokenizer counts ~30% more tokens for the same text |
-| GPT-5.5 | 5.00 / 30.00 | cached input 0.50 | OpenAI pricing docs |
-| Gemma 4 26B A4B | 0.06 / 0.33 | — | openrouter.ai/google/gemma-4-26b-a4b-it (proxy†) |
-| Gemma 4 E4B | 0.20 / 0.20 | — | Fireworks quote via pricepertoken.com — E4B is not hosted on OpenRouter (proxy†) |
-| Qwen 3.6 35B A3B | 0.14 / 1.00 | — | openrouter.ai/qwen/qwen3.6-35b-a3b (proxy†) |
-
-† Local models run at $0 marginal cost on this machine; hosted quotes put all five models on
-one comparable cost axis. The report's fine print repeats this.
-
-## Preflight
-
-1. `curl -s localhost:3333/v1/models` lists `gemma-4-26B-A4B-it-MLX-8bit`,
-   `gemma-4-12B-it-8bit`, `gemma-4-12B-it-assistant-8bit`, and
-   `lmstudio-community--gemma-4-E4B-it-MLX-4bit` (managed oMLX).
-2. Do not start a second oMLX server on `3334`; the bench roster uses the managed `3333` server.
-3. `mtplx quickstart --model Youssofal/Qwen3.6-35B-A3B-MTPLX-Optimized-Balance --port 18080 --yes`;
-   `curl -s localhost:18080/v1/models` answers.
-4. `claude` CLI logged in (Sonnet rides it); `codex login status` says logged in (GPT-5.5 rides
-   it); `uv sync --extra codex` done.
-5. Suite binaries present (the validator checks anyway): standard macOS + git, curl, tar…
-
-## The sweep
-
-One backend at a time — local models share the GPU, so never two sweeps concurrently:
+Example v4 roster:
 
 ```sh
-cd <repo>
-RUN_DATE=2026-07-03
-mkdir -p "docs/bench/$RUN_DATE"
-for b in local-gemma4-26b local-gemma4-12b-8bit local-gemma4-e4b local-qwen36-35b sonnet5-low gpt55-low; do
-  TT_CONFIG=docs/bench/bench.toml uv run tt eval --backends "$b" \
-    --export "docs/bench/$RUN_DATE/$b.json"
+BACKENDS='sonnet5-low local-gemma4-26b local-gemma4-12b-8bit local-gemma4-12b-qat'
+```
+
+Before generation, create `run_meta.json` in the run directory. Keep methodology prose factual and
+specific:
+
+```json
+{
+  "run_date": "YYYY-MM-DD",
+  "machine": "OS, CPU/GPU, RAM",
+  "pricing_notes": [
+    "Suite v4: 25 targets, natural EN/KO pair per target, 50 prompts total.",
+    "Repository commit: <sha>. Each backend ran separately at temperature 0.",
+    "Local runtime and model/quantization details: <exact values>.",
+    "Hosted backend, SDK/CLI, model, effort, and pricing source: <exact values>."
+  ]
+}
+```
+
+If a local server uses a draft model or speculative decoding, record it. If an Agent SDK injects
+context or adds startup latency, record it. Prices are captured observations, not timeless config;
+refresh them from primary provider sources before publishing a cost comparison.
+
+## 2. Preflight each backend
+
+### Local OpenAI-compatible servers
+
+Check the exact endpoint declared in `bench.toml`:
+
+```sh
+curl -fsS http://localhost:3333/v1/models | python -m json.tool
+curl -fsS http://localhost:18080/v1/models | python -m json.tool  # only when used
+```
+
+Confirm the intended model IDs are present. Do not start a second server on the same GPU unless the
+run is explicitly testing multi-server contention.
+
+### Claude Agent SDK
+
+```sh
+claude
+TT_CONFIG=docs/bench/bench.toml uv run tt eval \
+  --backends sonnet5-low --prompts count-lines-code
+```
+
+The CLI login must work in the same user environment as the run.
+
+### Codex Agent SDK
+
+```sh
+codex login status
+uv sync --extra codex
+TT_CONFIG=docs/bench/bench.toml uv run tt eval \
+  --backends gpt55-low --prompts count-lines-code
+```
+
+### API-backed endpoints
+
+Set required environment variables only in the run environment. Never write secrets into
+`bench.toml` or a committed artifact. Run a single-target smoke before the full suite.
+
+## 3. Smoke the harness
+
+`--prompts <target>` selects both language variants for that target. Smoke every backend separately:
+
+```sh
+for backend in $BACKENDS; do
+  TT_CONFIG=docs/bench/bench.toml uv run tt eval \
+    --backends "$backend" \
+    --prompts count-lines-code \
+    --export "$RUN_DIR/smoke-$backend.json"
 done
 ```
 
-Smoke first (`--prompts disk-usage-top` = 2 prompts) before committing to a full 60.
+Inspect the command, error, attempts, usage, model, and prompt ID in each JSON file. A process exit of
+zero does not prove that every prompt passed.
 
-## Merge + render
+Remove smoke exports from the publish glob or keep them under a `smoke/` subdirectory. Do not publish
+them as full backend reports.
 
-The published page is built by `tt eval publish` (from the repo root):
+## 4. Run the full suite
 
-```sh
-RUN_DATE=2026-07-03
-uv run tt eval publish --run-date "$RUN_DATE"
-# equivalent: uv run tt eval publish "docs/bench/$RUN_DATE"
-```
-
-(`python -m tinytalk.eval.publish` is equivalent.) It re-scores the 15 kept targets from their
-recorded commands under the fixed command extractor, merges the fresh v3 sweeps (`v3new-*.json`),
-writes `results.json`, and renders `index.html`. Report metadata (machine string, pricing
-footnotes) comes from `run_meta.json` in the run directory when present.
-
-To re-render HTML from an existing `results.json` without re-merging:
+The default method is serial by backend. It keeps local GPU contention and latency interpretation
+simple:
 
 ```sh
-RUN_DATE=2026-07-03
-uv run tt eval --report-from "docs/bench/$RUN_DATE/results.json" \
-  --report "docs/bench/$RUN_DATE/index.html"
+for backend in $BACKENDS; do
+  TT_CONFIG=docs/bench/bench.toml uv run tt eval \
+    --backends "$backend" \
+    --export "$RUN_DIR/$backend.json"
+done
 ```
 
-## Run log
+Each full export should contain one backend and 50 rows for suite v4. Check before publishing:
 
-- 2026-07-03 (`docs/bench/2026-07-03/`, suite v3, 50 prompts) — 25 targets after retiring the 15 the whole
-  field saturated (#95) and adding 10 hard ones (TLS cert expiry, dig +trace, tar|ssh
-  streaming, kubectl restart counts, jq, IPv4-regex extraction, INI range addressing, awk
-  group-sums, process substitution, xargs -P). The 15 kept targets are re-scored from the
-  recorded 60-prompt-run commands under the fixed command extractor (#95: find -exec descent,
-  xargs flag args, process substitution — previously these idioms were falsely rejected);
-  the 10 new targets ran fresh the same day (~12 min). Strict pass: **Sonnet 5 98 (EN 100 /
-  KO 96) · GPT-5.5 98 (96/100) · Qwen 3.6 35B-A3B 96 (96/96) · 26B A4B 94 (96/92) ·
-  E4B 80 (80/80)**. p50 latency: 26B 1.6s, Sonnet 5.3s, E4B 8.0s, Qwen 8.8s, GPT-5.5 11.3s.
-  Sweep cost (list-rate): locals $0.010–0.061 (proxy†), Sonnet $1.17, GPT-5.5 $4.21.
-  Findings: the hard set inverted the v2 story — E4B, which "tied Sonnet" on the saturated
-  suite, drops to 80 (missed k8s-restart-count, ini-section, and one language on four more);
-  Qwen swept all 10 hard targets in both languages; frontier models sit on top, exactly the
-  spread v2 failed to show. parallel-compress is the hardest overall (three models dropped a
-  language). Earlier same-day runs (50-prompt v2, 60-prompt v2+rigor) are superseded; their
-  raw exports remain committed as publish inputs. Standing caveats: MTPLX flips a few
-  prompts between temperature-0 runs (± a few points); MTPLX reports no cached tokens; rows
-  can carry an `error` yet strict-pass (strict pass re-scores the returned command on
-  parse/binaries/assertions only).
+```sh
+for file in "$RUN_DIR"/*.json; do
+  jq -r 'if type == "array" and length == 1 then
+    "\(input_filename): \(.[0].backend) \(.[0].results | length) rows"
+  else empty end' "$file"
+done
+```
+
+For a focused data experiment, use `--prompts` and label the export as a subset. Never pass it to the
+full-report publisher as though it contained the suite.
+
+## 5. Publish recorded exports
+
+For a fresh full-suite run, use the no-recompute export path and name each backend file explicitly:
+
+```sh
+TT_CONFIG=docs/bench/bench.toml uv run tt eval publish "$RUN_DIR" --exports \
+  "$RUN_DIR/sonnet5-low.json" \
+  "$RUN_DIR/local-gemma4-26b.json" \
+  "$RUN_DIR/local-gemma4-12b-8bit.json" \
+  "$RUN_DIR/local-gemma4-12b-qat.json"
+```
+
+This preserves recorded rows, including `oracle_pass`, writes `results.json`, and renders
+`index.html`. Adjust the explicit list to the run's roster.
+
+The publisher's legacy merge mode (`tt eval publish --run-date ...` without `--exports`) exists for
+older v3 kept/new export layouts. Do not use it for a new full v4 run.
+
+To rebuild a generic HTML report directly from an existing consolidated JSON:
+
+```sh
+TT_CONFIG=docs/bench/bench.toml uv run tt eval \
+  --report-from "$RUN_DIR/results.json" \
+  --report "$RUN_DIR/index.html"
+```
+
+## 6. Analyze and render the dashboard
+
+Both commands below use recorded data and make no model calls:
+
+```sh
+uv run tt eval analyze "$RUN_DIR"
+uv run tt eval dashboard "$RUN_DIR"
+```
+
+If repeated exports live somewhere other than `$RUN_DIR/stability/*.json`, pass `--runs GLOB`.
+Stability analysis requires at least three matching repeats by default.
+
+Read the outputs before publishing:
+
+- delivery faults should name concrete response failures;
+- category and EN/KO slices should have the expected denominator;
+- `flip_rate` must never exceed `command_flip_rate`;
+- oracle coverage must exclude unsupported network/remote/cluster targets rather than count them as
+  failures;
+- the HTML report and dashboard must state the host and methodology caveats.
+
+## 7. Validate artifacts
+
+Run the relevant test and hygiene gates:
+
+```sh
+uv run pytest tests/test_eval.py tests/test_eval_analysis.py tests/test_eval_dashboard.py \
+  tests/test_eval_publish.py tests/test_oracle.py
+uv run ruff check tinytalk/eval tests
+git diff --check
+```
+
+Then verify the directory itself:
+
+```sh
+test -s "$RUN_DIR/results.json"
+test -s "$RUN_DIR/index.html"
+test -s "$RUN_DIR/analysis.json"
+test -s "$RUN_DIR/dashboard.html"
+jq empty "$RUN_DIR"/*.json
+```
+
+Open both HTML files locally and inspect narrow and wide layouts. Do not publish a report solely from
+passing JSON/schema checks.
+
+## 8. Write the run log
+
+Record the run in this document only after artifacts are committed. Include:
+
+- date and suite version;
+- roster and exact model IDs;
+- strict and oracle scores with denominators;
+- machine/runtime and request protocol;
+- whether rows were fresh, reused, or re-scored;
+- stability sample count when cited;
+- major harness defects found and how recorded data was corrected;
+- links to the committed report and analysis.
+
+## Committed runs
+
+### 2026-07-05 — suite v4
+
+- **Shape:** 25 targets × natural EN/KO = 50 prompts.
+- **Roster:** Claude Sonnet 5 low effort through the Claude Agent SDK; local Gemma 4 26B A4B
+  MLX-8bit, 12B 8-bit, and 12B QAT 4-bit through oMLX.
+- **Machine:** Apple M5 Max, 128 GB unified memory.
+- **Strict pass:** Sonnet 92%; 26B 68%; 12B 8-bit 68%; 12B QAT 58%.
+- **Execution oracle:** Sonnet 81% of 36 covered results; 26B 46% of 35; 12B 8-bit 56% of 32;
+  12B QAT 44% of 32. Coverage denominators differ because missing/unusable model responses have no
+  command to execute.
+- **Finding:** text-only scoring materially overstated executable correctness, especially for local
+  models. The oracle exposed userland, quoting, and state-result failures that shape assertions
+  accepted.
+- **Artifacts:** [report](2026-07-05/index.html), [dashboard](2026-07-05/dashboard.html),
+  [`results.json`](2026-07-05/results.json), and [`analysis.json`](2026-07-05/analysis.json).
+
+### 2026-07-03 — suite v3
+
+This run is historical and not directly comparable with v4. It used a partly merged methodology: 15
+recorded targets were re-scored under a fixed extractor and 10 hard targets were generated fresh.
+The artifacts remain useful for scorer history and per-command inspection, not as the current product
+headline. See the [v3 report](2026-07-03/index.html).

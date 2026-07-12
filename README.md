@@ -4,554 +4,341 @@
 
 **[English](README.md)** · [한국어](README.ko.md)
 
-![TinyTalk demo](demo.gif)
+![TinyTalk turns a request into a command you can review](demo.gif)
 
-**Type what you want. Read the command it hands back. Hit Enter — or don't.**
+**Say what you want. Get one command back. You decide whether it runs.**
 
-TinyTalk turns plain English at your shell prompt into a real, runnable command. It
-checks that command against the tools you actually have, explains it in one line, and
-drops it into your buffer. It never runs anything on its own — you always get the last
-look. Point it at a cloud model, or one running entirely on your own machine.
+TinyTalk turns a plain-language request into a shell command that fits the machine in front of you.
+It validates the suggestion, puts it in your command line, and stops. Read it, edit it, run it, or
+throw it away.
 
 </div>
 
+```text
+? show me the five biggest folders here
+
+du -sh ./* 2>/dev/null | sort -hr | head -n 5
+          [safe] Shows the five largest entries in the current directory.
 ```
-? show me what's eating my disk, biggest first
 
-du -h -d1 / 2>/dev/null | sort -hr | head -20
-↳ top-level disk usage, largest first
-```
+TinyTalk is deliberately smaller than a terminal agent:
 
-Press `?` on an empty line, describe what you want, and TinyTalk swaps your buffer for a
-command and a one-line explanation. Edit it, run it, or ignore it. That's the whole
-product: a translator that stops at your keyboard and leaves the decision to you.
+- **It suggests; it does not execute.** The generated command always comes back to you.
+- **It checks your machine.** Shell syntax, installed binaries, known long flags, and selected native
+  dry-runs are checked before a command reaches the prompt.
+- **It treats danger as UI, not fine print.** Destructive suggestions arrive commented out and must be
+  deliberately uncommented.
+- **It works with your model.** Use a Claude or Codex login, AWS Bedrock, Azure OpenAI, another
+  OpenAI-compatible endpoint, or a local model.
 
-- **Grounded, not guessed.** Every request is checked against a snapshot of your box —
-  the binaries you have, your OS, your shell — so you don't get `apt` on a Mac or a
-  flag your `find` doesn't support.
-- **Hands off the trigger.** TinyTalk prints; you run. Destructive commands come back
-  commented out, so a stray Enter can't wipe anything.
-- **Your model, your call.** A subscription (Claude, Codex), a cloud API (Bedrock,
-  Azure), or a model running fully offline on your laptop. Same interface either way;
-  switch by editing one line.
+## Start in a minute
 
----
-
-## Table of contents
-
-- [Getting started](#getting-started)
-- [Using a cloud model](#using-a-cloud-model)
-- [Using a local model](#using-a-local-model)
-- [Configuration](#configuration)
-- [Features](#features)
-- [Benchmark](#benchmark)
-
----
-
-## Getting started
-
-### Install
-
-One command. `tt` ships as a self-contained binary — no Python, no uv, nothing to build:
+### 1. Install
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
 ```
 
-The installer downloads the binary for your platform (macOS and Linux, arm64 or x86_64).
-It only installs and configures — it never runs a generated command, and never edits your
-shell config without asking. In one pass it:
+The installer selects the release for macOS or Linux on arm64 or x86_64, verifies the checksum when
+the release provides one, and installs `tt` under `~/.local`. It asks before changing a shell rc file
+and never overwrites an existing TinyTalk config.
 
-1. downloads the `tt` binary and drops it in `~/.local/bin`,
-2. adds that to your `PATH` (with your consent),
-3. writes a starter `~/.config/tinytalk/config.toml` — only if one doesn't exist,
-4. warms the grounding snapshot so your first request is instant, and
-5. hands off to **`tt setup`** — a step-by-step interactive wizard that picks your
-   language first (the rest of the wizard follows it), wires the `?` widget into
-   `~/.zshrc`, and sets up a model provider. Every step asks first and can be
-   skipped; re-run `tt setup` anytime to change your answers (it shows what's
-   already configured).
+In an interactive terminal, the installer then opens `tt setup`, a three-step wizard:
 
-![install.sh](docs/assets/install.png)
+1. choose the command-explanation language; when a matching UI translation exists, the rest of the
+   wizard switches to it too;
+2. add the zsh widget, with your approval;
+3. connect a model provider.
 
-To remove everything the installer added (binary, config, cache, keychain entries, rc
-blocks — each removal asks first):
+You can leave any step for later and run `tt setup` again at any time.
+
+> The `?` interaction is a zsh widget. The regular `tt "..."` command works from bash and other
+> shells too.
+
+### 2. Open a new shell
+
+On an empty command line, press `?`. The TinyTalk badge means you are in **prompt mode**. Type a
+request and press Enter. The validated command replaces your request; TinyTalk does not press Enter
+again for you.
+
+No widget yet? The CLI follows the same contract:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/uninstall.sh | sh
+tt "list files larger than 100 MB under this directory"
 ```
 
-Pass `--yes` to accept every prompt (handy for scripts/CI), `--no-rc` to leave your shell
-config untouched, or pin a release:
+### 3. Review the result
+
+Every result has a final danger level:
+
+| Level | What TinyTalk does |
+|---|---|
+| `safe` | Inserts a read-only command for review. |
+| `caution` | Inserts a command that may change state and labels it clearly. |
+| `destructive` | Inserts the command commented out, with a warning. You must remove the comment yourself. |
+
+TinyTalk can still be wrong. The label and validation ladder reduce easy mistakes; they do not turn
+generated shell into trusted code. Read the command before running it.
+
+## Choose a model
+
+Run `tt auth` whenever you want to add, replace, or remove a provider. The wizard owns two named
+**slots**: `primary` and an optional `fallback`. If the primary backend fails or produces a command
+that does not pass validation, TinyTalk can retry with richer grounding and the fallback.
+
+| Provider path | Best when | Authentication |
+|---|---|---|
+| Claude Agent SDK | You already use Claude Code | Existing `claude` login or `ANTHROPIC_API_KEY` |
+| OpenAI Codex Agent SDK | You already use Codex | Existing local Codex CLI login |
+| AWS Bedrock | Your organization uses AWS | Standard AWS credential chain or named profile |
+| OpenAI-compatible HTTP | You have a hosted API or local server | API key, or none for a keyless local server |
+| Anthropic-compatible HTTP | You call an Anthropic-compatible endpoint directly | API key |
+| Azure OpenAI | Your deployment lives in Azure | Endpoint, API version, deployment name, and API key |
+
+The wizard tests credentials or model discovery before it writes the backend. API secrets collected
+by TinyTalk go to the operating-system keyring, not `config.toml`. Bedrock keeps using AWS's own
+credential chain; the Agent SDK paths keep using their own CLI login.
+
+### Claude
+
+Install and sign in to [Claude Code](https://docs.anthropic.com/en/docs/claude-code/getting-started),
+then choose **Claude Agent SDK** in `tt auth`. TinyTalk's release build downloads the matching Claude
+add-on the first time you choose it.
 
 ```sh
-# env var — works with plain curl | sh
-TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh
-
-# flag — requires -s when piping into sh (without -s, sh treats --version as a filename)
-curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh -s -- --version v0.2.0rc4
+claude
+tt auth
 ```
 
-The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**
-and the **Claude Agent SDK** download a one-time add-on the first time you set them up with
-`tt auth`, so those two need network at setup — see [Offline / manual add-on
-install](#offline--manual-add-on-install) for an air-gapped machine.
+### Codex
 
-The interactive `?` prompt is a **zsh** widget, so zsh is recommended — it's the default
-shell on macOS, and one `apt install zsh` away on Linux. The plain `tt "..."` command works
-in any shell, including bash. Prefer to build from source? Clone the repo and run
-`uv tool install .` instead.
-
-### First run
-
-Open a new shell so the widget loads, then press `?` on an empty line. A small
-`TinyTalk` badge lights up — you're in **prompt mode**. Type what you want and hit Enter.
-
-![prompt mode](docs/assets/badge.png)
-
-TinyTalk thinks for a moment, then replaces your line with a real command and prints a
-one-line explanation beneath it. Read it, edit it if you like, and run it yourself:
-
-![a generated command](docs/assets/run.png)
-
-If you skipped the wizard at install time, `tt setup` walks you through everything
-(widget, backend, language); `tt auth` manages backends on their own — a cloud API or a
-local OpenAI-compatible server, both covered next. `tt "list files by size"` from the
-CLI is the fastest way to confirm it's wired up.
-
----
-
-## Using a cloud model
-
-The backend setup command is `tt auth` (also step 2 of `tt setup`) — an interactive
-wizard that picks a provider, authenticates using that provider's own idiom, tests the
-credential with one real call, and writes a validated backend into your config. Secrets
-go into your OS keychain, never the config file, and only after you confirm.
-
-![tt auth](docs/assets/authkind.png)
-
-TinyTalk manages exactly two **slots**: a **primary** (asked first) and an optional
-**fallback** (used when the primary fails). We'll set up the three most common cloud
-backends below. The examples use subscriptions where you already have one, and AWS
-Bedrock for a pay-per-token API.
-
-### Claude — with your subscription
-
-If you use Claude Code, TinyTalk can ride the same login: no API key, no separate
-billing. First, make sure you're logged in:
+Install [Codex CLI](https://github.com/openai/codex), sign in with ChatGPT, then choose
+**OpenAI Codex Agent SDK**.
 
 ```sh
-claude      # then /login in the TUI, or:
-claude setup-token   # prints a one-year token → export CLAUDE_CODE_OAUTH_TOKEN=...
+codex login
+tt auth
 ```
 
-Then run `tt auth`, choose **Claude Agent SDK**, and pick a model. TinyTalk doesn't ask
-for a secret here — it uses your existing `claude` login (or `ANTHROPIC_API_KEY` if you'd
-rather use a console key). On a release binary, this first setup fetches a one-time add-on
-(the `claude` CLI for your platform), so it needs network once.
+### AWS Bedrock
 
-![tt auth — Claude](docs/assets/authclaude.png)
-
-That writes a backend like:
-
-```toml
-[defaults]
-backend = "claude"
-
-[backends.claude]
-kind = "claude-agent-sdk"
-model = "claude-sonnet-5"
-effort = "low"
-```
-
-### Codex — with your ChatGPT plan
-
-Same idea, GPT flavor. Log the Codex CLI in with your ChatGPT plan:
+Make sure the normal AWS credential chain works, then choose **AWS Bedrock**. TinyTalk asks for a
+region and optional profile, discovers available model IDs, and also lets you enter a model ID when
+discovery is unavailable. Bedrock support is a version-matched add-on downloaded on first setup.
 
 ```sh
-codex login     # opens a browser for the ChatGPT OAuth flow
+aws sso login --profile my-profile   # when your profile uses SSO
+tt auth
 ```
 
-Then `tt auth` → **OpenAI Codex Agent SDK** → pick a model. TinyTalk rides the local
-Codex login; nothing is stored on our side.
+Bedrock access and inference-profile availability vary by model and region. Use the ID discovered by
+the wizard and consult the [Bedrock model-access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)
+and [inference-profile](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html)
+documentation when AWS rejects a bare model ID.
 
-```toml
-[backends.codex]
-kind = "codex-agent-sdk"
-model = "gpt-5.5"
-effort = "low"
-```
+### A local model
 
-### Bedrock — a pay-per-token API
+Choose **OpenAI-compatible HTTP API** in `tt auth`. TinyTalk can attempt a managed Gemma setup on a
+supported Mac or Linux machine; if the runtime or model cannot be provisioned safely, it falls back
+to asking for an existing server URL.
 
-For a plain API key model, AWS Bedrock is the worked example. Two things to do first, in
-the AWS console:
+Two straightforward servers are:
 
-1. **Enable model access.** Bedrock → *Model access* → request access to the Anthropic
-   models you want. (As of early 2026 these are largely auto-enabled, but a first-time-use
-   form may appear.)
-2. **Have credentials on the box.** `aws configure` (or SSO/`aws sso login`, or a named
-   profile) — TinyTalk uses boto3's normal credential chain.
+- [oMLX](https://github.com/jundot/omlx) on Apple Silicon, normally at
+  `http://localhost:8000/v1`;
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) on macOS or Linux, normally at
+  `http://localhost:8080/v1`.
 
-Then `tt auth` → **AWS Bedrock**. It asks for a region and an optional profile, discovers
-the models your credentials can see, and lets you pick one. If discovery comes up empty,
-it offers to take an explicit access-key pair instead (stored in your keychain). On a
-release binary, this first setup also fetches a one-time Bedrock add-on (`boto3` and its
-dependencies), so it needs network once.
-
-![tt auth — Bedrock](docs/assets/authbedrock.png)
-
-```toml
-[backends.bedrock]
-kind = "bedrock"
-model = "us.anthropic.claude-sonnet-5-v1:0"   # example — use the id tt auth discovers
-aws_region = "us-east-1"
-```
-
-> Bedrock serves most models through **inference profiles** for on-demand use — if a bare
-> model id is rejected, use the profile id `tt auth` discovered (often prefixed with a
-> region like `us.` or `global.`).
-
-### Switching and falling back
-
-A primary and a fallback can live in the same config, so you can lean on a local model
-and escalate to a cloud one only when it stalls:
-
-```toml
-[defaults]
-backend = "local"              # primary slot
-escalation_backend = "claude"  # fallback slot
-```
-
-Run `tt auth` again any time to set up the fallback slot, swap a slot, or remove one.
-
-### Offline / manual add-on install
-
-The **AWS Bedrock** and **Claude Agent SDK** backends live outside the `tt` binary and are
-downloaded on first `tt auth`. On an air-gapped box — no network when you run the wizard —
-fetch the add-on by hand on a connected machine and drop it into place. This is exactly what
-`tt auth` automates.
-
-First, note your version — the add-on is version-stamped and must match the binary:
+For example, an existing `llama-server` can be connected in three steps:
 
 ```sh
-tt --version        # e.g. 0.1.0 — use it for <version> below
+llama-server -hf <owner>/<gguf-repo>:<quant> --port 8080
+curl -s http://localhost:8080/v1/models
+tt auth
 ```
 
-Download the add-on you want, plus its checksum, from the matching release (`v<version>`).
-Bedrock ships one cross-platform archive; the Claude CLI is per-platform — pick `macos-arm64`,
-`linux-x86_64`, or `linux-arm64`:
+In the wizard, choose the manual server path, enter `http://localhost:8080/v1`, leave the API key
+blank, and select the model reported by `/v1/models`.
+
+## Everyday use
+
+### Prompt mode
+
+- `?` on an empty line enters prompt mode.
+- `?` or Backspace on an empty prompt leaves it.
+- Enter sends the request and returns a command to the same editing buffer.
+- Up and Down recall earlier TinyTalk commands while prompt mode is active.
+
+### CLI commands
 
 ```sh
-base=https://github.com/pbkimdev/tinytalk/releases/download/v<version>
-
-# Bedrock (cross-platform):
-curl -LO "$base/tt-bedrock-addon.tar.gz"
-curl -LO "$base/tt-bedrock-addon.tar.gz.sha256"
-
-# Claude Agent SDK (pick your platform):
-curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz"
-curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz.sha256"
+tt "show the processes listening on ports"  # generate one command
+tt --json "show the five newest files"      # structured output
+tt history                                   # browse recorded outcomes
+tt ground                                    # inspect the grounding snapshot
+tt ground --refresh                          # rebuild it now
+tt prompt "find duplicate filenames"        # print the model prompt; no model call
+tt config explanation off                    # hide the one-line explanation
+tt setup                                     # revisit language, widget, and provider
+tt auth                                      # manage primary and fallback slots
+tt upgrade                                   # install the latest release
+tt uninstall                                 # remove app data and keyring entries
 ```
 
-Verify each archive against its checksum:
+`tt history` uses an `fzf` picker when both `fzf` and a terminal are available; otherwise it prints a
+plain list. History is stored as dated JSONL under `XDG_STATE_HOME` and keeps outcomes for diagnosis,
+including failed requests.
+
+### What is sent to the model
+
+TinyTalk sends your request, current working directory, and a grounding summary built from the
+current OS, shell, installed commands, and cached tool versions. If `TT_SESSION_CONTEXT` is set, that
+redacted text is included as session context. Product requests do not read arbitrary files or run a
+generated command to gather context.
+
+Inspect the exact assembled prompt without making a model call:
 
 ```sh
-shasum -a 256 -c tt-bedrock-addon.tar.gz.sha256
+tt prompt "find the biggest log files"
 ```
 
-Unpack into the version-stamped add-on directory, honoring `$XDG_DATA_HOME` (defaults to
-`~/.local/share`). Each add-on lives at `…/tinytalk/addons/<name>/<version>/`:
+## How validation works
 
-```sh
-dir="${XDG_DATA_HOME:-$HOME/.local/share}/tinytalk/addons"
+A model response must pass the ladder before TinyTalk returns it:
 
-# Bedrock → the boto3/ tree sits at the directory root:
-mkdir -p "$dir/bedrock/<version>"
-tar -xzf tt-bedrock-addon.tar.gz -C "$dir/bedrock/<version>"
+1. **Parse** the command with `zsh -n` (or the available POSIX shell).
+2. **Resolve binaries** in command position against the grounded machine.
+3. **Check long flags** against real help text when TinyTalk has it; missing documentation never
+   causes a rejection by itself.
+4. **Use native dry-run flags** for a small allowlist of single commands such as selected `rsync`,
+   `git`, `npm`, and `kubectl` operations.
+5. **Classify danger** with command- and redirect-aware rules. The final level can only be as safe as
+   the model claimed or more severe.
 
-# Claude → a single `claude` binary, made executable:
-mkdir -p "$dir/claude/<version>"
-tar -xzf tt-claude-addon-macos-arm64.tar.gz -C "$dir/claude/<version>"
-chmod +x "$dir/claude/<version>/claude"
-```
-
-`tt` picks the add-on up on the next run — no wizard needed.
-
----
-
-## Using a local model
-
-No cloud, no API key, nothing leaving your machine. TinyTalk talks to any local server
-that speaks the OpenAI-compatible HTTP API, which is to say: almost all of them. The two
-we'll set up are **oMLX** on macOS (built on Apple's MLX) and **llama.cpp** on Linux —
-pick whichever matches your box.
-
-### Choosing a model
-
-The task here is narrow — turn one sentence into one shell command — so you do *not* need
-a frontier model. A few things to weigh:
-
-- **Active vs. total parameters.** Mixture-of-Experts (MoE) models list two numbers, e.g.
-  *26B-A4B* = 26B total parameters but only ~4B *active* per token. They run at
-  small-model speed while carrying big-model knowledge — a sweet spot for this task.
-- **Quantization.** 4-bit or 8-bit weights shrink the memory footprint a lot for a small
-  quality hit. Quantization-Aware Training (QAT) builds recover most of that loss.
-- **Memory.** The quantized weights need to fit in RAM (unified memory on Apple Silicon)
-  or VRAM. Leave headroom for the KV cache.
-- **Tool-calling / structured output.** Nice to have, not required — TinyTalk degrades to
-  a universal fenced-JSON path on any server, so even a bare model works.
-
-Our running example is **Google's Gemma 4 26B-A4B** — the MoE build used in the
-[benchmark](#benchmark). It's fast (only ~4B parameters fire per token), fits comfortably
-on a modern laptop in a quantized build (~15 GB at QAT Q4), and holds up well on the eval.
-
-### macOS — oMLX
-
-[oMLX](https://github.com/jundot/omlx) is a native Apple-Silicon inference server (OpenAI-
-and Anthropic-compatible) with a menu-bar app. Install the CLI via Homebrew:
-
-```sh
-brew tap jundot/omlx https://github.com/jundot/omlx
-brew install omlx
-```
-
-Grab a Gemma 4 MLX build into your model directory — either from the oMLX admin dashboard
-(`http://localhost:8000/admin`) or straight from Hugging Face:
-
-```sh
-mkdir -p ~/models
-hf download unsloth/gemma-4-26b-a4b-it-MLX-8bit \
-  --local-dir ~/models/gemma-4-26B-A4B-it-MLX-8bit
-```
-
-Serve it. oMLX auto-discovers models from the directory and exposes them at
-`http://localhost:8000/v1`:
-
-```sh
-omlx serve --model-dir ~/models
-```
-
-**Run it as a daemon** so it's up every time you log in. Homebrew's service manager
-handles this, with auto-restart on crash:
-
-```sh
-brew services start omlx     # start now + at every login
-brew services info omlx      # check status
-```
-
-By default the service serves from `~/.omlx/models` on port `8000`; set `OMLX_MODEL_DIR`
-and `OMLX_PORT` (or run `omlx serve --model-dir …` once to persist settings) to change that.
-
-### Linux — llama.cpp
-
-[llama.cpp](https://github.com/ggml-org/llama.cpp) is the C/C++ engine under much of the
-local-LLM world. It loads GGUF weights and its `llama-server` speaks the OpenAI API. The
-quickest install is Homebrew (it works on Linux too); otherwise build from source:
-
-```sh
-brew install llama.cpp
-# or from source:
-#   git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
-#   cmake -B build && cmake --build build -j --config Release
-```
-
-`llama-server` can pull a GGUF straight from Hugging Face with `-hf`. Point it at a Gemma
-4 26B-A4B GGUF (pick a QAT `Q4_K_M` build) and serve on port 8080:
-
-```sh
-llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
-```
-
-The OpenAI-compatible endpoint is then at `http://localhost:8080/v1`.
-
-**Run it as a daemon** with a systemd *user* service. Create
-`~/.config/systemd/user/llama-server.service`:
-
-```ini
-[Unit]
-Description=llama.cpp server
-After=network-online.target
-
-[Service]
-ExecStart=%h/.local/bin/llama-server -hf unsloth/gemma-4-26b-a4b-it-GGUF:Q4_K_M --port 8080 -c 8192
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-Then enable it — and `enable-linger` so it starts at boot without you logging in:
-
-```sh
-systemctl --user daemon-reload
-systemctl --user enable --now llama-server
-sudo loginctl enable-linger "$USER"
-```
-
-### Point TinyTalk at it
-
-A keyless local server needs no `tt auth` — just an `openai-compat` backend with the
-right `base_url`. The installer already scaffolds one; edit it to match your server:
-
-```toml
-[defaults]
-backend = "local"
-
-[backends.local]
-kind = "openai-compat"
-base_url = "http://localhost:8000/v1"    # 8080 for llama.cpp
-model = "gemma-4-26B-A4B-it-MLX-8bit"
-```
-
-Confirm the model is visible (`curl -s localhost:8000/v1/models`), then take it for a
-spin. Here's the local model writing a small weather one-liner:
-
-![tt — local weather](docs/assets/weather.png)
-
-Run the command it gives you, and you get exactly what you asked for — nicely printed:
-
-![weather, formatted](docs/assets/weatherrun.png)
-
-You can inspect the grounding TinyTalk feeds the model at any time:
-
-![tt ground](docs/assets/ground.png)
-
----
+If a command fails, TinyTalk retries once with the validation problem and relevant tool help. A
+configured fallback backend is used for that second tier. If no suggestion passes, TinyTalk returns
+an error and leaves the shell buffer untouched.
 
 ## Configuration
 
-Everything lives in `~/.config/tinytalk/config.toml` (override with `--config` or
-`TT_CONFIG`). A missing or invalid config fails loudly with a message that says exactly
-what to fix. A full-featured example:
+The default file is `~/.config/tinytalk/config.toml`. Override it with `TT_CONFIG` or `--config PATH`.
+`tt auth` is the safest way to write provider entries, but the file is ordinary TOML:
 
 ```toml
 [defaults]
-backend = "local"                # the primary slot
-escalation_backend = "claude"    # the fallback slot (optional)
-posture = "hybrid"               # declared stance: local | hybrid | cloud
-language = "ko"                  # explanation language; auto-detected from locale if unset
-explanation = false              # hide the one-line "# ..." explanation (default: true)
+backend = "primary"
+escalation_backend = "fallback"  # optional
+posture = "hybrid"               # local | hybrid | cloud
+language = "en"
+explanation = true
 
-[backends.local]
+[backends.primary]
 kind = "openai-compat"
-base_url = "http://localhost:8000/v1"
-model = "gemma-4-26B-A4B-it-MLX-8bit"
+base_url = "http://localhost:11434/v1"
+model = "your-model-id"
 
-[backends.claude]
+[backends.fallback]
 kind = "claude-agent-sdk"
-model = "claude-sonnet-5"
-effort = "low"                   # reasoning effort: none|minimal|low|medium|high|xhigh|max
+model = "your-claude-model-id"
+effort = "low"
 
 [cache]
-enabled = true                   # exact-match cache of past prompts
-
-[prices."gemma-4-26B-A4B-it-MLX-8bit"]
-input_per_mtok = 0.06            # optional, for the cost column in history & eval
-output_per_mtok = 0.33
+enabled = true
 ```
 
-A **backend** is one `[backends.<name>]` table: a `kind` (the wire protocol) plus a model
-and any credentials. The available kinds:
+Supported backend kinds are `openai-compat`, `anthropic-compat`, `claude-agent-sdk`,
+`codex-agent-sdk`, `bedrock`, and `azure-openai`. Names such as `primary` and `fallback` are config
+aliases; `kind` selects the protocol.
 
-| `kind` | What it is |
+Useful environment variables:
+
+| Variable | Purpose |
 |---|---|
-| `openai-compat` | Any OpenAI-compatible HTTP API — local (oMLX, llama.cpp, Ollama) or hosted |
-| `anthropic-compat` | Anthropic Messages API over raw HTTP |
-| `claude-agent-sdk` | Claude via the Agent SDK (Claude Code login or `ANTHROPIC_API_KEY`) — one-time add-on fetched at `tt auth` |
-| `codex-agent-sdk` | GPT via the Codex CLI login |
-| `bedrock` | AWS Bedrock (uses your AWS credential chain) — one-time add-on fetched at `tt auth` |
-| `azure-openai` | Azure OpenAI (endpoint + API key + deployment) |
+| `TT_CONFIG` | Use a different config file. |
+| `TT_SESSION_CONTEXT` | Add caller-supplied, redacted session context. |
+| `XDG_CONFIG_HOME` | Change the config root. |
+| `XDG_CACHE_HOME` | Change the grounding and exact-match cache root. |
+| `XDG_STATE_HOME` | Change the history root. |
 
-A few keys worth knowing: `api_key_env` reads a secret from an environment variable;
-`keyring_account` reads it from your OS keychain (this is what `tt auth` sets);
-`capabilities` opts a backend into richer response formats (`tool_calling`, `native_json`,
-`grammar`); `effort` passes a reasoning-effort level through where the provider supports
-it. The **explanation language** (`language`) controls only the one-line explanation — the
-command itself and TinyTalk's own messages stay in English. Turn the explanation off
-entirely by setting `explanation = false`, either by hand or with `tt config explanation
-off` (`tt config explanation on` to bring it back).
+## Install, update, and remove
 
----
+Install a particular release when reproducibility matters:
 
-## Features
+```sh
+TT_VERSION=v0.2.0rc9 curl --proto '=https' --tlsv1.2 -LsSf \
+  https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/install.sh | sh
+```
 
-**Prompt mode & the badge.** Pressing `?` on an empty line toggles prompt mode; the badge
-animates a spectrum wave through its letters while you type, and again while TinyTalk
-thinks. Press `?` or Backspace on an empty line to leave. The `?` is never inserted as a
-literal character when it's toggling the mode.
+Installer options include `--yes`, `--no-rc`, `--bin-dir DIR`, and `--version TAG`. When piping a
+flag to `sh`, use `sh -s -- --version TAG`; the `TT_VERSION` form above is easier.
 
-**Grounding & validation.** Before a request goes out, TinyTalk collects a snapshot of
-your system — installed binaries and their key flags, your OS, your shell — and both feeds
-it to the model and validates the answer against it. A command that references a binary
-you don't have, or that doesn't parse, is rejected rather than shown.
+```sh
+tt upgrade
+tt uninstall                    # keeps shell rc blocks for you to remove manually
 
-**Danger classification.** Every suggestion is tagged `safe`, `caution`, or `destructive`.
-In the widget, a destructive command is inserted **commented out** — you have to
-deliberately remove the `#` to run it. No single keystroke can do damage.
+# Remove the binary, data, keyring entries, and installer-owned rc blocks:
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://raw.githubusercontent.com/pbkimdev/tinytalk/main/scripts/uninstall.sh | sh
+```
 
-**One command, no menu.** The model commits to exactly one answer — no "here are three
-options." If it can't produce a valid one, the request fails cleanly instead of guessing.
+Release builds download Bedrock and Claude add-ons only when those providers are selected. Add-ons
+are checksum-verified, version-matched, and stored under
+`${XDG_DATA_HOME:-~/.local/share}/tinytalk/addons/`. Air-gapped installs can download the matching
+release archives and `.sha256` files on another machine and unpack them into that directory.
 
-**Tiers, escalation & cache.** Repeated prompts are served from an exact-match cache for
-free. A request can escalate from your primary backend to the fallback when the primary
-can't produce a valid command — each tier billed at its own rate.
+To run from source:
 
-**History & recall.** Every prompt→command outcome is stored (dated JSONL under
-`XDG_STATE_HOME`). `tt history` browses it — an fzf picker when fzf is installed, a plain
-listing otherwise. Inside prompt mode, ↑/↓ walk your past commands into the buffer.
-
-**Inspect without spending.** `tt prompt "<request>"` prints the exact system + user
-prompt TinyTalk would send — no model call, no cost:
-
-![tt prompt](docs/assets/prompt.png)
-
-**Script-friendly output.** `tt --json` emits the full structured suggestion for piping
-into other tools; `tt --widget` emits the shell-evalable form the zsh integration consumes.
-
-![tt --json](docs/assets/json.png)
-
----
+```sh
+git clone https://github.com/pbkimdev/tinytalk.git
+cd tinytalk
+uv tool install .
+```
 
 ## Benchmark
 
-TinyTalk ships its own eval suite. `tt eval` runs a set of natural-language commands
-through every configured backend, in both English and Korean, and grades each result on
-whether the output actually **parses**, references **real binaries**, and passes its
-**assertions**. Those are the three things that decide whether a command it hands you is
-worth running. Local models sit right alongside the hosted ones, so you can see exactly
-what you trade by going fully offline.
+TinyTalk's suite asks each backend the same 25 tasks in natural English and Korean. It reports two
+different questions:
 
-![tt eval](docs/assets/eval.png)
+- **Strict pass:** did the response satisfy TinyTalk's structured contract, parse, use installed
+  binaries, and meet deterministic command-shape assertions?
+- **Execution oracle:** on the 18 fixture-backed targets, did the command produce the correct output
+  or filesystem state inside an isolated eval sandbox?
 
-Latest published run: **2026-07-03** ([`docs/bench/2026-07-03/`](docs/bench/2026-07-03/)).
+The most recent committed field run is suite v4 from **2026-07-05**. Sonnet 5 scored 92% strict pass
+and 81% on oracle-covered results. The three local Gemma 4 variants scored 58–68% strict pass and
+44–56% on their oracle-covered results. That gap is the useful result: a command can look plausible
+and still fail when executed against a fixture.
 
-![TinyTalk CLI Bench — pass rate and score vs. cost](docs/bench/2026-07-03/assets/summary.png)
+See the [interactive report](docs/bench/2026-07-05/index.html),
+[analysis dashboard](docs/bench/2026-07-05/dashboard.html), [suite contract](docs/bench/SUITE-V4.md),
+and [reproduction runbook](docs/bench/RUNBOOK.md). Benchmark commands run only inside the explicit
+eval harness; TinyTalk's product path still never executes generated commands.
 
-The full interactive report is at [`docs/bench/2026-07-03/index.html`](docs/bench/2026-07-03/index.html),
-and [`docs/bench/RUNBOOK.md`](docs/bench/RUNBOOK.md) documents how to reproduce or publish a
-run. On the hard 25-target suite, the frontier models (Sonnet 5, GPT-5.5) top out around
-98%, with the local **Gemma 4 26B-A4B at 94%** — and notably the *fastest* of the field at
-~1.6 s median, for a fraction of a cent per sweep.
+## Troubleshooting
 
-### Caveats
+- **`?` types a literal question mark:** run `tt setup`, then open a new zsh. Check that `tt` is on
+  `PATH` and `eval "$(tt init zsh)"` loads without an error.
+- **No config or backend:** run `tt setup` or `tt auth`. The starter config intentionally has no fake
+  provider.
+- **A local server has no models:** check `curl -s <base-url>/models` before re-running `tt auth`.
+- **Bedrock discovery fails:** refresh the AWS login, check the selected region/profile, or use the
+  wizard's manual model-ID path.
+- **A command is rejected:** run `tt ground --refresh` after installing or upgrading tools. Use
+  `tt prompt "..."` to inspect the prompt and `tt history` to inspect the recorded outcome.
+- **The explanation is noisy:** use `tt config explanation off`; the danger label remains.
 
-Treat these numbers as a rough guide, not gospel. A few things to keep in mind before you
-quote one:
+## Contributing
 
-- **Local costs are equivalents, not bills.** Local models run at ~$0 marginal cost on
-  your own machine; the dollar figures are hosted-proxy list rates, shown only to put all
-  models on one comparable axis.
-- **SDK overhead is counted.** The Claude and Codex backends run through their agent SDKs,
-  so each request carries the CLI's own system context (tens of thousands of input tokens)
-  and startup latency. That's real overhead of TinyTalk *as shipped* on those backends, so
-  it's included — but it inflates their token counts and latency versus a bare API call.
-- **Some numbers wobble.** The speculative-decoding local build flips a few prompts between
-  temperature-0 runs (± a few points) and reports no cached tokens; tokenizers differ
-  (Sonnet's counts ~30% more tokens for the same text). Treat small gaps as noise.
-- **"Strict pass" is narrow by design.** A row can carry a transport error yet still
-  strict-pass, because the pass is re-scored purely on the returned command's parse /
-  binaries / assertions — not on a clean run end to end.
+TinyTalk is a Python 3.11+ project managed with `uv`:
 
-Local models are genuinely competitive for this task, the spread between them is real, and
-the exact decimals are the least interesting part.
+```sh
+uv sync
+uv run pytest
+uv run ruff check .
+uv run tt --help
+```
+
+Read [AGENTS.md](AGENTS.md) before starting. Every change begins with a GitHub issue and an approved
+plan; TinyTalk never auto-runs generated commands, including in contributor tooling outside the
+explicit isolated eval harness.

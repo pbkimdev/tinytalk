@@ -1,75 +1,102 @@
-# Atuin AI vs TinyTalk — behavioral head-to-head
+# Compare Atuin AI with TinyTalk
 
-Atuin AI ([docs](https://docs.atuin.sh/cli/ai/introduction/)) turns English into a
-shell command. We capture its commands and grade them the same way TinyTalk grades
-its own backends: with the **execution oracle** (`tinytalk/eval/oracle.py`), which
-runs each command in an isolated sandbox and checks the result — stdout against a
-golden, or the resulting **filesystem state** for side-effecting commands. That's
-the only fair cross-tool grader; the suite's assertion DSL (`uses:awk` …) scores
-*how TinyTalk phrased* a command, which a different tool shouldn't be judged by.
+This harness captures commands from [Atuin AI](https://docs.atuin.sh/cli/ai/introduction/) and grades
+them with TinyTalk's execution oracle. It is a behavioral comparison over local fixtures, not a
+claim that the two products have identical context, models, or safety policy.
 
-Both sides are scored on the oracle's behavioral fixtures — the `CASES` set
-(18 at time of writing; the tooling reads it dynamically, so it tracks new
-fixtures automatically).
+## Fairness boundary
 
-## How the capture works
+TinyTalk's assertion DSL knows how TinyTalk usually phrases a command. Applying those text assertions
+to another product would reward shared spelling rather than correct behavior.
 
-No TUI puppetry and no `?` key (so no conflict with TinyTalk's own `?` binding):
-the `?` widget is just a wrapper around **`atuin ai inline`**, and we call that
-directly. `atuin ai inline --hook "<request>"` seeds the request from its argument,
-generates, and on **Tab** (insert) prints `__atuin_ai_insert__:<command>` to
-stderr and exits. `capture.zsh` drives it in a tmux pane (it needs a PTY + one
-keypress), polls stdout for the suggestion, presses Tab, and parses that token.
-Each fixture is a **separate process**, so state can't bleed between prompts.
-Nothing is ever executed by the capture.
+The comparison therefore uses only fixture-backed targets from `tinytalk/eval/oracle.py`. Each command
+runs in a disposable sandbox and is judged by normalized output or resulting filesystem state. The
+harness reads `CASES` dynamically, so its target count follows the oracle instead of a number copied
+into this document.
 
-## 1. Capture
+## What capture does
 
-Be logged in to Atuin Hub first (any one successful `?` / `atuin ai` call is
-enough — AI is a Hub feature, separate from sync):
+Atuin's interactive `?` key can conflict with TinyTalk's widget, so the script drives
+`atuin ai inline --hook <request>` directly in a tmux pane. For every prompt it:
+
+1. starts a separate Atuin process in a PTY;
+2. waits for a suggestion;
+3. sends Tab to choose **insert**, not run;
+4. parses Atuin's `__atuin_ai_insert__:<command>` token;
+5. writes the command to JSON.
+
+Capture never executes the suggestion. A new process is used for each fixture, although Atuin's
+server-side session behavior can still differ from TinyTalk's independent backend requests.
+
+## Prerequisites
+
+- zsh and tmux;
+- an Atuin build with `atuin ai inline`;
+- an authenticated Atuin Hub session;
+- Python dependencies for the TinyTalk source checkout.
+
+Confirm Atuin AI works interactively once before starting a field capture.
+
+## Capture
+
+From the repository root:
 
 ```sh
-docs/bench/atuin/capture.zsh -o atuin-commands.json
+docs/bench/atuin/capture.zsh \
+  -o docs/bench/atuin/atuin-commands.json
 ```
 
-Knobs: `ATUIN_GEN_WAIT` (max seconds to wait per prompt, default 25) · `COLS` /
-`ROWS`. If a prompt comes back blank, bump `ATUIN_GEN_WAIT` and re-run.
+`ATUIN_GEN_WAIT` controls the maximum wait per prompt and defaults to 25 seconds. `COLS` and `ROWS`
+control the tmux pane. If one result is blank, inspect the capture before increasing the timeout;
+authentication or a changed UI token can look like a slow model.
 
-## 2. Report
+Keep the captured JSON as raw evidence. Do not edit commands to make them executable.
+
+## Report
+
+Compare the capture with already-recorded TinyTalk rows:
 
 ```sh
 python -m tinytalk.eval.atuin report \
-    --captured atuin-commands.json \
-    --results docs/bench/2026-07-05/results.json
+  --captured docs/bench/atuin/atuin-commands.json \
+  --results docs/bench/2026-07-05/results.json
 ```
 
-`--results` re-grades each TinyTalk backend's **already-recorded** commands with
-the oracle (no models re-run), so `atuin-ai` sits next to `sonnet5-low`,
-`gpt55-low`, etc. on identical footing. `prompts` prints the targets + English
-prompts (TSV) if you'd rather capture by hand.
-
-## What to read into it
-
-- Atuin runs frontier models server-side, so its ceiling ≈ the frontier rows
-  (`sonnet5-low` / `gpt55-low`). The signal is the **delta** those rows already
-  set — whether Atuin's man-page/command-output retrieval layer adds anything.
-- **Session continuity:** consecutive `atuin ai inline` calls share Atuin's
-  short-lived AI session, so a prompt can see earlier ones as context. That's how
-  the product behaves interactively, but it's a confound vs TinyTalk's
-  independent-prompt eval — read the numbers as "Atuin as used," not context-free.
-- **UI-scraped, Hub- and network-gated.** Directional head-to-head on *your*
-  fixtures, not a stable CI metric.
-
-## Offline self-test (no Hub, no network)
-
-`stubbin/atuin` is a fake `atuin` that emulates `atuin ai inline` with canned
-commands from `responses/` (Nth invocation → file N, in fixture order), so the
-harness plumbing — launch, poll, Tab, token parse, JSON — is verifiable without
-Atuin. `responses/` is rigged so `count-lines-code` (#1) and `awk-group-sum` (#6)
-pass:
+`--results` does not call TinyTalk's model backends. It reuses their recorded commands and grades both
+products with the same oracle cases. To inspect the current target IDs and English prompts:
 
 ```sh
-docs/bench/atuin/capture.zsh --stub docs/bench/atuin/responses -o /tmp/atuin-selftest.json
-python -m tinytalk.eval.atuin report --captured /tmp/atuin-selftest.json \
-    --label atuin-stub --results docs/bench/2026-07-05/results.json
+python -m tinytalk.eval.atuin prompts
 ```
+
+## Interpret the result carefully
+
+- Atuin is Hub- and network-dependent; service or model changes can move results without a harness
+  commit.
+- UI capture is more fragile than an API. A blank or truncated command is a delivery failure and may
+  reflect the capture seam.
+- Atuin may use context or retrieval that TinyTalk does not, while TinyTalk grounds and validates
+  against the local host. This report compares final commands on fixtures, not architecture.
+- The oracle reflects the scoring host's shell and userland. Record the OS and commit with every
+  comparison.
+- A single field capture is directional evidence. Repeat it before claiming a stable difference.
+
+## Offline harness self-test
+
+`stubbin/atuin` emulates `atuin ai inline` with canned commands from `responses/`. It verifies tmux
+launch, polling, Tab insertion, token parsing, JSON writing, and reporting without Atuin Hub or a
+network call:
+
+```sh
+docs/bench/atuin/capture.zsh \
+  --stub docs/bench/atuin/responses \
+  -o /tmp/atuin-selftest.json
+
+python -m tinytalk.eval.atuin report \
+  --captured /tmp/atuin-selftest.json \
+  --label atuin-stub \
+  --results docs/bench/2026-07-05/results.json
+```
+
+The canned responses are plumbing fixtures, not benchmark results. Run this self-test after changing
+the capture script, token parser, fixture order, or oracle case set.
