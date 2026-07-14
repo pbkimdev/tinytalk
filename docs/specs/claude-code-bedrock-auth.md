@@ -1,6 +1,6 @@
 # Reuse Claude Code Bedrock authentication in TinyTalk
 
-Status: implementation source of truth; rc11 installer recovery in progress
+Status: implementation source of truth; rc11 installer recovery complete
 
 Date: 2026-07-14
 
@@ -320,7 +320,7 @@ Update both `README.md` and `README.ko.md`:
       loader output and leaves the previous installation working.
 - [x] Bundle extraction and validation happen outside the live installation tree under an
       installer lock.
-- [ ] The public latest-release `curl | sh` path installs and runs rc11 with bundled boto3.
+- [x] The public latest-release `curl | sh` path installs and runs rc11 with bundled boto3.
 
 ## Implementation order
 
@@ -389,6 +389,10 @@ README wording, and test-matrix recommendations.
   workflow passed its unit, bash, and zsh jobs on Linux and macOS. Running the README `curl | sh`
   command against a fully isolated home downloaded the latest release, verified its checksum,
   printed `tt 0.2.0rc10`, and found bundled boto3 under `_internal/boto3`.
+- Installer recovery release: commit `b0df513` shipped as latest release `v0.2.0rc11`. All Linux
+  and macOS release builds and installer jobs passed. The public README `curl | sh` command installed
+  rc11 into an isolated home, verified the checksum, printed `tt 0.2.0rc11`, found bundled boto3,
+  and left no installer lock behind.
 
 ## References
 
