@@ -6,7 +6,10 @@ as the DoD requires."""
 
 from __future__ import annotations
 
+import json
 import tomllib
+
+import pytest
 
 import tinytalk.auth as auth
 from tinytalk.config import load_config
@@ -114,7 +117,9 @@ enabled = false
     assert cfg.escalation_backend == "fallback"
 
 
-def test_existing_config_replace_primary_confirms_upfront(tmp_path, monkeypatch):
+def test_existing_config_replace_primary_skips_redundant_upfront_confirmation(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(
@@ -133,7 +138,6 @@ enabled = false
     io = ScriptedIO(
         [
             "primary",  # slot
-            True,  # replace the existing primary?
             "claude-agent-sdk",
             "claude-sonnet-5",
             auth._NO_EFFORT,
@@ -197,7 +201,7 @@ model = "gpt-5.4"
 keyring_account = "primary"
 """
     )
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
     assert auth.run_auth_wizard(config_path, io) == "primary"
     assert deleted == [("tinytalk", "primary")]
     assert "keyring_account" not in _read(config_path)["backends"]["primary"]
@@ -228,7 +232,7 @@ def test_replace_keeps_keyring_secret_shared_with_another_table(tmp_path, monkey
     monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(_SHARED_ACCOUNT_CONFIG)
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
     assert auth.run_auth_wizard(config_path, io) == "primary"
     assert deleted == []
     assert _read(config_path)["backends"]["legacy"]["keyring_account"] == "shared-key"
@@ -253,7 +257,7 @@ def test_stale_secret_survives_failed_save(tmp_path, monkeypatch):
         'model = "m"\nkeyring_account = "primary"\n'
     )
     before = config_path.read_text()
-    io = ScriptedIO(["primary", True, "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, True])
     with pytest.raises(OSError):
         auth.run_auth_wizard(config_path, io)
     assert deleted == []
@@ -450,14 +454,15 @@ def test_declined_confirm_gate_writes_nothing(tmp_path, monkeypatch):
     assert not config_path.exists()
 
 
-def test_declined_replace_confirm_writes_nothing(tmp_path):
+def test_declining_final_write_when_replacing_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(auth, "_probe_claude_agent", lambda model: None)
     config_path = tmp_path / "config.toml"
     config_path.write_text(
         '[defaults]\nbackend = "primary"\n\n'
         '[backends.primary]\nkind = "claude-agent-sdk"\nmodel = "x"\n'
     )
     before = config_path.read_text()
-    io = ScriptedIO(["primary", False])  # decline "will replace the existing primary"
+    io = ScriptedIO(["primary", "claude-agent-sdk", "claude-sonnet-5", auth._NO_EFFORT, False])
     assert auth.run_auth_wizard(config_path, io) is None
     assert config_path.read_text() == before
 
@@ -719,6 +724,648 @@ def test_setup_codex_agent_sdk_probe_failure_retries():
 # --- bedrock setup ---------------------------------------------------------------------
 
 
+def _write_claude_settings(tmp_path, data):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_claude_bedrock_settings_maps_allowlisted_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("AWS_PROFILE", "outer-process-profile")
+    path = _write_claude_settings(
+        tmp_path,
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "awsAuthRefresh": "do-not-run --profile imported",
+            "awsCredentialExport": "do-not-export",
+            "env": {
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "AWS_PROFILE": "imported",
+                "AWS_REGION": "us-east-1",
+                "AWS_ACCESS_KEY_ID": "ignored",
+                "AWS_SECRET_ACCESS_KEY": "ignored",
+                "AWS_SESSION_TOKEN": "ignored",
+                "AWS_BEARER_TOKEN_BEDROCK": "ignored",
+            },
+        },
+    )
+
+    settings = auth._load_claude_bedrock_settings(path)
+
+    assert settings == auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="imported",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    assert "secret" not in repr(settings).lower()
+    assert __import__("os").environ["AWS_PROFILE"] == "outer-process-profile"
+
+
+def test_claude_bedrock_settings_prefers_first_concrete_model_and_records_1m(tmp_path):
+    path = _write_claude_settings(
+        tmp_path,
+        {
+            "model": "us.anthropic.claude-opus-4-8[1m]",
+            "env": {
+                "CLAUDE_CODE_USE_BEDROCK": "true",
+                "AWS_REGION": "us-west-2",
+                "ANTHROPIC_MODEL": "opus",
+            },
+        },
+    )
+
+    settings = auth._load_claude_bedrock_settings(path)
+
+    assert settings == auth.ClaudeBedrockSettings(
+        region="us-west-2",
+        profile=None,
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {},
+        {"model": "us.anthropic.claude-opus-4-8", "env": []},
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "0", "AWS_REGION": "us-east-1"},
+        },
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": 1, "AWS_REGION": "us-east-1"},
+        },
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "1"},
+        },
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": " us-east-1"},
+        },
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1\n"},
+        },
+        {
+            "model": "opus",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1"},
+        },
+        {
+            "model": "arn:aws:bedrock:us-east-1:123:application-inference-profile/example",
+            "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1"},
+        },
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "env": {
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "AWS_REGION": "us-east-1",
+                "ANTHROPIC_BEDROCK_BASE_URL": "https://gateway.example.test",
+            },
+        },
+    ],
+)
+def test_unsupported_claude_bedrock_settings_are_not_reused(tmp_path, data):
+    path = _write_claude_settings(tmp_path, data)
+    assert auth._load_claude_bedrock_settings(path) is None
+
+
+def test_missing_or_malformed_claude_settings_are_not_reused(tmp_path):
+    missing = tmp_path / "missing.json"
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text("{ definitely not json")
+
+    assert auth._load_claude_bedrock_settings(missing) is None
+    assert auth._load_claude_bedrock_settings(malformed) is None
+
+
+def test_setup_bedrock_reuses_claude_settings_with_runtime_probe(capsys):
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    io = ScriptedIO(["reuse", True, "medium"])
+    calls = []
+    output_at_probe = []
+
+    def runtime_prober(model, region, profile):
+        output_at_probe.append(capsys.readouterr().out)
+        calls.append((model, region, profile))
+        return None
+
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda *args: (_ for _ in ()).throw(AssertionError("catalog probe called")),
+        settings_loader=lambda: imported,
+        runtime_prober=runtime_prober,
+    )
+
+    assert calls == [("us.anthropic.claude-opus-4-8", "us-east-1", "sso-dev")]
+    assert "us-east-1" in output_at_probe[0]
+    assert "sso-dev" in output_at_probe[0]
+    assert "us.anthropic.claude-opus-4-8" in output_at_probe[0]
+    assert draft.fields == {
+        "kind": "bedrock",
+        "model": "us.anthropic.claude-opus-4-8",
+        "aws_region": "us-east-1",
+        "aws_profile": "sso-dev",
+        "capabilities": ["tool_calling"],
+        "effort": "medium",
+    }
+    assert draft.secret is None
+
+
+def test_setup_bedrock_detected_aws_settings_lets_user_choose_available_model():
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    catalog_calls = []
+    runtime_calls = []
+    io = ScriptedIO(["discover", "us.anthropic.claude-sonnet-4-6", "low"])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        prober=lambda region, profile: (
+            catalog_calls.append((region, profile))
+            or ([{"modelId": "us.anthropic.claude-sonnet-4-6"}], None)
+        ),
+        runtime_prober=lambda model, region, profile, endpoint=None: (
+            runtime_calls.append((model, region, profile, endpoint)) or None
+        ),
+    )
+
+    assert catalog_calls == [("us-east-1", "sso-dev")]
+    assert runtime_calls == [("us.anthropic.claude-sonnet-4-6", "us-east-1", "sso-dev", None)]
+    assert draft.fields == {
+        "kind": "bedrock",
+        "model": "us.anthropic.claude-sonnet-4-6",
+        "aws_region": "us-east-1",
+        "capabilities": ["tool_calling"],
+        "aws_profile": "sso-dev",
+        "effort": "low",
+    }
+
+
+def test_setup_bedrock_failed_selected_model_can_choose_another():
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    io = ScriptedIO(
+        [
+            "discover",
+            "us.anthropic.claude-sonnet-4-6",
+            "choose",
+            "global.anthropic.claude-sonnet-5",
+            auth._NO_EFFORT,
+        ]
+    )
+    runtime_calls = []
+
+    def runtime_prober(model, region, profile, endpoint=None):
+        runtime_calls.append(model)
+        return "AccessDeniedException" if len(runtime_calls) == 1 else None
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        prober=lambda *args: (
+            [
+                {"modelId": "us.anthropic.claude-sonnet-4-6"},
+                {"modelId": "global.anthropic.claude-sonnet-5"},
+            ],
+            None,
+        ),
+        runtime_prober=runtime_prober,
+    )
+
+    assert runtime_calls == [
+        "us.anthropic.claude-sonnet-4-6",
+        "global.anthropic.claude-sonnet-5",
+    ]
+    assert draft.fields["model"] == "global.anthropic.claude-sonnet-5"
+    assert draft.fields["capabilities"] == ["tool_calling"]
+
+
+def test_fresh_config_detected_aws_settings_writes_user_selected_non_opus_model(
+    tmp_path, monkeypatch
+):
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    monkeypatch.setattr(auth, "_load_claude_bedrock_settings", lambda: imported)
+    monkeypatch.setattr(
+        auth,
+        "_probe_bedrock",
+        lambda *args: ([{"modelId": "us.anthropic.claude-sonnet-4-6"}], None),
+    )
+    monkeypatch.setattr(auth, "_probe_imported_bedrock", lambda *args: None)
+    config_path = tmp_path / "fresh-config.toml"
+    io = ScriptedIO(
+        [
+            "bedrock",
+            "discover",
+            "us.anthropic.claude-sonnet-4-6",
+            auth._NO_EFFORT,
+            True,
+        ]
+    )
+
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    assert io._answers == []
+    assert _read(config_path)["backends"]["primary"]["model"] == ("us.anthropic.claude-sonnet-4-6")
+
+
+def test_setup_bedrock_1m_reuse_requires_extra_confirmation():
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=True,
+    )
+    io = ScriptedIO(["reuse", True, True, auth._NO_EFFORT])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: None,
+    )
+
+    assert draft.fields["model"] == "us.anthropic.claude-opus-4-8"
+    assert "effort" not in draft.fields
+
+
+def test_setup_bedrock_declining_import_runs_complete_manual_flow(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    io = ScriptedIO(
+        [
+            "manual",
+            "https://bedrock-runtime.example.test",
+            "us-west-2",
+            "manual-profile",
+            "some-vendor.model-x",
+        ]
+    )
+
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([{"modelId": "some-vendor.model-x"}], None),
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: None,
+    )
+
+    assert draft.fields["base_url"] == "https://bedrock-runtime.example.test"
+    assert draft.fields["aws_region"] == "us-west-2"
+    assert draft.fields["aws_profile"] == "manual-profile"
+    assert draft.fields["model"] == "some-vendor.model-x"
+
+
+def test_setup_bedrock_import_probe_failure_can_restart_manual_flow(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    io = ScriptedIO(
+        [
+            "reuse",
+            True,
+            "manual",
+            "",
+            "us-west-2",
+            "",
+            "some-vendor.model-x",
+        ]
+    )
+
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([{"modelId": "some-vendor.model-x"}], None),
+        settings_loader=lambda: imported,
+        runtime_prober=_probe_seq("ValidationException: Converse is unsupported", None),
+    )
+
+    assert draft.fields["aws_region"] == "us-west-2"
+    assert draft.fields["model"] == "some-vendor.model-x"
+
+
+def test_setup_bedrock_import_probe_sso_failure_logs_in_and_retries_automatically(capsys):
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    errors = ["bedrock SSO credentials failed for AWS profile 'sso-dev'", None]
+    logins = []
+    io = ScriptedIO(["reuse", True, auth._NO_EFFORT])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: errors.pop(0),
+        sso_login=lambda profile: logins.append(profile),
+    )
+
+    assert draft.fields["aws_profile"] == "sso-dev"
+    assert logins == ["sso-dev"]
+    output = capsys.readouterr().out
+    assert "Opening your browser for AWS SSO" in output
+    assert "automatically retrying Bedrock validation" in output
+
+
+def test_setup_bedrock_sso_login_runs_browser_capable_aws_cli_without_shell(monkeypatch):
+    import subprocess
+
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    errors = ["bedrock SSO credentials failed for AWS profile 'sso-dev'", None]
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    io = ScriptedIO(["reuse", True, auth._NO_EFFORT])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: errors.pop(0),
+    )
+
+    assert draft.fields["aws_profile"] == "sso-dev"
+    assert calls == [
+        (
+            ["aws", "sso", "login", "--profile", "sso-dev", "--no-cli-pager"],
+            {"check": False},
+        )
+    ]
+
+
+def test_setup_bedrock_missing_aws_cli_remains_recoverable(monkeypatch, capsys):
+    import subprocess
+
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+
+    def missing_aws(*args, **kwargs):
+        raise FileNotFoundError("aws")
+
+    monkeypatch.setattr(subprocess, "run", missing_aws)
+    io = ScriptedIO(["reuse", True, "abort"])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: "bedrock SSO credentials failed for AWS profile 'sso-dev'",
+    )
+
+    assert draft is None
+    output = capsys.readouterr().out
+    assert "AWS CLI is not installed" in output
+    assert "aws sso login --profile sso-dev" in output
+
+
+def test_setup_bedrock_failed_sso_login_remains_recoverable(monkeypatch, capsys):
+    import subprocess
+
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(argv, 23),
+    )
+    io = ScriptedIO(["reuse", True, "abort"])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: "bedrock SSO credentials failed for AWS profile 'sso-dev'",
+    )
+
+    assert draft is None
+    assert "AWS CLI exited with status 23" in capsys.readouterr().out
+
+
+def test_setup_bedrock_sso_login_success_is_attempted_only_once_per_flow():
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    errors = [
+        "bedrock SSO credentials failed for AWS profile 'sso-dev'",
+        "bedrock SSO credentials failed for AWS profile 'sso-dev'",
+    ]
+    logins = []
+    io = ScriptedIO(["reuse", True, "abort"])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: errors.pop(0),
+        sso_login=lambda profile: logins.append(profile),
+    )
+
+    assert draft is None
+    assert logins == ["sso-dev"]
+
+
+def test_setup_bedrock_import_probe_failure_can_abort():
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=False,
+    )
+    io = ScriptedIO(["reuse", True, "abort"])
+
+    draft = auth._setup_bedrock(
+        io,
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: "AccessDeniedException",
+        sso_login=lambda profile: (_ for _ in ()).throw(AssertionError("SSO login called")),
+    )
+
+    assert draft is None
+
+
+def test_setup_bedrock_declining_1m_compatibility_runs_manual_flow(monkeypatch):
+    monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
+    imported = auth.ClaudeBedrockSettings(
+        region="us-east-1",
+        profile="sso-dev",
+        model="us.anthropic.claude-opus-4-8",
+        requested_1m=True,
+    )
+    io = ScriptedIO(
+        [
+            "reuse",
+            True,
+            False,
+            "",
+            "us-west-2",
+            "",
+            "some-vendor.model-x",
+        ]
+    )
+
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([{"modelId": "some-vendor.model-x"}], None),
+        settings_loader=lambda: imported,
+        runtime_prober=lambda *args: None,
+    )
+
+    assert draft.fields["aws_region"] == "us-west-2"
+    assert draft.fields["model"] == "some-vendor.model-x"
+
+
+def test_auth_wizard_imports_bedrock_without_keyring_or_command_execution(tmp_path, monkeypatch):
+    import subprocess
+
+    settings_path = _write_claude_settings(
+        tmp_path,
+        {
+            "model": "us.anthropic.claude-opus-4-8",
+            "awsAuthRefresh": "do-not-run --profile imported",
+            "awsCredentialExport": "do-not-export",
+            "env": {
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "AWS_REGION": "us-east-1",
+                "AWS_PROFILE": "sso-dev",
+                "AWS_ACCESS_KEY_ID": "ignored",
+                "AWS_SECRET_ACCESS_KEY": "ignored",
+                "AWS_SESSION_TOKEN": "ignored",
+            },
+        },
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("import must not execute commands or access keyring secrets")
+
+    real_loader = auth._load_claude_bedrock_settings
+    monkeypatch.setattr(auth, "_load_claude_bedrock_settings", lambda: real_loader(settings_path))
+    monkeypatch.setattr(auth, "_probe_imported_bedrock", lambda *args: None)
+    monkeypatch.setattr(auth, "_store_secret", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr("keyring.get_password", forbidden)
+    monkeypatch.setattr("tinytalk.addons.install_addon", lambda name: None)
+    config_path = tmp_path / "config.toml"
+    io = ScriptedIO(["bedrock", "reuse", True, auth._NO_EFFORT, True])
+
+    assert auth.run_auth_wizard(config_path, io) == "primary"
+    assert _read(config_path)["backends"]["primary"] == {
+        "kind": "bedrock",
+        "model": "us.anthropic.claude-opus-4-8",
+        "aws_region": "us-east-1",
+        "capabilities": ["tool_calling"],
+        "aws_profile": "sso-dev",
+    }
+    backend = load_config(config_path).backend()
+    assert backend.api_key is None
+
+    from tinytalk.provider.factory import make_provider
+
+    provider = make_provider(backend)
+    assert provider.model == "us.anthropic.claude-opus-4-8"
+    assert provider._region == "us-east-1"
+    assert provider._profile == "sso-dev"
+
+
+def test_imported_bedrock_values_are_escaped_for_display_and_shell(capsys):
+    imported = auth.ClaudeBedrockSettings(
+        region='us-east-1"quoted',
+        profile="dev; echo not-executed",
+        model="us.anthropic.claude-opus-4-8`literal`",
+        requested_1m=False,
+    )
+
+    auth._print_claude_bedrock_settings(imported)
+    auth._print_bedrock_credential_hint("SSO token expired", imported.profile)
+
+    output = capsys.readouterr().out
+    assert 'AWS region: "us-east-1\\"quoted"' in output
+    assert 'AWS profile: "dev; echo not-executed"' in output
+    assert 'model: "us.anthropic.claude-opus-4-8`literal`"' in output
+    assert "aws sso login --profile 'dev; echo not-executed'" in output
+
+
+def test_probe_imported_bedrock_uses_runtime_provider(monkeypatch):
+    calls = []
+
+    class FakeProvider:
+        def __init__(self, model, *, region, profile, endpoint_url=None):
+            calls.append(("init", model, region, profile, endpoint_url))
+
+        async def complete(self, request):
+            calls.append(("complete", request.messages[0].content, request.max_tokens))
+
+    monkeypatch.setattr("tinytalk.provider.bedrock.BedrockProvider", FakeProvider)
+
+    error = auth._probe_imported_bedrock("us.anthropic.claude-opus-4-8", "us-east-1", "sso-dev")
+
+    assert error is None
+    assert calls == [
+        ("init", "us.anthropic.claude-opus-4-8", "us-east-1", "sso-dev", None),
+        ("complete", "Reply with the word ok.", 8),
+    ]
+
+
+def test_probe_imported_bedrock_returns_runtime_error(monkeypatch):
+    class FailingProvider:
+        def __init__(self, model, *, region, profile, endpoint_url=None):
+            pass
+
+        async def complete(self, request):
+            raise RuntimeError("Converse rejected this model")
+
+    monkeypatch.setattr("tinytalk.provider.bedrock.BedrockProvider", FailingProvider)
+
+    assert (
+        auth._probe_imported_bedrock("us.anthropic.claude-opus-4-8", "us-east-1", "sso-dev")
+        == "Converse rejected this model"
+    )
+
+
 def test_setup_bedrock_ambient_credentials_used_first(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-west-2", "", "anthropic.claude-opus-4-8-v1:0", "low"])
@@ -728,7 +1375,12 @@ def test_setup_bedrock_ambient_credentials_used_first(monkeypatch):
         calls.append((region, profile))
         return [{"modelId": "anthropic.claude-opus-4-8-v1:0"}], None
 
-    draft = auth._setup_bedrock(io, prober=prober)
+    draft = auth._setup_bedrock(
+        io,
+        prober=prober,
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
+    )
     assert calls == [("us-west-2", None)]
     assert draft.fields == {
         "kind": "bedrock",
@@ -751,8 +1403,17 @@ def test_setup_bedrock_custom_endpoint_and_profile_store_no_secret(monkeypatch):
         calls.append((region, profile))
         return [{"modelId": "some-vendor.model-x"}], None
 
-    draft = auth._setup_bedrock(io, prober=prober)
+    runtime_calls = []
+    draft = auth._setup_bedrock(
+        io,
+        prober=prober,
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: runtime_calls.append(args) or None,
+    )
     assert calls == [("us-east-1", "myprofile")]
+    assert runtime_calls == [
+        ("some-vendor.model-x", "us-east-1", "myprofile", "https://bedrock.example.test")
+    ]
     assert draft.fields["base_url"] == "https://bedrock.example.test"
     assert draft.fields["aws_profile"] == "myprofile"
     assert draft.fields["capabilities"] == []
@@ -777,36 +1438,52 @@ def test_setup_bedrock_profile_select_allows_free_text(monkeypatch):
         calls.append((region, profile))
         return [{"modelId": "some-vendor.model-x"}], None
 
-    draft = auth._setup_bedrock(io, prober=prober)
+    draft = auth._setup_bedrock(
+        io,
+        prober=prober,
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
+    )
     assert calls == [("us-east-1", "sso-dev")]
     assert draft.fields["aws_profile"] == "sso-dev"
     assert draft.secret is None
 
 
-def test_setup_bedrock_sso_credential_failure_retries(monkeypatch, capsys):
+def test_setup_bedrock_manual_sso_failure_logs_in_and_retries_automatically(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     probes = [
-        ([], "bedrock credentials failed for AWS profile 'dev'; token expired"),
+        ([], "bedrock SSO credentials failed for AWS profile 'dev'"),
         ([{"modelId": "some-vendor.model-x"}], None),
     ]
+    logins = []
     io = ScriptedIO(
         [
             "",
             "us-east-1",
             "dev",
-            "retry",
             "some-vendor.model-x",
         ]
     )
-    draft = auth._setup_bedrock(io, prober=lambda *a: probes.pop(0))
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda *a: probes.pop(0),
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
+        sso_login=lambda profile: logins.append(profile),
+    )
     assert draft.secret is None
-    assert "aws sso login --profile dev" in capsys.readouterr().out
+    assert logins == ["dev"]
 
 
 def test_setup_bedrock_failed_probe_declines_retry_manual_model(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "manual", "locked-down.model-x"])
-    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([], "AccessDeniedException"),
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
+    )
     assert draft.fields["model"] == "locked-down.model-x"
     assert draft.secret is None
 
@@ -814,14 +1491,22 @@ def test_setup_bedrock_failed_probe_declines_retry_manual_model(monkeypatch):
 def test_setup_bedrock_failed_probe_declines_retry_blank_model_cancels(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "manual", ""])
-    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([], "AccessDeniedException"),
+        settings_loader=lambda: None,
+    )
     assert draft is None
 
 
 def test_setup_bedrock_failed_probe_abort_skips_model_prompt(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "abort"])
-    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], "AccessDeniedException"))
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([], "AccessDeniedException"),
+        settings_loader=lambda: None,
+    )
     assert draft is None
 
 
@@ -829,7 +1514,10 @@ def test_setup_bedrock_token_validation_error_does_not_print_credential_hint(mon
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "manual", "some-vendor.model-x"])
     draft = auth._setup_bedrock(
-        io, prober=lambda region, profile: ([], "ValidationException: input tokens too high")
+        io,
+        prober=lambda region, profile: ([], "ValidationException: input tokens too high"),
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
     )
     out = capsys.readouterr().out
     assert draft.fields["model"] == "some-vendor.model-x"
@@ -840,7 +1528,12 @@ def test_setup_bedrock_token_validation_error_does_not_print_credential_hint(mon
 def test_setup_bedrock_no_models_free_types_model(monkeypatch):
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "custom-model-id"])
-    draft = auth._setup_bedrock(io, prober=lambda region, profile: ([], None))
+    draft = auth._setup_bedrock(
+        io,
+        prober=lambda region, profile: ([], None),
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
+    )
     assert draft.fields["model"] == "custom-model-id"
     assert draft.secret is None
     assert "effort" not in draft.fields
@@ -850,7 +1543,10 @@ def test_setup_bedrock_cross_region_claude_profile_gets_effort_and_tools(monkeyp
     monkeypatch.setattr(auth, "_available_aws_profiles", lambda: [])
     io = ScriptedIO(["", "us-east-1", "", "us.anthropic.claude-opus-4-8-v1:0", "medium"])
     draft = auth._setup_bedrock(
-        io, prober=lambda *a: ([{"modelId": "us.anthropic.claude-opus-4-8-v1:0"}], None)
+        io,
+        prober=lambda *a: ([{"modelId": "us.anthropic.claude-opus-4-8-v1:0"}], None),
+        settings_loader=lambda: None,
+        runtime_prober=lambda *args: None,
     )
     assert draft.fields["capabilities"] == ["tool_calling"]
     assert draft.fields["effort"] == "medium"
@@ -924,6 +1620,29 @@ def test_pick_model_no_discovery_free_types():
 def test_pick_model_cancel_returns_none():
     io = ScriptedIO([None])
     assert auth._pick_model(io, ["a"]) is None
+
+
+def test_pick_bedrock_model_filters_choices_to_claude_ids():
+    class RecordingIO(ScriptedIO):
+        def select(self, message, choices):
+            self.choices = choices
+            return super().select(message, choices)
+
+    io = RecordingIO(["global.anthropic.claude-sonnet-5"])
+    picked = auth._pick_bedrock_model(
+        io,
+        [
+            {"modelId": "global.anthropic.claude-sonnet-5", "modelName": "Claude Sonnet 5"},
+            {"modelId": "amazon.nova-pro-v1:0", "modelName": "Nova Pro"},
+            {"modelId": "us.meta.llama3-2-3b-instruct-v1:0", "modelName": "Llama"},
+        ],
+    )
+
+    assert picked == "global.anthropic.claude-sonnet-5"
+    assert [value for value, _label in io.choices] == [
+        "global.anthropic.claude-sonnet-5",
+        auth._CUSTOM_MODEL,
+    ]
 
 
 def test_pick_effort_none_choice_returns_none():

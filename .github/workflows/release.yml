@@ -4,10 +4,9 @@ name: release
 # curl installer (install.sh) downloads these assets — no Python/uv on the
 # user's machine.
 #
-# The heavy backends ride as separate, checksummed add-on assets that `tt auth`
-# downloads on demand: `tt-bedrock-addon.tar.gz` (cross-platform, no token) and
-# per-platform `tt-claude-addon-<platform>.tar.gz`. The base binary ships
-# without boto3/botocore and without the 220 MB claude_agent_sdk/_bundled/claude.
+# Bedrock support (boto3/botocore) ships in every base binary, so a fresh install can
+# authenticate and discover models without downloading another artifact. Only the
+# 220 MB Claude CLI remains a separate, checksummed per-platform add-on.
 #
 # Reproducibility note: the build syncs from uv.lock (`--frozen`). This is
 # load-bearing — the project allows prereleases (for openai-codex), and a loose
@@ -70,7 +69,7 @@ jobs:
             --collect-all keyring \
             --collect-all questionary --collect-all prompt_toolkit \
             --collect-submodules claude_agent_sdk --collect-all openai_codex \
-            --exclude-module boto3 --exclude-module botocore --exclude-module s3transfer \
+            --collect-all boto3 --collect-all botocore --collect-all s3transfer \
             packaging/tt_entry.py
 
       - name: Smoke-test the binary
@@ -81,10 +80,13 @@ jobs:
           ./dist/tt/tt --version
           ./dist/tt/tt init zsh >/dev/null
           ./dist/tt/tt --help >/dev/null
-          if find dist/tt/_internal \( -iname 'boto3*' -o -iname 'botocore*' -o -path '*/_bundled/claude' \) 2>/dev/null | grep -q .; then
-            echo 'FAIL: excluded backend present'; exit 1
+          if ! find dist/tt/_internal -iname 'boto3*' 2>/dev/null | grep -q .; then
+            echo 'FAIL: bundled boto3 missing'; exit 1
           fi
-          kb=$(du -sk dist/tt | cut -f1); test "$kb" -lt 61440   # < ~60 MB unpacked (base, no heavy backends)
+          if find dist/tt/_internal -path '*/_bundled/claude' 2>/dev/null | grep -q .; then
+            echo 'FAIL: Claude CLI should remain an add-on'; exit 1
+          fi
+          kb=$(du -sk dist/tt | cut -f1); test "$kb" -lt 131072   # < 128 MiB unpacked
 
       - name: Stage base binary
         shell: bash
@@ -120,56 +122,9 @@ jobs:
           name: ${{ matrix.asset }}
           path: out/*
 
-  build-bedrock-addon:
-    name: build tt-bedrock-addon
-    runs-on: ubuntu-24.04     # pure-Python: one cross-platform asset, isolated venv
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-
-      - name: Sync locked deps (bedrock extra, isolated from the base binary)
-        run: uv sync --frozen --extra bedrock
-
-      - name: Vendor the bedrock add-on tree
-        shell: bash
-        run: |
-          uv run python - <<'PY'
-          import importlib.util, pathlib, shutil
-          dst = pathlib.Path("dist/addon-bedrock"); dst.mkdir(parents=True, exist_ok=True)
-          for m in ("boto3","botocore","s3transfer","jmespath","dateutil","urllib3","six"):
-              src = pathlib.Path(importlib.util.find_spec(m).origin)
-              src = src.parent if src.name == "__init__.py" else src   # six is a single module
-              (shutil.copytree(src, dst/src.name) if src.is_dir() else shutil.copy2(src, dst/src.name))
-          PY
-          mkdir -p out
-          tar -C dist/addon-bedrock -czf out/tt-bedrock-addon.tar.gz .
-
-      - name: Checksum every asset
-        shell: bash
-        run: |
-          cd out
-          for f in *; do
-            case "$f" in *.sha256) continue;; esac
-            if command -v sha256sum >/dev/null; then
-              sha256sum "$f" > "$f.sha256"
-            else
-              shasum -a 256 "$f" > "$f.sha256"
-            fi
-          done
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tt-bedrock-addon
-          path: out/*
-
   release:
     name: publish release
-    needs: [build, build-bedrock-addon]
+    needs: [build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4

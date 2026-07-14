@@ -19,7 +19,12 @@ from tinytalk.provider.base import (
     Role,
     Tool,
 )
-from tinytalk.provider.bedrock import BedrockError, BedrockProvider, list_foundation_models
+from tinytalk.provider.bedrock import (
+    BedrockError,
+    BedrockProvider,
+    list_available_models,
+    list_foundation_models,
+)
 
 MSGS = [Message(Role.SYSTEM, "you are tt"), Message(Role.USER, "list files")]
 
@@ -128,11 +133,162 @@ def test_tool_use_response_parsed():
 
 def test_effort_maps_to_thinking_budget():
     client = FakeRuntimeClient(_envelope(blocks=[]))
-    prov = BedrockProvider("anthropic.claude-opus-4-8-v1:0", region="us-east-1", client=client)
+    prov = BedrockProvider("anthropic.claude-opus-4-5-v1:0", region="us-east-1", client=client)
     _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="high")))
     assert client.calls[0]["additionalModelRequestFields"] == {
-        "thinking": {"type": "enabled", "budget_tokens": 24576}
+        "thinking": {"type": "enabled", "budget_tokens": 20000}
     }
+
+
+def test_adaptive_model_maps_effort_without_legacy_budget():
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider("us.anthropic.claude-opus-4-8", region="us-east-1", client=client)
+
+    _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="low")))
+
+    assert client.calls[0]["additionalModelRequestFields"] == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "low"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("effort", "budget", "max_tokens"),
+    [
+        ("low", 2048, 4096),
+        ("medium", 8192, 12288),
+        ("high", 20000, 21333),
+    ],
+)
+def test_legacy_thinking_without_explicit_max_uses_safe_non_streaming_budget(
+    effort, budget, max_tokens
+):
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider("us.anthropic.claude-opus-4-5-v1:0", region="us-east-1", client=client)
+
+    _run(prov.complete(CompletionRequest(MSGS, reasoning_effort=effort)))
+
+    payload = client.calls[0]
+    assert payload["additionalModelRequestFields"]["thinking"]["budget_tokens"] == budget
+    assert payload["inferenceConfig"]["maxTokens"] == max_tokens
+    assert budget < max_tokens <= 21333
+
+
+@pytest.mark.parametrize(
+    ("effort", "explicit_max"),
+    [
+        ("low", 2048),
+        ("medium", 8192),
+        ("high", 8192),
+        ("high", 25000),
+    ],
+)
+def test_legacy_thinking_preserves_incompatible_explicit_cap(effort, explicit_max):
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider("us.anthropic.claude-opus-4-5-v1:0", region="us-east-1", client=client)
+
+    _run(
+        prov.complete(
+            CompletionRequest(
+                MSGS,
+                response_format=ResponseFormat.TOOL_CALL,
+                tools=[Tool("suggest_command", "desc", contract_json_schema())],
+                reasoning_effort=effort,
+                temperature=0.0,
+                max_tokens=explicit_max,
+            )
+        )
+    )
+
+    payload = client.calls[0]
+    assert "additionalModelRequestFields" not in payload
+    assert payload["inferenceConfig"] == {"temperature": 0.0, "maxTokens": explicit_max}
+    assert payload["toolConfig"]["toolChoice"] == {"tool": {"name": "suggest_command"}}
+
+
+def test_adaptive_thinking_uses_provider_default_effort():
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider(
+        "us.anthropic.claude-opus-4-8",
+        region="us-east-1",
+        client=client,
+        default_effort="medium",
+    )
+
+    _run(prov.complete(CompletionRequest(MSGS)))
+
+    fields = client.calls[0]["additionalModelRequestFields"]
+    assert fields == {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "medium"},
+    }
+
+
+def test_adaptive_thinking_preserves_explicit_cap_above_non_streaming_limit():
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider("us.anthropic.claude-opus-4-8", region="us-east-1", client=client)
+
+    _run(
+        prov.complete(
+            CompletionRequest(
+                MSGS,
+                response_format=ResponseFormat.TOOL_CALL,
+                tools=[Tool("suggest_command", "desc", contract_json_schema())],
+                reasoning_effort="high",
+                temperature=0.0,
+                max_tokens=25000,
+            )
+        )
+    )
+
+    payload = client.calls[0]
+    assert "additionalModelRequestFields" not in payload
+    assert payload["inferenceConfig"] == {"temperature": 0.0, "maxTokens": 25000}
+    assert payload["toolConfig"]["toolChoice"] == {"tool": {"name": "suggest_command"}}
+
+
+def test_thinking_uses_auto_tool_choice_instead_of_forced_tool():
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider(
+        "us.anthropic.claude-opus-4-8",
+        region="us-east-1",
+        client=client,
+    )
+
+    _run(
+        prov.complete(
+            CompletionRequest(
+                MSGS,
+                response_format=ResponseFormat.TOOL_CALL,
+                tools=[Tool("suggest_command", "desc", contract_json_schema())],
+                reasoning_effort="low",
+            )
+        )
+    )
+
+    assert client.calls[0]["toolConfig"]["toolChoice"] == {"auto": {}}
+
+
+def test_thinking_omits_incompatible_temperature():
+    client = FakeRuntimeClient(_envelope(blocks=[]))
+    prov = BedrockProvider(
+        "us.anthropic.claude-opus-4-8",
+        region="us-east-1",
+        client=client,
+    )
+
+    _run(
+        prov.complete(
+            CompletionRequest(
+                MSGS,
+                reasoning_effort="low",
+                temperature=0.0,
+                max_tokens=4096,
+            )
+        )
+    )
+
+    assert client.calls[0]["inferenceConfig"] == {"maxTokens": 4096}
 
 
 def test_unsupported_effort_omitted():
@@ -152,7 +308,7 @@ def test_effort_skipped_for_non_claude_models():
 
 def test_effort_applies_to_cross_region_claude_profile():
     client = FakeRuntimeClient(_envelope(blocks=[]))
-    prov = BedrockProvider("us.anthropic.claude-opus-4-8-v1:0", region="us-east-1", client=client)
+    prov = BedrockProvider("us.anthropic.claude-opus-4-5-v1:0", region="us-east-1", client=client)
     _run(prov.complete(CompletionRequest(MSGS, reasoning_effort="low")))
     thinking = client.calls[0]["additionalModelRequestFields"]["thinking"]
     assert thinking["budget_tokens"] == 2048
@@ -176,6 +332,100 @@ def test_list_foundation_models():
     client = FakeControlClient([{"modelId": "anthropic.claude-opus-4-8-v1:0"}])
     models = list_foundation_models(region="us-east-1", client=client)
     assert models == [{"modelId": "anthropic.claude-opus-4-8-v1:0"}]
+
+
+def test_list_available_models_merges_active_profiles_and_text_foundation_models():
+    class DiscoveryClient:
+        def list_inference_profiles(self, **kwargs):
+            assert kwargs == {"maxResults": 1000, "typeEquals": "SYSTEM_DEFINED"}
+            return {
+                "inferenceProfileSummaries": [
+                    {
+                        "inferenceProfileId": "us.anthropic.claude-sonnet-4-6",
+                        "inferenceProfileName": "US Claude Sonnet 4.6",
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "inferenceProfileId": "us.meta.llama3-2-3b-instruct-v1:0",
+                        "inferenceProfileName": "Llama 3.2",
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "inferenceProfileId": "us.old-model",
+                        "inferenceProfileName": "Old model",
+                        "status": "INACTIVE",
+                    },
+                ]
+            }
+
+        def list_foundation_models(self, **kwargs):
+            assert kwargs == {"byOutputModality": "TEXT"}
+            return {
+                "modelSummaries": [
+                    {
+                        "modelId": "anthropic.claude-opus-4-8",
+                        "modelName": "Claude Opus 4.8",
+                        "outputModalities": ["TEXT"],
+                        "modelLifecycle": {"status": "ACTIVE"},
+                    },
+                    {
+                        "modelId": "amazon.nova-pro-v1:0",
+                        "modelName": "Nova Pro",
+                        "outputModalities": ["TEXT"],
+                        "modelLifecycle": {"status": "ACTIVE"},
+                    },
+                    {
+                        "modelId": "cohere.embed-v4",
+                        "modelName": "Embed",
+                        "outputModalities": ["EMBEDDING"],
+                        "modelLifecycle": {"status": "ACTIVE"},
+                    },
+                    {
+                        "modelId": "old.text-model",
+                        "modelName": "Old text model",
+                        "outputModalities": ["TEXT"],
+                        "modelLifecycle": {"status": "LEGACY"},
+                    },
+                ]
+            }
+
+    assert list_available_models(region="us-east-1", client=DiscoveryClient()) == [
+        {
+            "modelId": "us.anthropic.claude-sonnet-4-6",
+            "modelName": "US Claude Sonnet 4.6",
+            "source": "inference-profile",
+        },
+        {
+            "modelId": "anthropic.claude-opus-4-8",
+            "modelName": "Claude Opus 4.8",
+            "source": "foundation-model",
+        },
+    ]
+
+
+def test_list_available_models_keeps_profiles_when_foundation_catalog_is_denied():
+    class ProfileOnlyClient:
+        def list_inference_profiles(self, **kwargs):
+            return {
+                "inferenceProfileSummaries": [
+                    {
+                        "inferenceProfileId": "us.anthropic.claude-sonnet-4-6",
+                        "inferenceProfileName": "US Claude Sonnet 4.6",
+                        "status": "ACTIVE",
+                    }
+                ]
+            }
+
+        def list_foundation_models(self, **kwargs):
+            raise RuntimeError("AccessDeniedException: bedrock:ListFoundationModels")
+
+    assert list_available_models(region="us-east-1", client=ProfileOnlyClient()) == [
+        {
+            "modelId": "us.anthropic.claude-sonnet-4-6",
+            "modelName": "US Claude Sonnet 4.6",
+            "source": "inference-profile",
+        }
+    ]
 
 
 def test_endpoint_url_passed_to_runtime_client(monkeypatch):

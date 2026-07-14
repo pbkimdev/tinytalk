@@ -92,9 +92,9 @@ TT_VERSION=v0.2.0rc4 curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.s
 curl --proto '=https' --tlsv1.2 -LsSf .../scripts/install.sh | sh -s -- --version v0.2.0rc4
 ```
 
-The base binary is small and self-contained; two backends are the exception. **AWS Bedrock**
-and the **Claude Agent SDK** download a one-time add-on the first time you set them up with
-`tt auth`, so those two need network at setup — see [Offline / manual add-on
+The base binary includes AWS Bedrock support (`boto3`/`botocore`) so a fresh install can
+authenticate and list models immediately. The **Claude Agent SDK** is the one large exception:
+its CLI is downloaded as a one-time add-on at `tt auth` — see [Offline / manual add-on
 install](#offline--manual-add-on-install) for an air-gapped machine.
 
 The interactive `?` prompt is a **zsh** widget, so zsh is recommended — it's the default
@@ -125,8 +125,10 @@ CLI is the fastest way to confirm it's wired up.
 
 The backend setup command is `tt auth` (also step 2 of `tt setup`) — an interactive
 wizard that picks a provider, authenticates using that provider's own idiom, tests the
-credential with one real call, and writes a validated backend into your config. Secrets
-go into your OS keychain, never the config file, and only after you confirm.
+connection with model discovery or a minimal completion, and writes a validated backend
+into your config. Provider-owned logins and AWS credentials stay where you configured
+them; API keys collected by TinyTalk go into your OS keychain, never the config file, and
+only after you confirm.
 
 ![tt auth](docs/assets/authkind.png)
 
@@ -184,8 +186,8 @@ effort = "low"
 
 ### Bedrock — a pay-per-token API
 
-For a plain API key model, AWS Bedrock is the worked example. Two things to do first, in
-the AWS console:
+For a pay-per-token cloud model, AWS Bedrock is the worked example. Two things to do
+first, in the AWS console:
 
 1. **Enable model access.** Bedrock → *Model access* → request access to the Anthropic
    models you want. (As of early 2026 these are largely auto-enabled, but a first-time-use
@@ -193,11 +195,41 @@ the AWS console:
 2. **Have credentials on the box.** `aws configure` (or SSO/`aws sso login`, or a named
    profile) — TinyTalk uses boto3's normal credential chain.
 
-Then `tt auth` → **AWS Bedrock**. It asks for a region and an optional profile, discovers
-the models your credentials can see, and lets you pick one. If discovery comes up empty,
-it offers to take an explicit access-key pair instead (stored in your keychain). On a
-release binary, this first setup also fetches a one-time Bedrock add-on (`boto3` and its
-dependencies), so it needs network once.
+If Claude Code already uses Bedrock from your user-level `~/.claude/settings.json`, run
+`tt auth` → **AWS Bedrock**. The default path reuses only its `AWS_REGION` and optional
+`AWS_PROFILE`, then shows the active Claude inference profiles and text foundation models
+for you to choose yourself. Non-Claude Bedrock models are filtered out; available Sonnet 5
+and Opus 4.8 IDs appear in this list. TinyTalk does not silently select Claude Code's current
+Opus model, and exact-model reuse remains a separate choice. TinyTalk does not copy AWS keys,
+bearer tokens, or
+credential exports, and it never runs Claude Code's `awsAuthRefresh`/`awsCredentialExport`
+commands. Your selected model receives one minimal, billed request through TinyTalk's
+Bedrock **Converse** path before it can be saved.
+
+Claude Code's `[1m]` model suffix requests its extended-context option. TinyTalk cannot
+preserve that option yet, so it explains the difference and asks again before reusing the
+underlying model with its standard context window. Application inference-profile ARNs and
+Claude Code custom endpoints are not auto-imported: TinyTalk cannot infer their Claude
+capabilities or Invoke-vs-Converse compatibility. The manual path remains available for
+both.
+
+Without a reusable Claude Code setup—or if you choose manual setup—`tt auth` asks for an
+optional runtime endpoint, region, and optional profile, then discovers models and lets
+you pick one. If your organization blocks catalog discovery, choose the manual model-ID
+path. Credentials still come only from boto3's normal chain; TinyTalk never asks for an
+AWS access-key pair. If a named SSO session has expired, TinyTalk starts
+`aws sso login --profile <profile>` in the same terminal. The AWS CLI opens your browser
+and also prints the authorization URL as a fallback; after a successful login, TinyTalk
+automatically resumes Bedrock validation. Release binaries, Python/source installs, and
+`uv tool install .` all include boto3 by default; there is no Bedrock add-on download.
+
+For Claude models, the optional reasoning-effort setting follows the model generation:
+new adaptive-thinking models such as Opus 4.8 receive Bedrock's adaptive effort fields;
+older extended-thinking models receive bounded token budgets. Thinking requests use
+automatic tool choice and omit incompatible sampling parameters, as required by Bedrock. If an
+explicit output-token cap cannot accommodate legacy thinking—or exceeds Bedrock's non-streaming
+thinking limit—TinyTalk keeps that cap and falls back to normal generation instead of silently
+increasing it.
 
 ![tt auth — Bedrock](docs/assets/authbedrock.png)
 
@@ -227,10 +259,9 @@ Run `tt auth` again any time to set up the fallback slot, swap a slot, or remove
 
 ### Offline / manual add-on install
 
-The **AWS Bedrock** and **Claude Agent SDK** backends live outside the `tt` binary and are
-downloaded on first `tt auth`. On an air-gapped box — no network when you run the wizard —
-fetch the add-on by hand on a connected machine and drop it into place. This is exactly what
-`tt auth` automates.
+AWS Bedrock support is already in the `tt` binary. Only the **Claude Agent SDK** CLI lives
+outside it and is downloaded on first `tt auth`. On an air-gapped box, fetch that add-on by
+hand on a connected machine and drop it into place.
 
 First, note your version — the add-on is version-stamped and must match the binary:
 
@@ -238,16 +269,11 @@ First, note your version — the add-on is version-stamped and must match the bi
 tt --version        # e.g. 0.1.0 — use it for <version> below
 ```
 
-Download the add-on you want, plus its checksum, from the matching release (`v<version>`).
-Bedrock ships one cross-platform archive; the Claude CLI is per-platform — pick `macos-arm64`,
-`linux-x86_64`, or `linux-arm64`:
+Download the Claude CLI add-on plus its checksum from the matching release (`v<version>`).
+Pick `macos-arm64`, `linux-x86_64`, or `linux-arm64`:
 
 ```sh
 base=https://github.com/pbkimdev/tinytalk/releases/download/v<version>
-
-# Bedrock (cross-platform):
-curl -LO "$base/tt-bedrock-addon.tar.gz"
-curl -LO "$base/tt-bedrock-addon.tar.gz.sha256"
 
 # Claude Agent SDK (pick your platform):
 curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz"
@@ -257,7 +283,7 @@ curl -LO "$base/tt-claude-addon-macos-arm64.tar.gz.sha256"
 Verify each archive against its checksum:
 
 ```sh
-shasum -a 256 -c tt-bedrock-addon.tar.gz.sha256
+shasum -a 256 -c tt-claude-addon-macos-arm64.tar.gz.sha256
 ```
 
 Unpack into the version-stamped add-on directory, honoring `$XDG_DATA_HOME` (defaults to
@@ -265,10 +291,6 @@ Unpack into the version-stamped add-on directory, honoring `$XDG_DATA_HOME` (def
 
 ```sh
 dir="${XDG_DATA_HOME:-$HOME/.local/share}/tinytalk/addons"
-
-# Bedrock → the boto3/ tree sits at the directory root:
-mkdir -p "$dir/bedrock/<version>"
-tar -xzf tt-bedrock-addon.tar.gz -C "$dir/bedrock/<version>"
 
 # Claude → a single `claude` binary, made executable:
 mkdir -p "$dir/claude/<version>"
@@ -460,11 +482,12 @@ and any credentials. The available kinds:
 | `anthropic-compat` | Anthropic Messages API over raw HTTP |
 | `claude-agent-sdk` | Claude via the Agent SDK (Claude Code login or `ANTHROPIC_API_KEY`) — one-time add-on fetched at `tt auth` |
 | `codex-agent-sdk` | GPT via the Codex CLI login |
-| `bedrock` | AWS Bedrock (uses your AWS credential chain) — one-time add-on fetched at `tt auth` |
+| `bedrock` | AWS Bedrock (uses your AWS credential chain; boto3 is bundled) |
 | `azure-openai` | Azure OpenAI (endpoint + API key + deployment) |
 
 A few keys worth knowing: `api_key_env` reads a secret from an environment variable;
-`keyring_account` reads it from your OS keychain (this is what `tt auth` sets);
+`keyring_account` reads one from your OS keychain (set by `tt auth` only for providers
+where the wizard collects an API key);
 `capabilities` opts a backend into richer response formats (`tool_calling`, `native_json`,
 `grammar`); `effort` passes a reasoning-effort level through where the provider supports
 it. The **explanation language** (`language`) controls only the one-line explanation — the

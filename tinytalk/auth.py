@@ -100,6 +100,86 @@ class BackendDraft:
     secret: str | None = None  # stored via keyring under this backend's name, if set
 
 
+@dataclass(frozen=True)
+class ClaudeBedrockSettings:
+    """Non-secret Bedrock settings reusable from Claude Code's user config."""
+
+    region: str
+    profile: str | None
+    model: str
+    requested_1m: bool
+
+
+def _load_claude_bedrock_settings(path: Path | None = None) -> ClaudeBedrockSettings | None:
+    """Read a conservative, secret-free subset of Claude Code's Bedrock settings."""
+    import json
+
+    settings_path = path or Path.home() / ".claude" / "settings.json"
+    try:
+        data = json.loads(settings_path.read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    env = data.get("env")
+    if not isinstance(env, dict):
+        return None
+    enabled = _safe_setting_string(env.get("CLAUDE_CODE_USE_BEDROCK"))
+    if enabled is None or enabled.lower() not in ("1", "true"):
+        return None
+
+    # Claude Code endpoints target its Invoke path. TinyTalk uses Converse and must
+    # not silently send signed requests to an unverified imported endpoint.
+    if env.get("ANTHROPIC_BEDROCK_BASE_URL") not in (None, ""):
+        return None
+
+    region = _safe_setting_string(env.get("AWS_REGION"))
+    if region is None:
+        return None
+
+    raw_profile = env.get("AWS_PROFILE")
+    if raw_profile in (None, ""):
+        profile = None
+    else:
+        profile = _safe_setting_string(raw_profile)
+        if profile is None:
+            return None
+
+    model = None
+    requested_1m = False
+    for candidate in (env.get("ANTHROPIC_MODEL"), data.get("model")):
+        candidate = _safe_setting_string(candidate)
+        if candidate is None:
+            continue
+        has_1m = candidate.endswith("[1m]")
+        normalized = candidate[:-4] if has_1m else candidate
+        if normalized.endswith("[1m]"):
+            continue
+        if normalized.startswith("arn:") or "anthropic." not in normalized:
+            continue
+        model = normalized
+        requested_1m = has_1m
+        break
+    if model is None:
+        return None
+
+    return ClaudeBedrockSettings(
+        region=region,
+        profile=profile,
+        model=model,
+        requested_1m=requested_1m,
+    )
+
+
+def _safe_setting_string(value: object) -> str | None:
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    if not all(character.isprintable() for character in value):
+        return None
+    return value
+
+
 def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
     """Run the wizard; returns the slot written ("primary"/"fallback"), or None if cancelled.
 
@@ -129,14 +209,6 @@ def run_auth_wizard(config_path: Path, io: WizardIO) -> str | None:
         slot = "primary"
 
     replaced = backends[slot] if slot in backends else None
-    if replaced is not None:
-        if not io.confirm(
-            _("Writing a new {slot} will replace the existing one ({current}). Continue?").format(
-                slot=slot, current=_describe(replaced)
-            ),
-            default=False,
-        ):
-            return None
 
     kind = io.select(_("Provider kind:"), [(value, _(label)) for value, label in KIND_CHOICES])
     if kind is None:
@@ -459,48 +531,144 @@ def _setup_codex_agent_sdk(io: WizardIO, *, prober=None, login=None) -> BackendD
     return BackendDraft(fields=fields, secret=None)
 
 
-def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
-    from tinytalk.addons import AddonInstallError, install_addon
+def _setup_bedrock(
+    io: WizardIO,
+    *,
+    prober=None,
+    settings_loader=None,
+    runtime_prober=None,
+    sso_login=None,
+) -> BackendDraft | None:
+    load_settings = settings_loader or _load_claude_bedrock_settings
+    imported = load_settings()
+    if imported is not None:
+        action = io.select(
+            _("Claude Code Bedrock settings detected:"),
+            [
+                (
+                    "discover",
+                    _("Use its AWS region/profile and choose from available Bedrock models"),
+                ),
+                ("reuse", _("Reuse the detected Claude Code settings")),
+                ("manual", _("Configure Bedrock manually")),
+            ],
+        )
+        if action is None:
+            return None
+        if action == "discover":
+            return _setup_bedrock_connection(
+                io,
+                endpoint_url=None,
+                region=imported.region,
+                profile=imported.profile,
+                prober=prober,
+                runtime_prober=runtime_prober,
+                sso_login=sso_login,
+            )
+        if action == "reuse":
+            _print_claude_bedrock_settings(imported)
+            confirmed = io.confirm(
+                _(
+                    "Reuse these settings and make one minimal billed Bedrock Converse request "
+                    "to validate them?"
+                ),
+                default=True,
+            )
+            if confirmed is None:
+                return None
+            if confirmed:
+                if imported.requested_1m:
+                    standard_context = io.confirm(
+                        _(
+                            "Claude Code requested its 1M context option. TinyTalk cannot preserve "
+                            "that option and will use the same model with its standard context "
+                            "window. Continue?"
+                        ),
+                        default=False,
+                    )
+                    if standard_context is None:
+                        return None
+                    if not standard_context:
+                        return _setup_bedrock_manual(
+                            io,
+                            prober=prober,
+                            runtime_prober=runtime_prober,
+                            sso_login=sso_login,
+                        )
 
-    try:
-        install_addon("bedrock")
-    except AddonInstallError as exc:
-        print(f"tt auth: {exc}")
-        return None
-    probe = prober or _probe_bedrock
-    endpoint_url = io.text(
-        _("Custom Bedrock runtime endpoint URL (blank = AWS default):"), default=""
+                probe_runtime = runtime_prober or _probe_imported_bedrock
+                sso_attempted = False
+                while True:
+                    error = probe_runtime(imported.model, imported.region, imported.profile)
+                    if error is None:
+                        return _bedrock_draft(
+                            io,
+                            endpoint_url=None,
+                            region=imported.region,
+                            profile=imported.profile,
+                            model=imported.model,
+                        )
+                    print(
+                        _("tt auth: imported Bedrock validation failed: {error}").format(
+                            error=error
+                        )
+                    )
+                    recovered = None
+                    if not sso_attempted:
+                        recovered = _attempt_aws_sso_recovery(error, imported.profile, sso_login)
+                        sso_attempted = recovered is not None
+                    if recovered:
+                        continue
+                    _print_bedrock_credential_hint(error, imported.profile)
+                    failure_action = io.select(
+                        _("Imported Bedrock settings failed validation."),
+                        [
+                            ("retry", _("Retry imported settings")),
+                            ("manual", _("Configure Bedrock manually")),
+                            ("abort", _("Abort setup")),
+                        ],
+                    )
+                    if failure_action == "retry":
+                        continue
+                    if failure_action != "manual":
+                        return None
+                    break
+
+    return _setup_bedrock_manual(
+        io,
+        prober=prober,
+        runtime_prober=runtime_prober,
+        sso_login=sso_login,
     )
-    if endpoint_url is None:
-        return None
-    endpoint_url = endpoint_url or None
-    region = io.text(_("AWS region:"), default="us-east-1")
-    if not region:
-        return None
-    profile = _pick_aws_profile(io)
-    if profile is None:
-        return None
-    profile = profile or None
+
+
+def _setup_bedrock_connection(
+    io: WizardIO,
+    *,
+    endpoint_url: str | None,
+    region: str,
+    profile: str | None,
+    prober=None,
+    runtime_prober=None,
+    sso_login=None,
+) -> BackendDraft | None:
+    """Discover, let the user choose, and validate one model on a known AWS connection."""
+    probe_catalog = prober or _probe_bedrock
+    probe_runtime = runtime_prober or _probe_imported_bedrock
+    sso_attempted = False
 
     while True:
-        models, err = probe(region, profile)
-        if err is None:
+        models, error = probe_catalog(region, profile)
+        if error is None:
             break
-        print(_("tt auth: bedrock credential test failed: {error}").format(error=err))
-        if _looks_like_aws_credential_error(err):
-            if profile:
-                print(
-                    _("tt auth: run `{command}` in another terminal, then choose retry.").format(
-                        command=f"aws sso login --profile {profile}"
-                    )
-                )
-            else:
-                print(
-                    _(
-                        "tt auth: fix the standard AWS credential chain "
-                        "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry."
-                    )
-                )
+        print(_("tt auth: bedrock model discovery failed: {error}").format(error=error))
+        recovered = None
+        if not sso_attempted:
+            recovered = _attempt_aws_sso_recovery(error, profile, sso_login)
+            sso_attempted = recovered is not None
+        if recovered:
+            continue
+        _print_bedrock_credential_hint(error, profile)
         action = io.select(
             _("Bedrock model discovery failed."),
             [
@@ -516,12 +684,136 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
             break
         return None
 
-    model_ids = [
-        m["modelId"] for m in models if isinstance(m, dict) and isinstance(m.get("modelId"), str)
-    ]
-    model = _pick_model(io, model_ids)
-    if model is None:
+    while True:
+        model = _pick_bedrock_model(io, models)
+        if model is None:
+            return None
+        while True:
+            error = probe_runtime(model, region, profile, endpoint_url)
+            if error is None:
+                return _bedrock_draft(
+                    io,
+                    endpoint_url=endpoint_url,
+                    region=region,
+                    profile=profile,
+                    model=model,
+                )
+            print(
+                _("tt auth: selected Bedrock model failed validation: {error}").format(error=error)
+            )
+            recovered = None
+            if not sso_attempted:
+                recovered = _attempt_aws_sso_recovery(error, profile, sso_login)
+                sso_attempted = recovered is not None
+            if recovered:
+                continue
+            action = io.select(
+                _("Selected Bedrock model failed validation."),
+                [
+                    ("choose", _("Choose a different model")),
+                    ("retry", _("Retry selected model")),
+                    ("abort", _("Abort setup")),
+                ],
+            )
+            if action == "retry":
+                continue
+            if action != "choose":
+                return None
+            break
+
+
+def _print_claude_bedrock_settings(settings: ClaudeBedrockSettings) -> None:
+    print(_("Claude Code Bedrock settings to reuse:"))
+    print(_("  AWS region: {value}").format(value=_display_setting(settings.region)))
+    if settings.profile:
+        print(_("  AWS profile: {value}").format(value=_display_setting(settings.profile)))
+    else:
+        print(_("  AWS profile: (default credential chain)"))
+    print(_("  model: {value}").format(value=_display_setting(settings.model)))
+    if settings.requested_1m:
+        print(_("  1M context: requested by Claude Code; not supported by TinyTalk"))
+
+
+def _display_setting(value: str) -> str:
+    """Quote imported text so configuration syntax cannot masquerade as UI text."""
+    import json
+
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _login_aws_sso(profile: str) -> str | None:
+    """Run AWS CLI's browser-based SSO flow with inherited terminal output."""
+    import subprocess
+
+    command = ["aws", "sso", "login", "--profile", profile, "--no-cli-pager"]
+    try:
+        completed = subprocess.run(command, check=False)
+    except FileNotFoundError:
+        return "AWS CLI is not installed or is not on PATH"
+    except OSError as exc:
+        return str(exc)
+    if completed.returncode != 0:
+        return f"AWS CLI exited with status {completed.returncode}"
+    return None
+
+
+def _attempt_aws_sso_recovery(error: str, profile: str | None, login=None) -> bool | None:
+    """Attempt one named-profile SSO login; None means the error was not eligible."""
+    if not profile or "sso credentials failed" not in error.lower():
         return None
+    print(
+        _(
+            "Opening your browser for AWS SSO. If it does not open, "
+            "use the authorization URL shown below."
+        )
+    )
+    login_error = (login or _login_aws_sso)(profile)
+    if login_error is None:
+        print(_("AWS SSO login succeeded; automatically retrying Bedrock validation."))
+        return True
+    print(_("tt auth: AWS SSO login failed: {error}").format(error=login_error))
+    return False
+
+
+def _setup_bedrock_manual(
+    io: WizardIO,
+    *,
+    prober=None,
+    runtime_prober=None,
+    sso_login=None,
+) -> BackendDraft | None:
+    endpoint_url = io.text(
+        _("Custom Bedrock runtime endpoint URL (blank = AWS default):"), default=""
+    )
+    if endpoint_url is None:
+        return None
+    endpoint_url = endpoint_url or None
+    region = io.text(_("AWS region:"), default="us-east-1")
+    if not region:
+        return None
+    profile = _pick_aws_profile(io)
+    if profile is None:
+        return None
+    profile = profile or None
+    return _setup_bedrock_connection(
+        io,
+        endpoint_url=endpoint_url,
+        region=region,
+        profile=profile,
+        prober=prober,
+        runtime_prober=runtime_prober,
+        sso_login=sso_login,
+    )
+
+
+def _bedrock_draft(
+    io: WizardIO,
+    *,
+    endpoint_url: str | None,
+    region: str,
+    profile: str | None,
+    model: str,
+) -> BackendDraft:
 
     from tinytalk.provider.bedrock import is_claude_model
 
@@ -541,6 +833,26 @@ def _setup_bedrock(io: WizardIO, *, prober=None) -> BackendDraft | None:
     if effort:
         fields["effort"] = effort
     return BackendDraft(fields=fields, secret=None)
+
+
+def _print_bedrock_credential_hint(error: str, profile: str | None) -> None:
+    if not _looks_like_aws_credential_error(error):
+        return
+    if profile:
+        import shlex
+
+        print(
+            _("tt auth: run `{command}` in another terminal, then choose retry.").format(
+                command=shlex.join(["aws", "sso", "login", "--profile", profile])
+            )
+        )
+    else:
+        print(
+            _(
+                "tt auth: fix the standard AWS credential chain "
+                "(env, ~/.aws/credentials, SSO, or IAM role), then choose retry."
+            )
+        )
 
 
 def _setup_azure_openai(io: WizardIO, *, prober=None) -> BackendDraft | None:
@@ -671,18 +983,41 @@ def _login_codex(api_key: str) -> None:
 
 
 def _probe_bedrock(region: str, profile: str | None) -> tuple[list[dict], str | None]:
-    from tinytalk.provider.bedrock import list_foundation_models
+    from tinytalk.provider.bedrock import list_available_models
 
     try:
-        return (
-            list_foundation_models(
-                region=region,
-                profile=profile,
-            ),
-            None,
-        )
+        return list_available_models(region=region, profile=profile), None
     except Exception as exc:
         return [], str(exc)
+
+
+def _probe_imported_bedrock(
+    model: str,
+    region: str,
+    profile: str | None,
+    endpoint_url: str | None = None,
+) -> str | None:
+    """Validate an imported model through TinyTalk's actual Bedrock Converse path."""
+    import asyncio
+
+    from tinytalk.provider.base import CompletionRequest, Message, Role
+    from tinytalk.provider.bedrock import BedrockProvider
+
+    provider = BedrockProvider(
+        model=model,
+        region=region,
+        profile=profile,
+        endpoint_url=endpoint_url,
+    )
+    request = CompletionRequest(
+        messages=[Message(Role.USER, "Reply with the word ok.")],
+        max_tokens=8,
+    )
+    try:
+        asyncio.run(provider.complete(request))
+        return None
+    except Exception as exc:
+        return str(exc)
 
 
 def _probe_claude_agent(model: str) -> str | None:
@@ -729,6 +1064,33 @@ def _pick_model(io: WizardIO, models: list[str]) -> str | None:
         model = io.text(_("Model id (no models discovered — type one):"))
         return model or None
     choices = [(m, m) for m in models] + [(_CUSTOM_MODEL, _("(type a different model id)"))]
+    picked = io.select(_("Model:"), choices)
+    if picked is None:
+        return None
+    if picked == _CUSTOM_MODEL:
+        model = io.text(_("Model id:"))
+        return model or None
+    return picked
+
+
+def _pick_bedrock_model(io: WizardIO, models: list[dict]) -> str | None:
+    from tinytalk.provider.bedrock import is_claude_model
+
+    choices = []
+    for item in models:
+        model_id = item.get("modelId") if isinstance(item, dict) else None
+        if not isinstance(model_id, str) or not model_id or not is_claude_model(model_id):
+            continue
+        name = item.get("modelName") or model_id
+        source = item.get("source")
+        label = f"{name} — {model_id}" if name != model_id else model_id
+        if source == "inference-profile":
+            label += _(" (inference profile)")
+        choices.append((model_id, label))
+    if not choices:
+        model = io.text(_("Model id (no models discovered — type one):"))
+        return model or None
+    choices.append((_CUSTOM_MODEL, _("(type a different model id)")))
     picked = io.select(_("Model:"), choices)
     if picked is None:
         return None

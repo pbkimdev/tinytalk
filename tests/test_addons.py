@@ -10,11 +10,28 @@ import io
 import os
 import sys
 import tarfile
+import tomllib
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
 from tinytalk import __version__, addons
+
+
+def test_source_install_includes_boto3_and_keeps_empty_compatibility_extra():
+    project = tomllib.loads(Path("pyproject.toml").read_text())
+
+    assert "boto3>=1.34" in project["project"]["dependencies"]
+    assert project["project"]["optional-dependencies"]["bedrock"] == []
+
+
+def test_standalone_release_bundles_bedrock_at_install_level():
+    workflow = Path(".github/workflows/release.yml").read_text()
+
+    assert "--collect-all boto3 --collect-all botocore" in workflow
+    assert "--exclude-module boto3" not in workflow
+    assert "build-bedrock-addon" not in workflow
 
 
 @pytest.fixture
@@ -84,12 +101,9 @@ def test_claude_cli_path_missing_on_frozen_raises(xdg, monkeypatch):
 
 def test_addon_missing_message_adapts_to_frozen(monkeypatch):
     monkeypatch.setattr(addons, "_is_frozen", lambda: False)
-    assert "is not installed" in str(addons.AddonMissing("bedrock"))
-    assert "uv sync --extra bedrock" in str(addons.AddonMissing("bedrock"))
+    assert "reinstall TinyTalk" in str(addons.AddonMissing("bedrock"))
     monkeypatch.setattr(addons, "_is_frozen", lambda: True)
-    # Frozen branch points at the wizard menu label, not the bare add-on name (OQ2).
-    assert "tt auth" in str(addons.AddonMissing("bedrock"))
-    assert "AWS Bedrock" in str(addons.AddonMissing("bedrock"))
+    assert "reinstall TinyTalk" in str(addons.AddonMissing("bedrock"))
 
 
 # --- asset naming/url (byte-for-byte guard against the doubled-`tt-` 404) ------------

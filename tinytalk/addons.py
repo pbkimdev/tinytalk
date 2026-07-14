@@ -1,9 +1,8 @@
-"""Runtime resolver for downloadable provider add-ons (Bedrock, Claude Agent SDK).
+"""Runtime resolver for provider dependencies and the downloadable Claude CLI add-on.
 
-The release `tt` is a PyInstaller `--onedir` binary. To keep it small, its two heaviest
-backends live *outside* the bundle and are downloaded by `tt auth` when the user sets that
-backend up. This module is the runtime seam that locates
-an installed add-on and makes it usable:
+Current PyInstaller releases bundle boto3/botocore so Bedrock works immediately. The large
+native Claude CLI remains outside the bundle and is downloaded by `tt auth`. This module
+also retains the versioned Bedrock add-on resolver for older installed layouts:
 
 - **Bedrock** ships as a pure-Python tree (`boto3`/`botocore`/…). Prepend the unpacked dir
   to `sys.path` before `import boto3`.
@@ -53,7 +52,7 @@ def _is_frozen() -> bool:
 # How to install a backend's deps from a source checkout (frozen builds say "run tt auth"
 # instead). Keyed by add-on name; claude ships as a core dep, so it has no extra.
 _SOURCE_HINT = {
-    "bedrock": "`uv sync --extra bedrock` (or pip install 'tinytalk[bedrock]')",
+    "bedrock": "reinstall TinyTalk (boto3 is included in normal installs)",
     "claude": "run from a source install where the `claude` CLI is on your $PATH",
 }
 
@@ -66,7 +65,9 @@ class AddonMissing(Exception):
 
     def __init__(self, name: str):
         self.name = name
-        if _is_frozen():
+        if name == "bedrock":
+            msg = "bedrock support is missing from this installation; reinstall TinyTalk"
+        elif _is_frozen():
             label = _ADDON_LABELS.get(name, name)
             msg = (
                 f"the {name} backend needs a one-time add-on — run `tt auth`, "
@@ -148,8 +149,7 @@ def asset_name(name: str) -> str:
 def asset_url(name: str) -> str:
     """GitHub Release download URL for this `tt` version's `name` add-on."""
     return (
-        f"https://github.com/pbkimdev/tinytalk/releases/download/"
-        f"v{__version__}/{asset_name(name)}"
+        f"https://github.com/pbkimdev/tinytalk/releases/download/v{__version__}/{asset_name(name)}"
     )
 
 
@@ -218,7 +218,9 @@ def install_addon(name: str, *, opener=None) -> None:
     opener = opener or _http_opener
     asset = asset_name(name)
     dest = addon_dir(name)
-    partial = dest.parent / (dest.name + ".partial")  # string-built: `.with_suffix` would eat `0.1.0`
+    partial = dest.parent / (
+        dest.name + ".partial"
+    )  # string-built: `.with_suffix` would eat `0.1.0`
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(partial, ignore_errors=True)
     print(f"{_ADDON_LABELS.get(name, name)} needs a one-time add-on. Downloading…")

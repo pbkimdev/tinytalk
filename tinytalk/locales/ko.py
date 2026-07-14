@@ -106,9 +106,6 @@ MESSAGES = {
     "Which backend do you want to set up?": "어떤 백엔드를 설정할까요?",
     "{slot} — (not set)": "{slot} — (설정 안 됨)",
     "remove fallback": "폴백 제거",
-    "Writing a new {slot} will replace the existing one ({current}). Continue?": (
-        "새 {slot}을(를) 쓰면 기존 항목({current})을 덮어씁니다. 계속할까요?"
-    ),
     "Provider kind:": "프로바이더 종류:",
     'Explanation language (code or name, e.g. "en", "ko"):': (
         '설명 언어 (코드 또는 이름, 예: "en", "ko"):'
@@ -161,6 +158,53 @@ MESSAGES = {
     "Custom Bedrock runtime endpoint URL (blank = AWS default):": (
         "사용자 지정 Bedrock runtime 엔드포인트 URL (비워 두면 AWS 기본값 사용):"
     ),
+    "Claude Code Bedrock settings detected:": "Claude Code Bedrock 설정을 찾았습니다:",
+    "Use its AWS region/profile and choose from available Bedrock models": (
+        "AWS 리전/프로파일만 사용하고 사용 가능한 Bedrock 모델에서 직접 선택"
+    ),
+    "Reuse the detected Claude Code settings": "찾은 Claude Code 설정 재사용",
+    "Configure Bedrock manually": "Bedrock 직접 설정",
+    "Claude Code Bedrock settings to reuse:": "재사용할 Claude Code Bedrock 설정:",
+    "  AWS region: {value}": "  AWS 리전: {value}",
+    "  AWS profile: {value}": "  AWS 프로파일: {value}",
+    "  AWS profile: (default credential chain)": "  AWS 프로파일: (기본 자격 증명 체인)",
+    "  model: {value}": "  모델: {value}",
+    "  1M context: requested by Claude Code; not supported by TinyTalk": (
+        "  1M 컨텍스트: Claude Code에서 요청됨; TinyTalk에서는 지원하지 않음"
+    ),
+    "Reuse these settings and make one minimal billed Bedrock Converse request to validate them?": (
+        "이 설정을 재사용하고, 검증을 위해 과금되는 최소 Bedrock Converse 요청을 한 번 보낼까요?"
+    ),
+    "Claude Code requested its 1M context option. TinyTalk cannot preserve "
+    "that option and will use the same model with its standard context "
+    "window. Continue?": (
+        "Claude Code에서 1M 컨텍스트 옵션을 요청했습니다. TinyTalk은 이 옵션을 유지할 수 "
+        "없으므로 같은 모델의 표준 컨텍스트 윈도우를 사용합니다. 계속할까요?"
+    ),
+    "tt auth: imported Bedrock validation failed: {error}": (
+        "tt auth: 가져온 Bedrock 설정 검증에 실패했습니다: {error}"
+    ),
+    "tt auth: bedrock model discovery failed: {error}": (
+        "tt auth: Bedrock 모델 탐색에 실패했습니다: {error}"
+    ),
+    "tt auth: selected Bedrock model failed validation: {error}": (
+        "tt auth: 선택한 Bedrock 모델 검증에 실패했습니다: {error}"
+    ),
+    "Selected Bedrock model failed validation.": "선택한 Bedrock 모델 검증에 실패했습니다.",
+    "Choose a different model": "다른 모델 선택",
+    "Retry selected model": "선택한 모델 다시 시도",
+    " (inference profile)": " (추론 프로파일)",
+    "Opening your browser for AWS SSO. If it does not open, "
+    "use the authorization URL shown below.": (
+        "AWS SSO 로그인을 위해 브라우저를 엽니다. 브라우저가 열리지 않으면 "
+        "아래에 표시되는 인증 URL을 사용하세요."
+    ),
+    "AWS SSO login succeeded; automatically retrying Bedrock validation.": (
+        "AWS SSO 로그인에 성공했습니다. Bedrock 검증을 자동으로 다시 시도합니다."
+    ),
+    "tt auth: AWS SSO login failed: {error}": "tt auth: AWS SSO 로그인에 실패했습니다: {error}",
+    "Imported Bedrock settings failed validation.": "가져온 Bedrock 설정 검증에 실패했습니다.",
+    "Retry imported settings": "가져온 설정으로 다시 시도",
     "AWS region:": "AWS 리전:",
     "AWS profile (blank = default credential chain):": (
         "AWS 프로파일 (비워 두면 기본 자격 증명 체인 사용):"
@@ -170,9 +214,6 @@ MESSAGES = {
     "AWS profile:": "AWS 프로파일:",
     "AWS profile name (blank = default credential chain):": (
         "AWS 프로파일 이름 (비워 두면 기본 자격 증명 체인 사용):"
-    ),
-    "tt auth: bedrock credential test failed: {error}": (
-        "tt auth: bedrock 자격 증명 테스트에 실패했습니다: {error}"
     ),
     "tt auth: run `{command}` in another terminal, then choose retry.": (
         "tt auth: 다른 터미널에서 `{command}`를 실행한 뒤 재시도하세요."

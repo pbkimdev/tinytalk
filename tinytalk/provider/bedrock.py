@@ -3,9 +3,9 @@
 Implements the `Provider` seam over `bedrock-runtime`'s `converse()` API, which unifies
 tool-calling across model vendors closely enough to mirror the Anthropic Messages API
 shape (`toolConfig`/`toolUse` vs. `tools`/`tool_use`). boto3 is synchronous; calls run in
-a thread via `asyncio.to_thread` so they don't block the event loop. `boto3` is an
-optional extra (`tinytalk[bedrock]`) and is imported lazily so unselected backends never
-pay for it.
+a thread via `asyncio.to_thread` so they don't block the event loop. boto3 is a normal
+Python-package dependency but remains lazily imported; frozen releases load it from the
+version-matched Bedrock add-on installed by `tt auth`.
 
 Credentials resolve through boto3's own chain (env vars, `~/.aws/credentials`, SSO
 cache, IAM role) via `region`/`profile` — no secret for tt to manage.
@@ -31,17 +31,26 @@ from tinytalk.provider.base import (
 
 _CONTRACT_TOOL_NAME = "suggest_command"
 # Claude-on-Bedrock only, via additionalModelRequestFields — no universal Bedrock effort concept.
-EFFORT_BUDGET_TOKENS = {"low": 2048, "medium": 8192, "high": 24576}
+EFFORT_BUDGET_TOKENS = {"low": 2048, "medium": 8192, "high": 20000}
+_LEGACY_EFFORT_MAX_TOKENS = {"low": 4096, "medium": 12288, "high": 21333}
+_NON_STREAMING_MAX_TOKENS = 21333
+_ADAPTIVE_THINKING_MODELS = (
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-mythos-5",
+    "claude-fable-5",
+    "claude-mythos-preview",
+)
 
 
 def is_claude_model(model: str) -> bool:
     """Claude on Bedrock: 'anthropic.claude-*' or a cross-region profile 'us.anthropic.claude-*'."""
-    return "anthropic." in model
+    return "anthropic.claude" in model
 
 
-_INSTALL_HINT = (
-    "boto3 is not installed; `uv sync --extra bedrock` (or pip install 'tinytalk[bedrock]')"
-)
+_INSTALL_HINT = "boto3 is not installed; reinstall TinyTalk (it is included in normal installs)"
 
 
 class BedrockError(ProviderError):
@@ -94,6 +103,24 @@ class BedrockProvider:
     def _build_payload(self, request: CompletionRequest) -> dict:
         system, messages = _split_messages(request.messages)
         payload: dict = {"modelId": self.model, "messages": messages}
+        effort = request.reasoning_effort or self._default_effort or ""
+        claude_model = is_claude_model(self.model)
+        adaptive_model = (
+            claude_model
+            and effort in EFFORT_BUDGET_TOKENS
+            and any(marker in self.model for marker in _ADAPTIVE_THINKING_MODELS)
+        )
+        adaptive_thinking = adaptive_model and (
+            request.max_tokens is None or request.max_tokens <= _NON_STREAMING_MAX_TOKENS
+        )
+        budget = None if adaptive_model else EFFORT_BUDGET_TOKENS.get(effort)
+        legacy_thinking = budget is not None and claude_model
+        if legacy_thinking and request.max_tokens is not None:
+            # Extended thinking requires budget_tokens < maxTokens and non-streaming
+            # Converse caps maxTokens at 21,333. Preserve an explicit caller cap by
+            # falling back to the normal request instead of silently changing it.
+            legacy_thinking = budget < request.max_tokens <= _NON_STREAMING_MAX_TOKENS
+        thinking_enabled = adaptive_thinking or legacy_thinking
         if system:
             payload["system"] = [{"text": system}]
 
@@ -116,19 +143,29 @@ class BedrockProvider:
                     }
                     for t in tools
                 ],
-                "toolChoice": {"tool": {"name": tools[0].name if tools else _CONTRACT_TOOL_NAME}},
+                "toolChoice": (
+                    {"auto": {}}
+                    if thinking_enabled
+                    else {"tool": {"name": tools[0].name if tools else _CONTRACT_TOOL_NAME}}
+                ),
             }
 
         inference_config = {}
-        if request.temperature is not None:
+        if request.temperature is not None and not thinking_enabled:
             inference_config["temperature"] = request.temperature
-        if request.max_tokens is not None:
+        if legacy_thinking and request.max_tokens is None:
+            inference_config["maxTokens"] = _LEGACY_EFFORT_MAX_TOKENS[effort]
+        elif request.max_tokens is not None:
             inference_config["maxTokens"] = request.max_tokens
         if inference_config:
             payload["inferenceConfig"] = inference_config
 
-        budget = EFFORT_BUDGET_TOKENS.get(request.reasoning_effort or self._default_effort or "")
-        if budget is not None and is_claude_model(self.model):
+        if adaptive_thinking:
+            payload["additionalModelRequestFields"] = {
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": effort},
+            }
+        elif legacy_thinking:
             payload["additionalModelRequestFields"] = {
                 "thinking": {"type": "enabled", "budget_tokens": budget}
             }
@@ -243,6 +280,93 @@ def list_foundation_models(
             raise BedrockError(message) from exc
         raise BedrockError(f"bedrock list_foundation_models failed: {exc}") from exc
     return response.get("modelSummaries", [])
+
+
+def list_available_models(
+    *,
+    region: str,
+    profile: str | None = None,
+    client: object | None = None,
+) -> list[dict]:
+    """List selectable active inference profiles and text foundation models.
+
+    System-defined inference profiles come first because many current Bedrock models
+    require their cross-region profile ID for on-demand Converse requests. Missing
+    profile-list permission degrades to the foundation-model catalog, while credential
+    failures still surface so `tt auth` can start AWS SSO recovery.
+    """
+    try:
+        client = client or _build_client("bedrock", region, profile, None)
+    except Exception as exc:
+        if message := _credential_error_message(exc, profile):
+            raise BedrockError(message) from exc
+        raise BedrockError(f"bedrock model discovery failed: {exc}") from exc
+
+    discovered: list[dict] = []
+    seen: set[str] = set()
+
+    try:
+        request: dict = {"maxResults": 1000, "typeEquals": "SYSTEM_DEFINED"}
+        while True:
+            response = client.list_inference_profiles(**request)
+            for item in response.get("inferenceProfileSummaries", []):
+                model_id = item.get("inferenceProfileId")
+                if (
+                    item.get("status") == "ACTIVE"
+                    and isinstance(model_id, str)
+                    and model_id
+                    and is_claude_model(model_id)
+                    and model_id not in seen
+                ):
+                    discovered.append(
+                        {
+                            "modelId": model_id,
+                            "modelName": item.get("inferenceProfileName") or model_id,
+                            "source": "inference-profile",
+                        }
+                    )
+                    seen.add(model_id)
+            token = response.get("nextToken")
+            if not token:
+                break
+            request["nextToken"] = token
+    except Exception as exc:
+        if message := _credential_error_message(exc, profile):
+            raise BedrockError(message) from exc
+        # Some otherwise usable roles cannot list inference profiles. Foundation
+        # discovery below remains useful and preserves the existing setup path.
+        pass
+
+    try:
+        response = client.list_foundation_models(byOutputModality="TEXT")
+    except Exception as exc:
+        if message := _credential_error_message(exc, profile):
+            raise BedrockError(message) from exc
+        if discovered:
+            return discovered
+        raise BedrockError(f"bedrock model discovery failed: {exc}") from exc
+
+    for item in response.get("modelSummaries", []):
+        model_id = item.get("modelId")
+        lifecycle = item.get("modelLifecycle") or {}
+        modalities = item.get("outputModalities") or ["TEXT"]
+        if (
+            isinstance(model_id, str)
+            and model_id
+            and is_claude_model(model_id)
+            and model_id not in seen
+            and lifecycle.get("status", "ACTIVE") == "ACTIVE"
+            and "TEXT" in modalities
+        ):
+            discovered.append(
+                {
+                    "modelId": model_id,
+                    "modelName": item.get("modelName") or model_id,
+                    "source": "foundation-model",
+                }
+            )
+            seen.add(model_id)
+    return discovered
 
 
 def _credential_error_message(exc: Exception, profile: str | None) -> str | None:

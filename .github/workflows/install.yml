@@ -50,7 +50,7 @@ jobs:
         # the installer test must feed it that tarball via TT_BINARY — not a raw
         # --onefile executable (which install.sh would try to untar and reject).
         run: |
-          uv sync --frozen --extra bedrock --extra codex
+          uv sync --frozen --extra codex
           uv run --with pyinstaller pyinstaller --onedir --name tt --clean --noconfirm \
             --collect-submodules tinytalk \
             --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
@@ -61,6 +61,7 @@ jobs:
             --collect-all claude_agent_sdk --collect-all openai_codex \
             --collect-all boto3 --collect-all botocore \
             packaging/tt_entry.py
+          test -d dist/tt/_internal/boto3
           tar -C dist -czf "$PWD/tt-bundle.tar.gz" tt
       - name: Run installer into a fresh HOME
         # XDG_CONFIG_HOME pinned inside FAKEHOME — the runner exports its own,
