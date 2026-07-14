@@ -362,6 +362,11 @@ README wording, and test-matrix recommendations.
   filtering. Both regional and global IDs were present for `claude-sonnet-5` and
   `claude-opus-4-8`; all retained IDs contained `anthropic.claude`. The manual model-ID escape hatch
   remains available.
+- Release verification: commit `9a3a108` shipped as latest release `v0.2.0rc10`. The release workflow
+  built and smoke-tested Linux x86_64, Linux arm64, and macOS arm64 artifacts, and the installer
+  workflow passed its unit, bash, and zsh jobs on Linux and macOS. Running the README `curl | sh`
+  command against a fully isolated home downloaded the latest release, verified its checksum,
+  printed `tt 0.2.0rc10`, and found bundled boto3 under `_internal/boto3`.
 
 ## References
 
