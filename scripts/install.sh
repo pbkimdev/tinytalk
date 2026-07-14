@@ -82,7 +82,18 @@ fi
 
 need() { command -v "$1" >/dev/null 2>&1; }
 TMP=$(mktemp) || die "could not create a temp file"
-trap 'rm -f "$TMP" "$TMP.sha256"' EXIT
+STAGE=""
+LOCK_DIR=""
+LOCK_HELD=0
+cleanup() {
+  rm -f "$TMP" "$TMP.sha256"
+  [ -z "$STAGE" ] || rm -rf "$STAGE"
+  [ "$LOCK_HELD" -eq 0 ] || rm -rf "$LOCK_DIR"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -n "${TT_BINARY:-}" ]; then
   say "using local bundle $TT_BINARY (TT_BINARY set)"
@@ -115,18 +126,63 @@ fi
 mkdir -p "$BIN_DIR" || die "could not create $BIN_DIR"
 LIB_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/tinytalk"
 mkdir -p "$LIB_DIR" || die "could not create $LIB_DIR"
-rm -rf "$LIB_DIR/tt"   # drop any previous version's tree before unpacking the new one
-tar -xzf "$TMP" -C "$LIB_DIR" || die "could not unpack the bundle into $LIB_DIR"
-[ -x "$LIB_DIR/tt/tt" ] || die "the bundle is missing its tt launcher"
+LOCK_DIR="$LIB_DIR/.install.lock"
+mkdir "$LOCK_DIR" 2>/dev/null || die "another TinyTalk install is already running ($LOCK_DIR)"
+LOCK_HELD=1
+STAGE=$(mktemp -d "$LIB_DIR/.tt-install.XXXXXX") \
+  || die "could not create a staging directory in $LIB_DIR"
+tar -xzf "$TMP" -C "$STAGE" || die "could not unpack the bundle into $STAGE"
+[ -x "$STAGE/tt/tt" ] || die "the bundle is missing its tt launcher"
 # tar restores the archive's build-time mtime onto the launcher, but the .zshrc cache
 # block regenerates `init.zsh` only when the launcher is newer than the cache (`-nt`).
 # Stamp it to now so an upgrade always refreshes the cached widget instead of keeping
 # the previous version's.
-touch "$LIB_DIR/tt/tt"
+touch "$STAGE/tt/tt"
+STAGED_TT="$STAGE/tt/tt"
+FIRST_LAUNCH_OUTPUT=$("$STAGED_TT" --version 2>&1) || {
+  printf '%s\n' "install.sh: first launch failed; retrying once" >&2
+  SECOND_LAUNCH_OUTPUT=$("$STAGED_TT" --version 2>&1) || {
+    [ -z "$FIRST_LAUNCH_OUTPUT" ] \
+      || printf '%s\n' "first attempt: $FIRST_LAUNCH_OUTPUT" >&2
+    [ -z "$SECOND_LAUNCH_OUTPUT" ] \
+      || printf '%s\n' "second attempt: $SECOND_LAUNCH_OUTPUT" >&2
+    die "the downloaded binary did not run; previous installation left untouched"
+  }
+}
+
+# Only replace the installed tree after the staged launcher has run successfully.
+# Keeping extraction and validation away from the live path also prevents concurrent
+# installs from exposing a half-unpacked PyInstaller tree.
+PREVIOUS="$LIB_DIR/.tt-previous.$$"
+HAD_PREVIOUS=0
+if [ -d "$LIB_DIR/tt" ] || [ -L "$LIB_DIR/tt" ]; then
+  mv "$LIB_DIR/tt" "$PREVIOUS" || die "could not stage the previous installation"
+  HAD_PREVIOUS=1
+fi
+if ! mv "$STAGE/tt" "$LIB_DIR/tt"; then
+  [ "$HAD_PREVIOUS" -eq 0 ] || mv "$PREVIOUS" "$LIB_DIR/tt"
+  die "could not activate the downloaded binary"
+fi
 TT="$BIN_DIR/tt"
-ln -sf "$LIB_DIR/tt/tt" "$TT" || die "could not link $TT -> $LIB_DIR/tt/tt"
-"$TT" --version >/dev/null 2>&1 || die "the installed binary did not run"
-say "installed: $("$TT" --version)  ->  $TT -> $LIB_DIR/tt/tt"
+if ! ln -sf "$LIB_DIR/tt/tt" "$TT"; then
+  rm -rf "$LIB_DIR/tt"
+  [ "$HAD_PREVIOUS" -eq 0 ] || mv "$PREVIOUS" "$LIB_DIR/tt"
+  die "could not link $TT -> $LIB_DIR/tt/tt"
+fi
+if ! INSTALLED_VERSION=$("$TT" --version 2>&1); then
+  printf '%s\n' "$INSTALLED_VERSION" >&2
+  rm -rf "$LIB_DIR/tt"
+  if [ "$HAD_PREVIOUS" -eq 1 ]; then
+    mv "$PREVIOUS" "$LIB_DIR/tt"
+  else
+    rm -f "$TT"
+  fi
+  die "the activated binary did not run; previous installation restored"
+fi
+[ "$HAD_PREVIOUS" -eq 0 ] || rm -rf "$PREVIOUS"
+say "installed: $INSTALLED_VERSION  ->  $TT -> $LIB_DIR/tt/tt"
+rm -rf "$LOCK_DIR"
+LOCK_HELD=0
 
 # 4. Put BIN_DIR on PATH if the user's shells won't find `tt` — consent-gated,
 # marker-guarded, idempotent. bash gets ~/.bashrc (+ ~/.bash_profile if present);

@@ -1,6 +1,6 @@
 # Reuse Claude Code Bedrock authentication in TinyTalk
 
-Status: implementation source of truth; installed-first choose-model follow-up complete
+Status: implementation source of truth; rc11 installer recovery in progress
 
 Date: 2026-07-14
 
@@ -43,6 +43,23 @@ The 2026-07-14 follow-up supersedes only the earlier packaging and default impor
    whose usable ID contains `anthropic.claude`; never infer Claude membership from a display name.
    The current personal AWS profile validator must include both a Sonnet 5 ID and an Opus 4.8 ID.
    The manual model-ID escape hatch remains available for locked-down or newly launched models.
+
+## Installer first-launch recovery follow-up
+
+The 2026-07-14 rc11 follow-up hardens the release installer after a real install reported
+`the installed binary did not run` even though the same installed rc10 launcher ran successfully
+immediately afterward:
+
+1. Downloaded bundles are unpacked and validated in a private staging directory. A broken launcher
+   never replaces the previous working installation.
+2. A first transient `--version` failure is retried once. If both attempts fail, the installer
+   prints the launcher/loader output instead of discarding it.
+3. The live tree is replaced only after staged validation, and concurrent installers cannot mutate
+   the shared installation tree at the same time.
+4. Activation or final verification failure restores the previous installation.
+
+The release validator must run the public `curl | sh` path in an isolated home, confirm the bundled
+boto3 directory, and print the new TinyTalk version.
 
 Follow-up validator:
 
@@ -299,6 +316,11 @@ Update both `README.md` and `README.ko.md`:
 - [x] Occupied-slot reconfiguration has only the final write confirmation, not an early duplicate.
 - [x] The live picker contains Claude models only and the personal-profile check includes Sonnet 5
       and Opus 4.8.
+- [x] A transient first launcher failure is retried once, while a permanent failure reports the
+      loader output and leaves the previous installation working.
+- [x] Bundle extraction and validation happen outside the live installation tree under an
+      installer lock.
+- [ ] The public latest-release `curl | sh` path installs and runs rc11 with bundled boto3.
 
 ## Implementation order
 
@@ -330,11 +352,11 @@ README wording, and test-matrix recommendations.
 
 ## Verification
 
-- Focused auth/add-on/config/Bedrock/i18n/installer/version suite: `219 passed`.
+- Focused auth/add-on/config/Bedrock/i18n/installer/version suite: `222 passed`.
 - Ruff lint: the full repository passes.
 - Ruff formatting: all touched Python files pass. The repository-wide check reports 26 pre-existing
   files outside this change that would be reformatted.
-- Full pytest result: `769 passed, 1 skipped, 7 failed`. All seven failures are confined to the
+- Full pytest result: `771 passed, 1 skipped, 7 failed`. All seven failures are confined to the
   pre-existing eval/oracle harness and reflect local fixture/tool portability issues (`.env`, BSD
   `date -v`, and `fd` availability), not auth, configuration, or provider behavior.
 - Live personal-setting validation: discovery found the current user-level Claude Code Bedrock

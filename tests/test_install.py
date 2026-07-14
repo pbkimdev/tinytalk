@@ -27,10 +27,7 @@ INSTALLED = "installed: tt 0.0.1"  # the launcher stub reports this version
 # so a test can assert what the installer called it with. `{log}` is the only
 # brace — the body is filled via str.format, so keep other shell braces out.
 DEFAULT_LAUNCHER = (
-    "#!/bin/sh\n"
-    'echo "$@" >> "{log}"\n'
-    'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\n'
-    "exit 0\n"
+    '#!/bin/sh\necho "$@" >> "{log}"\nif [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\nexit 0\n'
 )
 
 
@@ -129,7 +126,7 @@ def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     assert "run `tt auth`" in text
     assert "\n[defaults]" not in text
     assert "\n[backends.local]" not in text
-    assert '# [backends.local]' in text
+    assert "# [backends.local]" in text
 
     # the zsh widget and model setup are handed off to `tt setup` now, not written here
     assert not (home / ".zshrc").exists()
@@ -187,6 +184,89 @@ def test_failing_ground_does_not_fail_install(tmp_path):
     assert "setup: run 'tt setup'" in proc.stdout  # later steps still ran
 
 
+def test_install_retries_a_transient_first_launcher_failure(tmp_path):
+    """A freshly unpacked launcher can fail once while the same binary works immediately after."""
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    first_run = tmp_path / "first-version-run"
+    launcher = (
+        "#!/bin/sh\n"
+        f'if [ "$1" = "--version" ] && [ ! -f "{first_run}" ]; then\n'
+        f'  touch "{first_run}"\n'
+        '  echo "transient loader failure" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        'if [ "$1" = "--version" ]; then echo "tt 0.0.1"; fi\n'
+        "exit 0\n"
+    )
+    bundle = make_bundle(tmp_path, tt_log, tag="transient-launch", launcher=launcher)
+    env = {"HOME": str(home), "PATH": f"{home}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle)}
+
+    proc = run_install(env, "--yes")
+
+    assert proc.returncode == 0, proc.stderr
+    assert INSTALLED in proc.stdout
+    assert "first launch failed; retrying once" in proc.stderr
+
+
+def test_failed_launcher_keeps_previous_install_and_reports_loader_error(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    old_launcher = '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt previous"; fi\nexit 0\n'
+    old_bundle = make_bundle(tmp_path, tt_log, tag="previous", launcher=old_launcher)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:/usr/bin:/bin",
+        "TT_BINARY": str(old_bundle),
+    }
+    assert run_install(env, "--yes").returncode == 0
+
+    broken_launcher = '#!/bin/sh\necho "missing shared loader" >&2\nexit 127\n'
+    broken_bundle = make_bundle(tmp_path, tt_log, tag="broken", launcher=broken_launcher)
+    proc = run_install(dict(env, TT_BINARY=str(broken_bundle)), "--yes")
+
+    assert proc.returncode == 1
+    assert "missing shared loader" in proc.stderr
+    installed = home / ".local" / "bin" / "tt"
+    version = subprocess.run([installed, "--version"], capture_output=True, text=True)
+    assert version.returncode == 0
+    assert version.stdout.strip() == "tt previous"
+
+
+def test_activation_failure_restores_previous_install(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    tt_log = tmp_path / "tt.log"
+    old_launcher = '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "tt previous"; fi\nexit 0\n'
+    old_bundle = make_bundle(tmp_path, tt_log, tag="activation-previous", launcher=old_launcher)
+    env = {
+        "HOME": str(home),
+        "PATH": f"{home}/.local/bin:/usr/bin:/bin",
+        "TT_BINARY": str(old_bundle),
+    }
+    assert run_install(env, "--yes").returncode == 0
+
+    stage_only_launcher = (
+        "#!/bin/sh\n"
+        'case "$0" in\n'
+        '  */.tt-install.*/tt/tt) echo "tt staged"; exit 0 ;;\n'
+        '  *) echo "activation path failed" >&2; exit 127 ;;\n'
+        "esac\n"
+    )
+    candidate = make_bundle(tmp_path, tt_log, tag="activation-fail", launcher=stage_only_launcher)
+    proc = run_install(dict(env, TT_BINARY=str(candidate)), "--yes")
+
+    assert proc.returncode == 1
+    assert "activation path failed" in proc.stderr
+    assert "previous installation restored" in proc.stderr
+    installed = home / ".local" / "bin" / "tt"
+    version = subprocess.run([installed, "--version"], capture_output=True, text=True)
+    assert version.returncode == 0
+    assert version.stdout.strip() == "tt previous"
+
+
 def test_no_rc_flag_skips_zshrc(sandbox):
     home, env, _ = sandbox
     assert run_install(env, "--yes", "--no-rc").returncode == 0
@@ -206,7 +286,11 @@ def test_setup_handoff_skips_for_yes_no_rc_or_headless(sandbox, tmp_path):
     home2.mkdir()
     tt_log2 = tmp_path / "tt2.log"
     bundle2 = make_bundle(tmp_path, tt_log2, tag="no-rc")
-    env2 = {"HOME": str(home2), "PATH": f"{home2}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle2)}
+    env2 = {
+        "HOME": str(home2),
+        "PATH": f"{home2}/.local/bin:/usr/bin:/bin",
+        "TT_BINARY": str(bundle2),
+    }
     proc2 = run_install(env2, "--no-rc")
     assert proc2.returncode == 0, proc2.stderr
     assert "setup --from-install" not in tt_log2.read_text()
@@ -219,7 +303,11 @@ def test_setup_handoff_skips_for_yes_no_rc_or_headless(sandbox, tmp_path):
     home3.mkdir()
     tt_log3 = tmp_path / "tt3.log"
     bundle3 = make_bundle(tmp_path, tt_log3, tag="headless")
-    env3 = {"HOME": str(home3), "PATH": f"{home3}/.local/bin:/usr/bin:/bin", "TT_BINARY": str(bundle3)}
+    env3 = {
+        "HOME": str(home3),
+        "PATH": f"{home3}/.local/bin:/usr/bin:/bin",
+        "TT_BINARY": str(bundle3),
+    }
     proc3 = run_install(env3)
     assert proc3.returncode == 0, proc3.stderr
     assert "setup --from-install" not in tt_log3.read_text()
@@ -348,7 +436,9 @@ def test_path_wiring_when_tt_lands_off_path(tmp_path):
     profile = (home3 / ".bash_profile").read_text()
     assert profile.startswith("# my precious bash_profile\n")
     assert profile.count(PATH_MARKER) == 1
-    assert not (home3 / ".zshrc").exists()  # PATH went to bash's rc files; no zsh widget block anymore
+    assert not (
+        home3 / ".zshrc"
+    ).exists()  # PATH went to bash's rc files; no zsh widget block anymore
 
     proc = run_install(env3, "--yes", "--bin-dir", f"{home3}/toolbin")  # idempotent
     assert proc.returncode == 0, proc.stderr
