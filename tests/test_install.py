@@ -122,6 +122,7 @@ def test_linux_release_build_is_gated_on_ubuntu_20_04():
     assert "UV_PYTHON_PREFERENCE=only-managed" in builder
     assert "manylinux_2_28" in builder
     assert '--python-platform "$UV_PYTHON_PLATFORM"' in builder
+    assert "--specpath" not in builder
     assert "rm -f dist/tt/_internal/libgcc_s.so.1" in builder
     assert 'uv python install "$UV_PYTHON"' in builder
 

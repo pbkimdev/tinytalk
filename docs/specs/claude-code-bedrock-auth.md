@@ -1,6 +1,6 @@
 # Reuse Claude Code Bedrock authentication in TinyTalk
 
-Status: implementation source of truth; rc12 glibc compatibility fix in progress
+Status: implementation source of truth; rc13 glibc compatibility fix in progress
 
 Date: 2026-07-14
 
@@ -63,7 +63,7 @@ boto3 directory, and print the new TinyTalk version.
 
 ## Linux glibc compatibility follow-up
 
-The 2026-07-14 rc12 follow-up fixes the confirmed root cause of the rc11 install failure. Linux
+The 2026-07-14 rc13 follow-up fixes the confirmed root cause of the rc11 install failure. Linux
 artifacts built on Ubuntu 24.04 bundled `libpython3.12.so.1.0` requiring `GLIBC_2.38`; running the
 public rc11 artifact on Ubuntu 20.04/glibc 2.31 deterministically failed before TinyTalk started.
 
@@ -79,7 +79,7 @@ public rc11 artifact on Ubuntu 20.04/glibc 2.31 deterministically failed before 
    the artifact, not a runtime download workaround.
 4. English and Korean installation docs state the Ubuntu 20.04/glibc 2.31 baseline.
 
-The rc12 release is done only when the public latest artifact prints its version inside an
+The rc13 release is done only when the public latest artifact prints its version inside an
 Ubuntu 20.04 container and still contains bundled boto3.
 
 Follow-up validator:
@@ -342,7 +342,7 @@ Update both `README.md` and `README.ko.md`:
 - [x] Bundle extraction and validation happen outside the live installation tree under an
       installer lock.
 - [x] The public latest-release `curl | sh` path installs and runs rc11 with bundled boto3.
-- [ ] Public rc12 Linux x86_64 and arm64 artifacts run on Ubuntu 20.04/glibc 2.31.
+- [ ] Public rc13 Linux x86_64 and arm64 artifacts run on Ubuntu 20.04/glibc 2.31.
 
 ## Implementation order
 
@@ -416,11 +416,14 @@ README wording, and test-matrix recommendations.
   rc11 into an isolated home, verified the checksum, printed `tt 0.2.0rc11`, found bundled boto3,
   and left no installer lock behind.
 - glibc root-cause verification: the public rc11 x86_64 artifact failed deterministically on
-  Ubuntu 20.04 because bundled `libpython3.12.so.1.0` required `GLIBC_2.38`. An rc12 release-shaped
+  Ubuntu 20.04 because bundled `libpython3.12.so.1.0` required `GLIBC_2.38`. An rc13 release-shaped
   build made on the Ubuntu 24.04-equivalent host uses managed Python plus `manylinux_2_28` wheels,
   requires no symbol newer than `GLIBC_2.28`, and passes the full native-library validator in an
   Ubuntu 20.04 container. Installing that same tarball through `install.sh` in a fresh container
-  prints `tt 0.2.0rc12` with bundled boto3. Installer/version targeted tests report `22 passed`;
+  prints `tt 0.2.0rc13` with bundled boto3. The first rc12 CI attempt published no release: moving
+  the generated spec file changed PyInstaller's relative data root, so all platforms correctly
+  failed before packaging. rc13 keeps the spec at the project root. Installer/version targeted
+  tests report `22 passed`;
   eval was not rerun.
 
 ## References

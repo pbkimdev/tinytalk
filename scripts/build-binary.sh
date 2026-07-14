@@ -26,7 +26,6 @@ else
   uv sync --frozen --extra codex
 fi
 uv run --with pyinstaller pyinstaller --onedir --name tt --clean --noconfirm \
-  --specpath build \
   --collect-submodules tinytalk \
   --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
   --collect-all httpx --collect-all httpcore --collect-all certifi \
