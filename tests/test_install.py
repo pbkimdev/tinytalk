@@ -108,6 +108,24 @@ def test_syntax_is_posix_clean():
     assert proc.returncode == 0, proc.stderr
 
 
+def test_linux_release_build_is_gated_on_ubuntu_20_04():
+    release = (REPO / ".github" / "workflows" / "release.yml").read_text()
+    install = (REPO / ".github" / "workflows" / "install.yml").read_text()
+    builder = (REPO / "scripts" / "build-binary.sh").read_text()
+
+    assert "os: ubuntu-24.04" in release
+    assert "os: ubuntu-24.04-arm" in release
+    assert 'UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/tinytalk-build-venv"' in release
+    assert "ubuntu:20.04 sh /work/scripts/verify-linux-binary.sh /opt/tinytalk" in release
+    assert 'UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/tinytalk-build-venv"' in install
+    assert "ubuntu:20.04 sh /work/scripts/verify-linux-binary.sh /opt/tinytalk" in install
+    assert "UV_PYTHON_PREFERENCE=only-managed" in builder
+    assert "manylinux_2_28" in builder
+    assert '--python-platform "$UV_PYTHON_PLATFORM"' in builder
+    assert "rm -f dist/tt/_internal/libgcc_s.so.1" in builder
+    assert 'uv python install "$UV_PYTHON"' in builder
+
+
 def test_install_unpacks_symlinks_scaffolds_and_wires(sandbox):
     home, env, _ = sandbox
     proc = run_install(env, "--yes")

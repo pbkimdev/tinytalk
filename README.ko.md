@@ -60,6 +60,10 @@ curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/pbkimdev
 않습니다. Bedrock에 필요한 boto3/botocore도 이 바이너리에 처음부터 포함됩니다. 한 번 실행하면
 다음을 처리합니다.
 
+Linux 릴리스 작업은 Ubuntu 24.04에서 이식 가능한 managed Python runtime으로 빌드합니다. 완성된
+바이너리는 Ubuntu 20.04의 glibc 2.31을 호환 기준으로 검증하므로 Ubuntu 20.04 이상 배포판에서
+실행됩니다. 배포 전에 모든 Linux 릴리스를 Ubuntu 20.04에서 직접 실행해 확인합니다.
+
 1. `tt` 바이너리를 내려받아 `~/.local/bin`에 둡니다.
 2. 동의를 받아 그 경로를 `PATH`에 추가합니다.
 3. `~/.config/tinytalk/config.toml`이 없을 때만 스타터 설정을 만듭니다.

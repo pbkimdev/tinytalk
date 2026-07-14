@@ -60,17 +60,9 @@ jobs:
           test "$want" = "$got" || { echo "tag $got != $want"; exit 1; }
 
       - name: Build standalone binary
+        shell: bash
         run: |
-          uv run --with pyinstaller pyinstaller --onedir --name tt --clean --noconfirm \
-            --collect-submodules tinytalk \
-            --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
-            --collect-all httpx --collect-all httpcore --collect-all certifi \
-            --collect-all anyio --collect-all h11 \
-            --collect-all keyring \
-            --collect-all questionary --collect-all prompt_toolkit \
-            --collect-submodules claude_agent_sdk --collect-all openai_codex \
-            --collect-all boto3 --collect-all botocore --collect-all s3transfer \
-            packaging/tt_entry.py
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/tinytalk-build-venv" scripts/build-binary.sh
 
       - name: Smoke-test the binary
         run: |
@@ -87,6 +79,14 @@ jobs:
             echo 'FAIL: Claude CLI should remain an add-on'; exit 1
           fi
           kb=$(du -sk dist/tt | cut -f1); test "$kb" -lt 131072   # < 128 MiB unpacked
+
+      - name: Verify the Linux binary on the glibc 2.31 baseline
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$PWD/dist/tt,dst=/opt/tinytalk,readonly" \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            ubuntu:20.04 sh /work/scripts/verify-linux-binary.sh /opt/tinytalk
 
       - name: Stage base binary
         shell: bash

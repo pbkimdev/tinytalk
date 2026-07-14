@@ -8,9 +8,9 @@ name: install
 on:
   push:
     branches: [main]
-    paths: [scripts/install.sh, scripts/uninstall.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
+    paths: [scripts/install.sh, scripts/uninstall.sh, scripts/build-binary.sh, scripts/verify-linux-binary.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
   pull_request:
-    paths: [scripts/install.sh, scripts/uninstall.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
+    paths: [scripts/install.sh, scripts/uninstall.sh, scripts/build-binary.sh, scripts/verify-linux-binary.sh, packaging/**, pyproject.toml, uv.lock, tinytalk/**, tests/test_install.py, tests/test_uninstall.py, .github/workflows/install.yml]
   workflow_dispatch:
 
 jobs:
@@ -49,20 +49,18 @@ jobs:
         # --onedir + tar: install.sh downloads and `tar -xzf`s a onedir bundle, so
         # the installer test must feed it that tarball via TT_BINARY — not a raw
         # --onefile executable (which install.sh would try to untar and reject).
+        shell: bash
         run: |
-          uv sync --frozen --extra codex
-          uv run --with pyinstaller pyinstaller --onedir --name tt --clean --noconfirm \
-            --collect-submodules tinytalk \
-            --add-data "tinytalk/shell/tt.zsh:tinytalk/shell" \
-            --collect-all httpx --collect-all httpcore --collect-all certifi \
-            --collect-all anyio --collect-all h11 \
-            --collect-all keyring \
-            --collect-all questionary --collect-all prompt_toolkit \
-            --collect-all claude_agent_sdk --collect-all openai_codex \
-            --collect-all boto3 --collect-all botocore \
-            packaging/tt_entry.py
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/tinytalk-build-venv" scripts/build-binary.sh
           test -d dist/tt/_internal/boto3
           tar -C dist -czf "$PWD/tt-bundle.tar.gz" tt
+      - name: Verify the Linux bundle on Ubuntu 20.04
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=$PWD/dist/tt,dst=/opt/tinytalk,readonly" \
+            --mount "type=bind,src=$PWD,dst=/work,readonly" \
+            ubuntu:20.04 sh /work/scripts/verify-linux-binary.sh /opt/tinytalk
       - name: Run installer into a fresh HOME
         # XDG_CONFIG_HOME pinned inside FAKEHOME — the runner exports its own,
         # which would (correctly) pull the config out of the sandbox. SHELL drives

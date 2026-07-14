@@ -97,6 +97,10 @@ authenticate and list models immediately. The **Claude Agent SDK** is the one la
 its CLI is downloaded as a one-time add-on at `tt auth` — see [Offline / manual add-on
 install](#offline--manual-add-on-install) for an air-gapped machine.
 
+Linux release jobs run on Ubuntu 24.04 with a portable managed Python runtime. The finished binary
+is compatibility-gated against Ubuntu 20.04's glibc 2.31, so it runs on Ubuntu 20.04 and newer
+distributions. CI executes every Linux release on Ubuntu 20.04 before it is published.
+
 The interactive `?` prompt is a **zsh** widget, so zsh is recommended — it's the default
 shell on macOS, and one `apt install zsh` away on Linux. The plain `tt "..."` command works
 in any shell, including bash. Prefer to build from source? Clone the repo and run
